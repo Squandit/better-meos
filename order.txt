@@ -1,0 +1,85 @@
+Foundation
+
+Mock SI card data structure
+SQLite database schema (competitors, courses, controls, punches, results)
+SI card reader integration (real hardware, Windows COM port)
+Persist raw punch data to the database on card read
+
+Result calculation
+
+Split time calculator
+Total time calculator (finish minus start)
+Mispunch detection
+Course validation (check punches match required control order)
+Result status flags (OK, mispunch, DNS, DNF, OOT)
+Class rankings (sort results by time within each course/class)
+
+Basic display
+
+Terminal results printout
+HTML splits slip (what a runner gets at the finish chute)
+Static HTML results page per class
+
+Event setup
+
+IOF XML course file parser
+Start list importer (CSV minimum, IOF XML later)
+Competitor-to-course assignment
+SI card number → competitor lookup
+Manual competitor entry UI (on-the-day additions)
+
+Live event
+
+FastAPI backend server
+WebSocket live results feed
+Live leaderboard web page (good enough for a projector)
+Multi-class results view
+DNS/DNF/OOT manual override
+Late start handling
+
+Splits display
+
+Full splits table per class (every competitor, every leg, side by side)
+Leg rank per competitor
+Time behind leader per leg (cumulative and per-leg)
+Best leg time highlighting
+
+Registration
+
+Web-based entry form
+Entry database (store entries, prevent duplicates)
+Automatic start list generation from entries
+Entry confirmation email
+Stripe payment integration
+Late entry / on-the-day entry flow
+
+Export and publishing
+
+IOF XML results export
+Permanent public results URL
+PDF splits printout generation
+Club results archive
+
+Multi-event
+
+Event series / season management
+Cumulative series points across events
+Competitor profile (all results across events)
+Club leaderboard
+
+AI layer
+
+Per-leg performance vs class average
+Historical split trends across events
+Weakness identification by terrain/leg type
+Course setting validator (IOF ratio checks, shared legs)
+Suggested training focus from split history
+Course setting assistant
+
+Ops and polish
+
+Operator dashboard (one screen to run the whole event)
+Offline mode with sync
+Backup and restore
+Multi-station support (several download units simultaneously)
+Club user accounts (login, manage their own events)

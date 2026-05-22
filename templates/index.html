@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orienteering</title>
+</head>
+    <body>
+    <!-- templates/index.html -->
+        <h1>Welcome, {{ data.name }}!</h1>
+        <p>Start Time: {{ data.startTime }}</p>
+        <p>Finish Time: {{ data.finishTime }}</p>
+        <p>Total Time: {{ data.totalTime }}</p>
+        <h2>Splits:</h2>
+        <ul>
+            {% for split in data.splits %}
+                <li>Control {{ split.control }}: {{ (split.time // 60) }}:{{ "{:02d}".format(split.time % 60) }}
+                </li>
+            {% endfor %}
+        </ul>
+    </body>
+</html>
