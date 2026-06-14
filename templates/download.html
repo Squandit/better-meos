@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, time_cell, splits_rows %}
+{% block title %}Download{% endblock %}
+{% block heading %}Download{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Finish downloads</h3>
+    <p>Cards read at the finish, most recent first. Click a row to inspect its splits.</p>
+</div>
+
+<section class="panel">
+    <div class="panel-head">
+        <h4>{{ count }} card{{ '' if count == 1 else 's' }} downloaded</h4>
+        <span class="chip grey">Reader {{ event.reader_port }} &middot; simulated</span>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:84px">Finish</th>
+                <th style="width:100px">SI card</th>
+                <th>Athlete</th>
+                <th style="width:84px">Class</th>
+                <th class="num" style="width:104px">Time</th>
+                <th style="width:96px;text-align:right"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr class="runner{% if r.splits %} has-splits{% endif %}"{% if r.splits %} tabindex="0" role="button" aria-expanded="false"{% endif %}>
+                <td class="mono">{{ r.finish }}</td>
+                <td class="mono dim">{{ r.si }}</td>
+                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                <td>{{ r['class'] }}</td>
+                <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
+                <td style="text-align:right">{{ badge(r) }}{% if r.splits %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}</td>
+            </tr>
+            {{ splits_rows(r, 6) }}
+            {% else %}
+            <tr><td colspan="6" class="empty">No cards downloaded yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

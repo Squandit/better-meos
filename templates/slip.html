@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ row.name }} · splits slip</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="slip-page">
+<div class="slip">
+    <div class="slip-head">
+        <div>
+            <h1>{{ event.name }}</h1>
+            <p class="slip-date">{{ event.date }}</p>
+        </div>
+        <button class="btn" onclick="window.print()">Print</button>
+    </div>
+
+    <div class="slip-runner">
+        <h2>{{ row.name }}</h2>
+        <p>
+            <strong>{{ row['class'] }}</strong>
+            {% if row.club %} · {{ row.club }}{% endif %}
+            {% if row.si %} · SI {{ row.si }}{% endif %}
+        </p>
+    </div>
+
+    <table class="slip-meta">
+        <tr>
+            <td>Start</td><td class="mono">{{ row.start or '–' }}</td>
+            <td>Finish</td><td class="mono">{{ row.finish or '–' }}</td>
+        </tr>
+        <tr>
+            <td>Time</td><td class="mono strong">{{ row.time or '–' }}</td>
+            <td>Status</td>
+            <td>{% if row.is_ok %}OK{% else %}<span class="badge badge-{{ row.status }}">{{ row.status_label }}</span>{% endif %}</td>
+        </tr>
+        {% if row.points is not none %}
+        <tr><td>Points</td><td class="mono strong">{{ row.points }}</td><td></td><td></td></tr>
+        {% endif %}
+    </table>
+
+    {% if row.missed_control %}
+    <p class="mp-note">Mispunch — missed control {{ row.missed_control }}</p>
+    {% endif %}
+
+    {% if row.splits %}
+    <table class="slip-splits">
+        <thead><tr><th>Control</th><th class="num">Leg</th><th class="num">Cumulative</th></tr></thead>
+        <tbody>
+            {% for s in row.splits %}
+            <tr><td>{{ s.control }}</td><td class="num mono">{{ s.leg }}</td><td class="num mono">{{ s.cumulative }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    <p class="slip-foot">Printed from better-meos</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# better-meos runtime + dev dependencies.
+# Install into the project venv:  venv\Scripts\python -m pip install -r requirements.txt
+Flask>=3.0
+sportident>=1.2        # SI card reader (real hardware path)
+
+# Added as later phases land (import/export, AI, payments):
+reportlab>=4.0         # PDF splits printouts (Phase 3)
+anthropic>=0.40        # AI layer, scaffolded behind ANTHROPIC_API_KEY (Phase 6)
+stripe>=9.0            # payments, scaffolded behind STRIPE_* (Phase 4)
+
+# Dev / test
+pytest>=8.0

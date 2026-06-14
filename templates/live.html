@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ event.name }} · live</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="live-page" data-page="live">
+<header class="live-head">
+    <h1>{{ event.name }}</h1>
+    <span class="live-dot"><span class="dot"></span>live</span>
+</header>
+
+<div class="live-grid">
+    {% for cls in classes %}
+    <section class="live-card">
+        <h2>{{ cls.name }}</h2>
+        <table class="live-table">
+            <tbody>
+                {% for r in cls.rows if r.position %}
+                {% if loop.index <= 8 %}
+                <tr>
+                    <td class="lv-pos">{{ r.position }}</td>
+                    <td class="lv-name">{{ r.name }}{% if r.club %}<span class="lv-club">{{ r.club }}</span>{% endif %}</td>
+                    {% if cls.is_score %}<td class="lv-pts">{{ r.points }}</td>{% endif %}
+                    <td class="lv-time">{{ r.time or '–' }}</td>
+                </tr>
+                {% endif %}
+                {% else %}
+                <tr><td colspan="3" class="lv-empty">No finishers yet</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% endfor %}
+</div>
+
+<script src="{{ url_for('static', filename='live.js') }}"></script>
+</body>
+</html>

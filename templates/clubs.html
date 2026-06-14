@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pos, badge, time_cell %}
+{% block title %}Clubs{% endblock %}
+{% block heading %}Clubs{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Club results archive</h3>
+    <p>Every competitor grouped by club, across all classes.</p>
+</div>
+
+{% for club in clubs %}
+<section class="panel class-card">
+    <div class="panel-head">
+        <h4>{{ club.club }}</h4>
+        <span class="chip grey">{{ club.rows|length }} competitor{{ '' if club.rows|length == 1 else 's' }}</span>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:46px;text-align:center">#</th>
+                <th>Athlete</th>
+                <th style="width:90px">Class</th>
+                <th class="num" style="width:104px">Time</th>
+                <th style="width:80px;text-align:right"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in club.rows %}
+            <tr>
+                <td style="text-align:center">{{ pos(r) }}</td>
+                <td><span class="cell-name">{{ r.name }}</span></td>
+                <td>{{ r['class'] }}</td>
+                <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
+                <td style="text-align:right">{{ badge(r) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% else %}
+<section class="panel"><p class="empty">No competitors yet.</p></section>
+{% endfor %}
+{% endblock %}

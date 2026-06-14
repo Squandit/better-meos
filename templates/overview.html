@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge %}
+{% block title %}Overview{% endblock %}
+{% block heading %}Overview{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Event overview</h3>
+    <p>Snapshot of entries, downloads and current standings.</p>
+</div>
+
+<div class="stat-grid">
+    <div class="stat accent">
+        <div class="label">Competitors</div>
+        <div class="value">{{ stats.competitors }}</div>
+        <div class="sub">across {{ stats.classes }} classes</div>
+    </div>
+    <div class="stat">
+        <div class="label">Finished</div>
+        <div class="value">{{ stats.finished }}</div>
+        <div class="sub">cards downloaded</div>
+    </div>
+    <div class="stat">
+        <div class="label">Flagged</div>
+        <div class="value">{{ stats.flagged }}</div>
+        <div class="sub">MP / DNF / DSQ</div>
+    </div>
+    <div class="stat">
+        <div class="label">Classes</div>
+        <div class="value">{{ stats.classes }}</div>
+        <div class="sub">linear &amp; score</div>
+    </div>
+</div>
+
+<div class="section-title">Operator console</div>
+<section class="panel"><div class="panel-body">
+    <div class="ops-bar">
+        <span class="reader-pill{% if reader_enabled %} live{% endif %}">
+            <span class="dot"></span>
+            Reader {{ event.reader_port }} &middot; {{ 'live' if reader_enabled else 'simulated' }}
+        </span>
+        <span class="ops-stat"><strong>{{ stats.awaiting }}</strong> awaiting download</span>
+        <span class="toolbar-spacer"></span>
+        <button class="btn" data-simulate-read>Simulate card read</button>
+        <span class="tool-result" data-sim-result></span>
+    </div>
+    <div class="recent-reads">
+        <div class="section-subtitle">Recent downloads</div>
+        <ul class="read-list" data-read-list>
+            {% for r in recent_reads %}
+            <li class="{{ 'ok' if r.ok else 'bad' }}">
+                <span class="mono">{{ r.time }}</span>
+                <span class="rd-station">{{ r.station }}</span>
+                <span class="rd-name">{% if r.ok %}{{ r.name }}{% else %}unknown card {{ r.card_number }}{% endif %}</span>
+            </li>
+            {% else %}
+            <li class="empty">No downloads yet. Use “Simulate card read”.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div></section>
+
+<script>
+(function () {
+    var btn = document.querySelector("[data-simulate-read]");
+    if (!btn) { return; }
+    var out = document.querySelector("[data-sim-result]");
+    btn.addEventListener("click", function () {
+        out.textContent = ""; btn.disabled = true;
+        fetch("/api/reader/simulate", { method: "POST" })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                btn.disabled = false;
+                out.className = "tool-result " + (res.ok ? "ok" : "err");
+                out.textContent = res.ok ? "Read " + (res.d.competitor && res.d.competitor.name) : (res.d.error || "Failed");
+                // live.js reloads the page on the published card_read event.
+            })
+            .catch(function () { btn.disabled = false; out.className = "tool-result err"; out.textContent = "Failed"; });
+    });
+})();
+</script>
+
+<div class="section-title">Status breakdown</div>
+<section class="panel"><div class="panel-body">
+    <div class="toolbar" style="margin:0;gap:20px">
+        {% for s in status_breakdown %}
+        <span><span class="badge badge-{{ s.status }}">{{ s.label }}</span> <strong>{{ s.count }}</strong></span>
+        {% else %}
+        <span class="muted-count">No results yet.</span>
+        {% endfor %}
+    </div>
+</div></section>
+
+<div class="section-title">Latest finishes</div>
+<section class="panel">
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:90px">Finish</th>
+                <th>Athlete</th>
+                <th style="width:90px">Class</th>
+                <th class="num" style="width:104px">Time</th>
+                <th style="width:70px;text-align:right">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in latest %}
+            <tr>
+                <td class="mono">{{ r.finish }}</td>
+                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                <td>{{ r['class'] }}</td>
+                <td class="num strong{% if not r.time %} dim{% endif %}">{% if r.time %}{{ r.time }}{% else %}&ndash;{% endif %}</td>
+                <td style="text-align:right">{% if r.is_ok %}<span class="badge badge-ok">OK</span>{% else %}{{ badge(r) }}{% endif %}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty">No finishes downloaded yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<div class="section-title">Class leaders</div>
+<div class="stat-grid">
+    {% for l in leaders %}
+    <div class="stat">
+        <div class="label">{{ l.class }}</div>
+        <div class="value" style="font-size:20px">{{ l.row.name }}</div>
+        <div class="sub">{{ l.row.club }}{% if l.is_score %} &middot; {{ l.row.points }} pts{% endif %} &middot; {{ l.row.time }}</div>
+    </div>
+    {% else %}
+    <div class="muted-count">No class leaders yet.</div>
+    {% endfor %}
+</div>
+{% endblock %}

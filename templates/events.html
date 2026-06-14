@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Events{% endblock %}
+{% block heading %}Events &amp; series{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Events &amp; series</h3>
+    <p>Run multiple events and group them into a season series. Switch the active
+       event from the top bar.</p>
+</div>
+
+<section class="panel">
+    <div class="panel-head"><h4>New event</h4></div>
+    <form class="tool-form" data-new-event>
+        <label>Name <input name="name" required></label>
+        <label>Date <input name="date" type="date" required></label>
+        <label>Series
+            <select name="series_id">
+                <option value="">— none —</option>
+                {% for s in series %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+            </select>
+        </label>
+        <button class="btn" type="submit">Create event</button>
+        <span class="tool-result" data-result></span>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>New series</h4></div>
+    <form class="tool-form" data-new-series>
+        <label>Name <input name="name" required></label>
+        <button class="btn" type="submit">Create series</button>
+        <span class="tool-result" data-result></span>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>All events</h4></div>
+    <table class="table">
+        <thead>
+            <tr><th>Event</th><th>Date</th><th>Series</th><th style="text-align:right"></th></tr>
+        </thead>
+        <tbody>
+            {% for e in events %}
+            <tr data-event-row data-id="{{ e.id }}">
+                <td>
+                    <span class="cell-name">{{ e.name }}</span>
+                    {% if e.active %}<span class="chip">active</span>{% endif %}
+                </td>
+                <td class="mono dim">{{ e.date_iso }}</td>
+                <td>
+                    <select data-series-for="{{ e.id }}">
+                        <option value="">— none —</option>
+                        {% for s in series %}
+                        <option value="{{ s.id }}"{% if s.id == e.series_id %} selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if e.series_id %}<a class="link-btn" href="{{ url_for('series_page', series_id=e.series_id) }}">standings</a>{% endif %}
+                </td>
+                <td style="text-align:right">
+                    {% if not e.active %}<button class="link-btn" data-activate>Make active</button>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<script>
+(function () {
+    function post(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body || {}) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); });
+    }
+    function wireForm(sel, url, build) {
+        var form = document.querySelector(sel);
+        if (!form) { return; }
+        var out = form.querySelector("[data-result]");
+        form.addEventListener("submit", function (e) {
+            e.preventDefault();
+            post(url, build(form)).then(function (res) {
+                if (!res.ok) { out.className = "tool-result err"; out.textContent = (res.d && res.d.error) || "Failed"; return; }
+                window.location.reload();
+            });
+        });
+    }
+    wireForm("[data-new-event]", "/api/events", function (f) {
+        return { name: f.elements.name.value, date: f.elements.date.value, series_id: f.elements.series_id.value || null };
+    });
+    wireForm("[data-new-series]", "/api/series", function (f) { return { name: f.elements.name.value }; });
+
+    document.addEventListener("click", function (e) {
+        var act = e.target.closest("[data-activate]");
+        if (act) {
+            var row = act.closest("[data-event-row]");
+            post("/api/events/active", { event_id: row.dataset.id }).then(function (r) { if (r.ok) { window.location.reload(); } });
+        }
+    });
+    document.querySelectorAll("[data-series-for]").forEach(function (sel) {
+        sel.addEventListener("change", function () {
+            post("/api/events/" + sel.dataset.seriesFor + "/series", { series_id: sel.value || null })
+                .then(function (r) { if (r.ok) { window.location.reload(); } });
+        });
+    });
+})();
+</script>
+{% endblock %}

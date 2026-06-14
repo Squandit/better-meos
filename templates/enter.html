@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enter · {{ event.name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="enter-page">
+<div class="enter-card">
+    <h1>{{ event.name }}</h1>
+    <p class="enter-sub">{{ event.date }} · online entry</p>
+
+    {% if fee_cents and fee_cents > 0 %}
+    <p class="enter-fee">Entry fee: {{ '%.2f'|format(fee_cents / 100) }}</p>
+    {% endif %}
+
+    <form class="enter-form" data-entry-form>
+        <label>Full name
+            <input name="name" required autocomplete="name">
+        </label>
+        <label>Class
+            <select name="class_id" required>
+                <option value="" disabled selected>Choose a class…</option>
+                {% for c in class_options %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Club
+            <input name="club" autocomplete="organization">
+        </label>
+        <label>SI card number <span class="hint">(leave blank to hire)</span>
+            <input name="card_number" inputmode="numeric">
+        </label>
+        <label>Email <span class="hint">(for confirmation)</span>
+            <input name="email" type="email" autocomplete="email">
+        </label>
+        <label class="check">
+            <input type="checkbox" name="late"> Late / on-the-day entry
+        </label>
+        <div class="form-error" data-form-error hidden></div>
+        <button class="btn" type="submit">Submit entry</button>
+    </form>
+
+    <div class="enter-done" data-done hidden>
+        <h2>You're entered!</h2>
+        <p data-done-msg></p>
+    </div>
+</div>
+
+<script>
+(function () {
+    var form = document.querySelector("[data-entry-form]");
+    var errorBox = form.querySelector("[data-form-error]");
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        errorBox.hidden = true;
+        var payload = {};
+        new FormData(form).forEach(function (v, k) { payload[k] = v; });
+        payload.late = form.elements.late.checked;
+        var btn = form.querySelector("button");
+        btn.disabled = true;
+        fetch("/api/entries", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        }).then(function (r) {
+            return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+        }).then(function (res) {
+            btn.disabled = false;
+            if (!res.ok) {
+                errorBox.textContent = (res.d && res.d.error) || "Entry failed";
+                errorBox.hidden = false;
+                return;
+            }
+            if (res.d.payment && res.d.payment.url) {
+                window.location.href = res.d.payment.url;  // Stripe Checkout
+                return;
+            }
+            form.hidden = true;
+            var done = document.querySelector("[data-done]");
+            done.querySelector("[data-done-msg]").textContent =
+                res.d.entry.name + " — " + res.d.entry.class_name +
+                (res.d.entry.email ? " · a confirmation has been sent to " + res.d.entry.email : "");
+            done.hidden = false;
+        }).catch(function () {
+            btn.disabled = false;
+            errorBox.textContent = "Entry failed"; errorBox.hidden = false;
+        });
+    });
+})();
+</script>
+</body>
+</html>

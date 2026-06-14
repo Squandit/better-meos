@@ -1,0 +1,29 @@
+{% macro pos(row) -%}
+{% if row.position %}<span class="pos{% if row.position == 1 %} pos-lead{% endif %}">{{ row.position }}</span>{% else %}<span class="pos pos-none">&ndash;</span>{% endif %}
+{%- endmacro %}
+
+{% macro badge(row) -%}
+{% if not row.is_ok %}<span class="badge badge-{{ row.status }}">{{ row.status_label }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro time_cell(row) -%}
+{% if row.time %}{{ row.time }}{% else %}&ndash;{% endif %}
+{%- endmacro %}
+
+{% macro splits_rows(row, colspan) -%}
+{% if row.splits %}
+<tr class="splits-row">
+    <td colspan="{{ colspan }}">
+        <div class="splits-wrap">
+            {% if row.missed_control %}<p class="mp-note">Mispunch &mdash; missed control {{ row.missed_control }}</p>{% endif %}
+            <table class="splits">
+                <thead><tr><th>Control</th><th>Leg</th><th>Cumulative</th></tr></thead>
+                <tbody>
+                    {% for s in row.splits %}<tr><td>{{ s.control }}</td><td>{{ s.leg }}</td><td>{{ s.cumulative }}</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </td>
+</tr>
+{% endif %}
+{%- endmacro %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Classes{% endblock %}
+{% block heading %}Classes{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Classes</h3>
+    <p>Competitive categories and the course each one runs.</p>
+</div>
+
+<div class="toolbar" data-classes>
+    <span class="muted-count">{{ classes|length }} class{{ '' if classes|length == 1 else 'es' }}</span>
+    <span class="toolbar-spacer"></span>
+    <button type="button" class="btn btn-primary" data-new-class>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add class
+    </button>
+</div>
+
+<section class="panel">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Class</th>
+                <th style="width:84px">Type</th>
+                <th>Course</th>
+                <th class="num" style="width:84px">Entries</th>
+                <th class="num" style="width:90px">Finished</th>
+                <th class="num" style="width:80px">Flagged</th>
+                <th style="width:220px;text-align:right">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in classes %}
+            <tr data-class-row data-id="{{ c.id }}" data-name="{{ c.name }}" data-course-id="{{ c.course_id }}">
+                <td class="cell-name">{{ c.name }}</td>
+                <td>{{ c.type }}</td>
+                <td class="dim">{{ c.course_name }} &middot; {{ c.meta }}</td>
+                <td class="num">{{ c.entries }}</td>
+                <td class="num">{{ c.finished }}</td>
+                <td class="num">{{ c.flagged }}</td>
+                <td style="text-align:right" class="row-actions">
+                    <a class="chip" href="{{ url_for('results', _anchor='cls-' + c.name) }}">Results</a>
+                    <button type="button" class="btn btn-ghost btn-sm" data-edit-class>Edit</button>
+                    <button type="button" class="btn btn-danger-ghost btn-sm" data-delete-class>Delete</button>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty">No classes yet. Use <strong>Add class</strong> to create one.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
+
+{% block editor %}
+<div class="modal" id="class-modal" aria-hidden="true" aria-labelledby="class-modal-title" role="dialog">
+    <form class="modal-inner" data-class-form novalidate>
+        <header class="modal-head">
+            <h3 id="class-modal-title" data-modal-title>New class</h3>
+            <button type="button" class="icon-btn" data-close aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </header>
+        <div class="modal-body">
+            <div class="form-error" data-form-error hidden></div>
+            <label class="field field-wide">
+                <span class="field-label">Class name</span>
+                <input type="text" name="name" autocomplete="off" placeholder="e.g. M21E" required>
+            </label>
+            <label class="field field-wide">
+                <span class="field-label">Course</span>
+                <select name="course_id" required>
+                    {% for c in course_options %}<option value="{{ c.id }}">{{ c.name }} ({{ c.type }})</option>{% endfor %}
+                </select>
+            </label>
+            {% if not course_options %}
+            <p class="mini-empty">No courses exist yet — create a course first on the Courses page.</p>
+            {% endif %}
+        </div>
+        <footer class="modal-foot">
+            <span class="toolbar-spacer"></span>
+            <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+        </footer>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ standings.series.name }} · Series{% endblock %}
+{% block heading %}{{ standings.series.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Series standings</h3>
+    <p>Cumulative points across {{ standings.events|length }} event{{ '' if standings.events|length == 1 else 's' }}:
+        {{ standings.events|map(attribute='name')|join(', ') }}.
+        Points: 100 for a win, then −5 per place.</p>
+</div>
+
+<section class="panel">
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:46px;text-align:center">#</th>
+                <th>Competitor</th>
+                <th>Club</th>
+                <th class="num" style="width:90px">Events</th>
+                <th class="num" style="width:90px">Points</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in standings.standings %}
+            <tr>
+                <td style="text-align:center">{{ s.rank }}</td>
+                <td><a href="{{ url_for('profile_page', name=s.name) }}">{{ s.name }}</a></td>
+                <td>{{ s.club }}</td>
+                <td class="num">{{ s.events }}</td>
+                <td class="num strong">{{ s.points }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty">No results in this series yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
