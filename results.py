@@ -111,7 +111,15 @@ def aligned_splits(start, punches, finish, required: list[int]) -> list[dict]:
     return entries
 
 
-def build_splits_matrix(results: list[dict], controls: list[int]) -> dict:
+def _velocity(leg_seconds: int, length_m) -> str:
+    """Pace as M:SS per km for a leg of ``length_m`` metres, or '' if unknown."""
+    if not length_m or leg_seconds is None or leg_seconds <= 0:
+        return ""
+    return format_split(round(leg_seconds / (length_m / 1000.0)))
+
+
+def build_splits_matrix(results: list[dict], controls: list[int],
+                        leg_lengths: list | None = None) -> dict:
     """
     Build a side-by-side splits table for one linear class.
 
@@ -119,7 +127,8 @@ def build_splits_matrix(results: list[dict], controls: list[int]) -> dict:
     and ``finish``); ``controls`` is the course's ordered control codes. Columns
     are one per control plus a final Finish leg, aligned positionally via
     :func:`aligned_splits` so repeated controls and mispunches are handled
-    correctly.
+    correctly. When ``leg_lengths`` (metres per control leg) is given, each cell
+    also carries a ``velocity`` (min/km).
 
     For every competitor and leg it reports the leg and cumulative time, the leg
     rank and split (cumulative) rank within the class, the time behind that leg's
@@ -160,6 +169,7 @@ def build_splits_matrix(results: list[dict], controls: list[int]) -> dict:
         # 1-based rank; ties share the lower rank (1, 1, 3, ...).
         return sum(1 for x in sorted_times if x < value) + 1
 
+    leg_lengths = leg_lengths or []
     rows = []
     for r, aligned in indexed:
         cells = []
@@ -169,6 +179,7 @@ def build_splits_matrix(results: list[dict], controls: list[int]) -> dict:
                 cells.append({"missing": True})
                 continue
             leg_sec, cum_sec = cell["leg_seconds"], cell["cumulative_seconds"]
+            length = leg_lengths[i] if i < len(leg_lengths) else None
             cells.append({
                 "missing": False,
                 "leg": format_split(leg_sec),
@@ -178,6 +189,7 @@ def build_splits_matrix(results: list[dict], controls: list[int]) -> dict:
                 "best_leg": leg_sec == col["best_leg"],
                 "leg_behind": format_split(leg_sec - col["best_leg"]),
                 "cum_behind": format_split(cum_sec - col["best_cum"]),
+                "velocity": _velocity(leg_sec, length),
             })
         rows.append({
             "id": r.get("id"),
@@ -281,10 +293,22 @@ def build_result(card: dict, course: dict) -> dict:
     start = card.get("start")
     finish = card.get("finish")
     punches = card.get("punches") or []
+
+    # Free / punch start: take the start time from a start-control punch rather
+    # than the clock, and drop that punch so it isn't treated as a control leg.
+    if course.get("start_mode") == "punch":
+        sc = course.get("start_control")
+        for i, (code, t) in enumerate(punches):
+            if sc is None or code == sc:
+                start = t
+                punches = punches[:i] + punches[i + 1:]
+                break
+
     punched_codes = [code for code, _ in punches]
     # Kept on the result so the splits matrix can align punches to the course
     # order itself (it needs the raw punch sequence, not just punch-order splits).
     result["punches"] = list(punches)
+    result["start"] = start  # reflect a derived punch-start
 
     if start is None:
         auto_status = STATUS_DNS

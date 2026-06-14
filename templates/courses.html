@@ -25,12 +25,10 @@
             {% if course.classes %}<span class="chip grey">{{ course.classes | join(', ') }}</span>{% endif %}
         </div>
         <div class="row-actions">
-            <button type="button" class="btn btn-ghost btn-sm" data-review-course>Review</button>
             <button type="button" class="btn btn-ghost btn-sm" data-edit-course>Edit</button>
             <button type="button" class="btn btn-danger-ghost btn-sm" data-delete-course data-name="{{ course.name }}">Delete</button>
         </div>
     </div>
-    <div class="course-review" data-review hidden></div>
     <div class="panel-body">
         {% if course.is_score %}
             <p class="cell-sub" style="margin-top:0">
@@ -61,32 +59,6 @@
 {% else %}
 <section class="panel"><div class="empty">No courses yet. Use <strong>Add course</strong> to create one.</div></section>
 {% endfor %}
-
-<script>
-document.addEventListener("click", function (e) {
-    var btn = e.target.closest("[data-review-course]");
-    if (!btn) { return; }
-    var row = btn.closest("[data-course-row]");
-    var box = row.querySelector("[data-review]");
-    if (!box.hidden) { box.hidden = true; return; }
-    box.hidden = false;
-    box.textContent = "Reviewing…";
-    fetch("/api/courses/" + row.dataset.id + "/review")
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-            box.innerHTML = "";
-            var p = document.createElement("p");
-            p.className = "review-text";
-            p.textContent = d.text;
-            box.appendChild(p);
-            var tag = document.createElement("span");
-            tag.className = "review-source";
-            tag.textContent = d.source === "ai" ? "AI review" : "rule-based review";
-            box.appendChild(tag);
-        })
-        .catch(function () { box.textContent = "Review failed."; });
-});
-</script>
 {% endblock %}
 
 {% block editor %}
@@ -124,6 +96,24 @@ document.addEventListener("click", function (e) {
                 <label class="field">
                     <span class="field-label">Penalty <span class="hint">pts / min over</span></span>
                     <input type="number" name="penalty_per_minute" inputmode="numeric" min="0" placeholder="10">
+                </label>
+            </div>
+
+            <div class="field-grid">
+                <label class="field">
+                    <span class="field-label">Start</span>
+                    <select name="start_mode">
+                        <option value="clock">Clock (timed start)</option>
+                        <option value="punch">Punch (free start)</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Start control <span class="hint">punch start</span></span>
+                    <input type="number" name="start_control" inputmode="numeric" min="1" placeholder="1">
+                </label>
+                <label class="field">
+                    <span class="field-label">Length <span class="hint">metres</span></span>
+                    <input type="number" name="length_m" inputmode="numeric" min="0" placeholder="4800">
                 </label>
             </div>
 

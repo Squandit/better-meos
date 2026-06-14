@@ -19,6 +19,9 @@ env/
 .env
 .env.local
 *.env
+# Local entry-page / integration secrets (PayPal id, Gmail app password, etc.)
+config.json
+config.local.json
 
 # IDE / editor
 .vscode/

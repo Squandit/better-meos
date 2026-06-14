@@ -1,5 +1,30 @@
 # better-meos — build handoff
 
+## FOLLOW-ON WORK (current) — remove AI, port PayPal entry page, MEOS-parity, UI fixes
+Plan: `C:\Users\quinn\.claude\plans\can-you-please-add-hazy-stallman.md`. Phases A→D.
+- **Phase A DONE**: deleted `ai.py`/`analytics.py`/`tests/test_analytics.py`; removed AI routes + the Review/Coaching template surfaces + AI CSS; stripped the AI section from `order.txt`; dropped `anthropic` from requirements. Styled the previously-default controls (`.tool-form` inputs/selects, `date`/`time`/`file` inputs, table selects, event switcher). 62 tests pass.
+- **Phase B DONE**: `members` table + `members.py` (search/lookup/import). Ported `MeOS-Newest/entry.html` → `templates/entry.html` (raw, config string-injected — NOT Jinja); assets in `static/entry/`. New public endpoints: `/get-classes`, `/get-result-classes`, `/search-competitors`, `/lookup-competitor`, `/check-entered`, `/submit-entry` (creates competitor, `<Status>OK</Status>` XML), `/log-entries`, `/get-results`, `/manifest.json`, `/sw.js`; `/api/import/members`. PayPal config + pricing in `payments.py` (env). `notify.send_entry_receipt`. Old Stripe `enter.html` removed. **Secrets: all via env; nothing committed** (verified by grep; `.gitignore` covers `config.json`). Members import card added to tools page.
+  - Security fixes from review: **XSS-safe config injection** (escape `<>&` — a stored club name with `</script>` can't break out); `/log-entries` hardened (email validation incl. header-injection, entries capped at 50, safe number parsing → no 500). Env: `PAYPAL_CLIENT_ID`, `PAYPAL_SANDBOX` (default sandbox), `BMEOS_CURRENCY`, `BMEOS_FEE_SENIOR/JUNIOR/CONCESSION`, `BMEOS_FAMILY_CAP`, `BMEOS_CLUBS`, `BMEOS_ENTRY_CLOSE`.
+  - Known/accepted: `/submit-entry` is public (by design — on-the-day entry) with no rate-limit; dedupe-by-card limits abuse. Add rate-limiting if exposed to the open internet.
+- **Phase C DONE**: schema migration (`db._migrate`) adds course start_mode/start_control/length_m, control leg_length_m, class kind/legs/fee, competitor bib/hired/team_id/leg, `teams` table.
+  - **Free/punch start** (`results.build_result` derives start from a start-control punch; course editor "Start" mode; punch mode requires a start control).
+  - **Course geometry**: IOF XML Length + per-leg LegLength parsed; course length chip + per-leg velocity (min/km) on splits. *Editing a course preserves imported leg_lengths.*
+  - **Relay/team**: `teams` + `store.team_results()` (sum of legs, unranked if any leg not OK); `/teams` page + add-team form; member→team/leg via competitor API (validation added; editor UI minimal — assign team_id/leg via API for now).
+  - **Hire cards + fees**: competitor `hired`, class `fee`; `/economy` page (`store.economy_summary`).
+  - **Speaker** `/speaker` (out-on-course + recent finishes, live).
+  - **Bib + printing**: `store.assign_bibs`, `pdf.start_list_pdf`/`bib_labels_pdf`; tools links + `/export/startlist.pdf`, `/export/bibs.pdf`, `/api/bibs/assign`.
+  - Editor fields added: class kind/legs/fee, competitor bib/hired, course start_mode/start_control/length. Nav: Teams, Speaker, Economy. 80 tests pass.
+- **Phase D DONE**: Emit decode path in `si_reader` (guarded by `BMEOS_PUNCH_SYSTEM=emit`, lazy-imported, simulator system-agnostic); **live radio/online controls** — `store.add_radio_punch` + `POST /api/radio/punch` (streams an intermediate punch, time-ordered, broadcasts live — actually functional, not just a stub); **Eventor** — `iofxml.parse_entrylist` (IOF EntryList, real) + `eventor.py` (file import via `/api/import/eventor` on the tools page; live API pull behind `EVENTOR_API_KEY` is the documented stub). 86 tests pass.
+
+### Follow-on work COMPLETE
+AI removed; controls restyled; PayPal entry page ported; MEOS-parity features built; hardware/external bits scaffolded. New env vars (entry/payments in Phase B section above): `BMEOS_PUNCH_SYSTEM` (sportident|emit), `EVENTOR_API_KEY`, `EVENTOR_BASE_URL`.
+Known remaining-thin: relay member→team/leg assignment is API-only (no editor dropdown yet); Emit/Eventor-API/live-radio-hardware can't be tested here.
+
+---
+
+## ORIGINAL order.txt BUILD (complete) — reference below
+
+
 Rolling status for the "implement everything in `order.txt`" effort. Plan file:
 `C:\Users\quinn\.claude\plans\can-you-please-add-hazy-stallman.md`.
 

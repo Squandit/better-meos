@@ -31,8 +31,9 @@
         </thead>
         <tbody>
             {% for c in classes %}
-            <tr data-class-row data-id="{{ c.id }}" data-name="{{ c.name }}" data-course-id="{{ c.course_id }}">
-                <td class="cell-name">{{ c.name }}</td>
+            <tr data-class-row data-id="{{ c.id }}" data-name="{{ c.name }}" data-course-id="{{ c.course_id }}"
+                data-kind="{{ c.kind }}" data-legs="{{ c.legs }}" data-fee="{{ c.fee }}">
+                <td class="cell-name">{{ c.name }}{% if c.kind == 'relay' %} <span class="chip grey">relay</span>{% endif %}</td>
                 <td>{{ c.type }}</td>
                 <td class="dim">{{ c.course_name }} &middot; {{ c.meta }}</td>
                 <td class="num">{{ c.entries }}</td>
@@ -76,6 +77,23 @@
             {% if not course_options %}
             <p class="mini-empty">No courses exist yet — create a course first on the Courses page.</p>
             {% endif %}
+            <div class="field-grid">
+                <label class="field">
+                    <span class="field-label">Kind</span>
+                    <select name="kind">
+                        <option value="individual">Individual</option>
+                        <option value="relay">Relay</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Relay legs</span>
+                    <input type="number" name="legs" inputmode="numeric" min="1" value="1">
+                </label>
+                <label class="field">
+                    <span class="field-label">Entry fee</span>
+                    <input type="number" name="fee" inputmode="decimal" min="0" step="0.01" placeholder="0">
+                </label>
+            </div>
         </div>
         <footer class="modal-foot">
             <span class="toolbar-spacer"></span>

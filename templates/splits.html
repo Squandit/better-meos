@@ -15,6 +15,7 @@
     <div class="panel-head">
         <h4>{{ cls.name }}</h4>
         <span class="chip">{{ cls.meta }}</span>
+        {% if cls.length_m %}<span class="chip grey">{{ '%.1f'|format(cls.length_m / 1000) }} km</span>{% endif %}
     </div>
 
     {% if cls.is_score %}
@@ -70,6 +71,7 @@
                         {% else %}
                             <span class="cum">{{ cell.cum }}</span><span class="rk">{{ cell.cum_rank }}</span>
                             <span class="leg">{{ cell.leg }}<span class="rk">{{ cell.leg_rank }}</span></span>
+                            {% if cell.velocity %}<span class="vel">{{ cell.velocity }}/km</span>{% endif %}
                         {% endif %}
                     </td>
                     {% endfor %}

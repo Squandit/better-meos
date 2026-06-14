@@ -67,15 +67,6 @@ Cumulative series points across events
 Competitor profile (all results across events)
 Club leaderboard
 
-AI layer
-
-Per-leg performance vs class average
-Historical split trends across events
-Weakness identification by terrain/leg type
-Course setting validator (IOF ratio checks, shared legs)
-Suggested training focus from split history
-Course setting assistant
-
 Ops and polish
 
 Operator dashboard (one screen to run the whole event)

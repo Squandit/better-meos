@@ -45,7 +45,7 @@ def test_auth_gating_when_enabled(monkeypatch):
     # protected browser page -> redirect to login
     assert c.get("/competitors").status_code == 302
     # protected API -> 401
-    assert c.get("/api/classes/1/legs").status_code == 401
+    assert c.get("/api/courses/1").status_code == 401
     # public surfaces remain open
     assert c.get("/enter").status_code == 200
     assert c.get("/login").status_code == 200

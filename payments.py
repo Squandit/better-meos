@@ -23,6 +23,40 @@ def is_enabled() -> bool:
     return bool(os.environ.get("STRIPE_SECRET_KEY"))
 
 
+# ---------------------------------------------------------------------------
+# PayPal (used by the ported entry page; capture happens client-side in the
+# browser SDK, so the server only needs to expose the public config + pricing).
+# All secrets/config come from env -- nothing is committed.
+# ---------------------------------------------------------------------------
+
+def paypal_config() -> dict:
+    """Public PayPal config for the entry page (safe to embed in the page)."""
+    return {
+        "clientId": os.environ.get("PAYPAL_CLIENT_ID", ""),
+        "currency": os.environ.get("BMEOS_CURRENCY", "AUD"),
+        # Sandbox unless explicitly turned off, so a missing/test config never
+        # charges real money.
+        "sandbox": os.environ.get("PAYPAL_SANDBOX", "1") != "0",
+    }
+
+
+def _money(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def prices() -> dict:
+    """Entry fees by membership type + family cap (configurable via env)."""
+    return {
+        "senior": _money("BMEOS_FEE_SENIOR", 10.0),
+        "junior": _money("BMEOS_FEE_JUNIOR", 5.0),
+        "concession": _money("BMEOS_FEE_CONCESSION", 5.0),
+        "familyCap": _money("BMEOS_FAMILY_CAP", 25.0),
+    }
+
+
 def fee_cents() -> int:
     return int(os.environ.get("BMEOS_ENTRY_FEE_CENTS", "0"))
 

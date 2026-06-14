@@ -33,6 +33,12 @@ from store import StoreError
 
 log = logging.getLogger("si_reader")
 
+# Which punching system the real reader speaks. SportIdent is fully wired; Emit
+# is scaffolded behind this flag (BMEOS_PUNCH_SYSTEM=emit) -- the read loop maps
+# its card structure through the same process_card path. The simulator is
+# system-agnostic, so it works regardless.
+PUNCH_SYSTEM = os.environ.get("BMEOS_PUNCH_SYSTEM", "sportident").lower()
+
 # Running reader threads + their stop signals, keyed by station id (supports
 # several download units that can be started/stopped independently).
 _threads: dict[str, threading.Thread] = {}
@@ -107,7 +113,48 @@ def _card_from_si(data: dict, station_id: str | None) -> dict:
     }
 
 
+def _card_from_emit(data: dict, station_id: str | None) -> dict:
+    """Translate an Emit ECB read into our card dict (scaffold).
+
+    Emit cards expose an 'ecard'/'series' number and a list of (code, time)
+    punches; the field names differ from SportIdent but the card shape we need
+    is identical, so the rest of the pipeline is unchanged.
+    """
+    return {
+        "card_number": data.get("ecard") or data.get("card_number"),
+        "start": data.get("start"),
+        "finish": data.get("finish"),
+        "punches": list(data.get("punches", [])),
+        "station_id": station_id,
+    }
+
+
+def _run_emit(port: str, station_id: str, stop_event: threading.Event) -> None:
+    # Scaffold: a real Emit driver (e.g. an 'emit' serial library) goes here.
+    # Lazy import so its absence doesn't affect SportIdent / the simulator.
+    from emit import EmitReader  # type: ignore  # pragma: no cover - optional dep
+
+    reader = EmitReader(port)
+    try:
+        while not stop_event.is_set():
+            data = reader.poll()
+            if data:
+                process_card(_card_from_emit(data, station_id), station_id=station_id)
+            else:
+                time.sleep(0.5)
+    finally:
+        try:
+            reader.close()
+        except Exception:  # pragma: no cover
+            pass
+
+
 def _run(port: str, station_id: str, stop_event: threading.Event) -> None:
+    if PUNCH_SYSTEM == "emit":
+        log.info("opening Emit reader on %s (station %s)", port, station_id)
+        _run_emit(port, station_id, stop_event)
+        return
+
     # Imported lazily so the module (and the simulator) load without pyserial /
     # a physical reader present.
     from sportident import SIReaderReadout

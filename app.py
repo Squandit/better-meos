@@ -1,20 +1,23 @@
+import json
 import logging
 import os
 import tempfile
 from datetime import datetime
 from xml.etree.ElementTree import ParseError as ET_ERROR
+from xml.sax.saxutils import escape as xml_escape
 
 from flask import (Flask, render_template, request, jsonify, abort, Response,
                    url_for, redirect)
 
-import ai
-import analytics
 import auth
 import db
 import entries as entries_mod
+import eventor
 import events
 import iofxml
 import importers
+import members as members_mod
+import notify
 import payments
 import pdf
 import si_reader
@@ -231,6 +234,7 @@ def classes():
     summary = []
     for c in _console_data():
         rows = c["rows"]
+        cls = store.get_class(c["id"]) or {}
         summary.append({
             "id": c["id"],
             "name": c["name"],
@@ -238,6 +242,9 @@ def classes():
             "course_id": c["course_id"],
             "course_name": c["course_name"],
             "meta": c["meta"],
+            "kind": cls.get("kind", "individual"),
+            "legs": cls.get("legs", 1),
+            "fee": cls.get("fee", 0),
             "entries": len(rows),
             "finished": sum(1 for r in rows if r["time"] is not None),
             "flagged": sum(1 for r in rows if r["status"] in FLAGGED),
@@ -306,7 +313,9 @@ def _splits_data():
         if is_score:
             item["rows"] = [_view_row(r) for r in entry["results"]]
         else:
-            item["matrix"] = build_splits_matrix(entry["results"], course["controls"])
+            item["matrix"] = build_splits_matrix(
+                entry["results"], course["controls"], course.get("leg_lengths"))
+            item["length_m"] = course.get("length_m")
         view.append(item)
     return view
 
@@ -353,6 +362,91 @@ def clubs():
     return render_template("clubs.html", active="clubs", clubs=_club_archive())
 
 
+# ---------------------------------------------------------------------------
+# Relay teams, economy, speaker, bib numbers / start-list printing
+# ---------------------------------------------------------------------------
+
+@app.route("/teams")
+def teams_page():
+    return render_template("teams.html", active="teams", classes=store.team_results())
+
+
+@app.route("/api/teams", methods=["POST"])
+def api_create_team():
+    team = store.create_team(_payload())
+    events.publish("team", action="create")
+    return jsonify({"team": team}), 201
+
+
+@app.route("/api/teams/<int:team_id>", methods=["DELETE"])
+def api_delete_team(team_id):
+    store.delete_team(team_id)
+    events.publish("team", action="delete")
+    return jsonify({"ok": True})
+
+
+@app.route("/economy")
+def economy_page():
+    return render_template("economy.html", active="economy",
+                           economy=store.economy_summary(), event=store.EVENT)
+
+
+@app.route("/speaker")
+def speaker_page():
+    """Commentator view: who's out on course, recent finishes."""
+    rows = [r for c in _console_data() for r in c["rows"]]
+    out = [r for r in rows if r["start"] and not r["finish"]]
+    out.sort(key=lambda r: r["start"])
+    finished = [r for r in rows if r["finish"]]
+    finished.sort(key=lambda r: r["finish"], reverse=True)
+    return render_template("speaker.html", active="speaker",
+                           out=out, recent=finished[:12])
+
+
+@app.route("/api/bibs/assign", methods=["POST"])
+def api_assign_bibs():
+    count = store.assign_bibs(store._as_int(_payload().get("start", 1), "Start", minimum=1))
+    events.publish("competitor", action="bibs")
+    return jsonify({"ok": True, "assigned": count})
+
+
+def _startlist_data():
+    """Per-class rows for the start list / bibs, straight from the store."""
+    by_class = {}
+    for c in store._competitors.values():
+        by_class.setdefault(c["class_id"], []).append(c)
+    classes = []
+    for cls in store._classes_sorted():
+        members = sorted(by_class.get(cls["id"], []),
+                         key=lambda c: (c["start"] or datetime.max, c["name"].lower()))
+        classes.append({
+            "name": cls["name"],
+            "rows": [{"bib": c.get("bib"), "name": c["name"], "club": c.get("club") or "",
+                      "card": c.get("card_number") or "",
+                      "start": _clock(c.get("start"))} for c in members],
+        })
+    return classes
+
+
+@app.route("/export/startlist.pdf")
+def export_startlist_pdf():
+    data = pdf.start_list_pdf(_startlist_data(), store.EVENT)
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-startlist.pdf"})
+
+
+@app.route("/export/bibs.pdf")
+def export_bibs_pdf():
+    labels = []
+    for cls in _startlist_data():
+        for r in cls["rows"]:
+            labels.append({"bib": r["bib"], "name": r["name"],
+                           "club": r["club"], "class": cls["name"]})
+    data = pdf.bib_labels_pdf(labels, store.EVENT)
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-bibs.pdf"})
+
+
 @app.route("/tools")
 def tools():
     """Import / export console."""
@@ -388,6 +482,36 @@ def api_import_courses():
     created = [store.create_course(c)["name"] for c in courses]
     events.publish("course", action="import")
     return jsonify({"created": len(created), "names": created})
+
+
+@app.route("/api/import/members", methods=["POST"])
+def api_import_members():
+    """Import the members roster (powers the entry page) from CSV."""
+    mode = request.args.get("mode", "merge")
+    outcome = members_mod.import_csv(_uploaded_text(), mode=mode)
+    return jsonify(outcome)
+
+
+@app.route("/api/import/eventor", methods=["POST"])
+def api_import_eventor():
+    """Import competitors from an Eventor IOF XML EntryList file."""
+    try:
+        rows = eventor.parse_entrylist(_uploaded_text())
+    except (ValueError, ET_ERROR) as err:
+        raise StoreError(f"Could not read entry list: {err}")
+    return jsonify(importers.import_competitors(rows))
+
+
+@app.route("/api/radio/punch", methods=["POST"])
+def api_radio_punch():
+    """Live radio / online-control punch -> intermediate split, broadcast live."""
+    data = _payload()
+    card = store._as_int(data.get("card_number"), "SI card number", minimum=1)
+    code = store._as_int(data.get("code"), "Control code", minimum=1)
+    when = store.parse_clock(data.get("time"), "Punch time") or datetime.now()
+    comp = store.add_radio_punch(card, code, when, data.get("station_id"))
+    events.publish("radio", station_id=data.get("station_id"))
+    return jsonify({"ok": True, "competitor_id": comp["id"]})
 
 
 @app.route("/api/import/startlist", methods=["POST"])
@@ -439,11 +563,156 @@ def slip_pdf(comp_id):
 # Registration (public entry form, entries admin, start-list draw)
 # ---------------------------------------------------------------------------
 
+def _entry_config():
+    """Public config embedded in the entry page (event, PayPal, prices, clubs)."""
+    clubs = sorted({(m.get("club") or "").strip() for m in members_mod.all_members()}
+                   | {(c.get("club") or "").strip() for c in store._competitors.values()})
+    clubs = [c for c in clubs if c]
+    env_clubs = os.environ.get("BMEOS_CLUBS")
+    if env_clubs:
+        clubs = [c.strip() for c in env_clubs.split(",") if c.strip()]
+    return {
+        "event": {"name": store.EVENT["name"],
+                  "closeTime": os.environ.get("BMEOS_ENTRY_CLOSE", "")},
+        "paypal": payments.paypal_config(),
+        "prices": payments.prices(),
+        "clubs": clubs,
+        "networkAddress": None,
+    }
+
+
 @app.route("/enter")
 def enter():
-    """Public entry form (no operator chrome)."""
-    return render_template("enter.html", class_options=store.class_options(),
-                           fee_cents=payments.fee_cents())
+    """Public entry page (the ported PayPal PWA). Config is string-injected so
+    the page's embedded JS/CSS isn't run through Jinja."""
+    path = os.path.join(app.root_path, "templates", "entry.html")
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    # Escape for an HTML <script> context: json.dumps leaves '<','>','&' raw, so a
+    # stored club/competitor/event name containing '</script>' would break out
+    # (stored XSS, since /submit-entry is public). Encode those as \uXXXX.
+    blob = (json.dumps(_entry_config())
+            .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
+    inject = "<script>window.ENTRY_CONFIG = %s;</script>" % blob
+    return Response(html.replace("<!-- CONFIG_INJECT -->", inject), mimetype="text/html")
+
+
+# --- Entry-page backend (mirrors the Node endpoints, backed by the store) ---
+
+def _classes_xml():
+    parts = ["<EntryClasses>"]
+    for c in store.class_options():
+        parts.append(f'<Class id="{c["id"]}"><Name>{xml_escape(c["name"])}</Name></Class>')
+    parts.append("</EntryClasses>")
+    return "".join(parts)
+
+
+def _member_json(m):
+    return {"name": m["name"], "club": m.get("club") or "",
+            "card": m.get("card_number") or "", "type": m.get("type") or "senior"}
+
+
+@app.route("/get-classes")
+def entry_get_classes():
+    return Response(_classes_xml(), mimetype="application/xml")
+
+
+@app.route("/get-result-classes")
+def entry_result_classes():
+    return Response(_classes_xml(), mimetype="application/xml")
+
+
+@app.route("/search-competitors")
+def entry_search():
+    return jsonify([_member_json(m) for m in members_mod.search(request.args.get("q", ""))])
+
+
+@app.route("/lookup-competitor")
+def entry_lookup():
+    m = members_mod.lookup(request.args.get("name", ""))
+    return jsonify(_member_json(m) if m else None)
+
+
+@app.route("/check-entered")
+def entry_check():
+    name = (request.args.get("name") or "").strip().lower()
+    entered = any((c["name"].strip().lower() == name) for c in store._competitors.values())
+    return jsonify({"entered": entered})
+
+
+@app.route("/submit-entry")
+def entry_submit():
+    """On-the-day entry: create the competitor directly in the chosen class.
+    Returns MeOS-style <Status>OK</Status> XML the entry page expects."""
+    card = (request.args.get("card") or "").strip()
+    try:
+        store.create_competitor({
+            "name": (request.args.get("name") or "").strip(),
+            "club": (request.args.get("club") or "").strip(),
+            "class_id": request.args.get("class", type=int),
+            "card_number": card or None,
+        })
+        events.publish("competitor", action="entry")
+        xml = "<Answer><Status>OK</Status></Answer>"
+    except StoreError as err:
+        xml = f"<Answer><Status>Fail</Status><Info>{xml_escape(str(err))}</Info></Answer>"
+    return Response(xml, mimetype="application/xml")
+
+
+@app.route("/log-entries", methods=["POST"])
+def entry_log():
+    data = _payload()
+    # Public endpoint: keep the receipt path from being a spam/DoS amplifier --
+    # validate the recipient and cap the (attacker-supplied) entries list. notify
+    # itself re-validates and parses numbers safely.
+    entries = data.get("entries")
+    data["entries"] = entries[:50] if isinstance(entries, list) else []
+    sent = notify.send_entry_receipt(data, store.EVENT)
+    return jsonify({"ok": True, "emailSent": bool(sent)})
+
+
+_STATUS_TO_ENTRY = {"dsq": "dq"}  # entry page uses 'dq'; others map 1:1
+
+
+@app.route("/get-results")
+def entry_results():
+    class_id = request.args.get("classId", type=int)
+    classes, _ = store.evaluate()
+    out = []
+    for entry in classes:
+        cls = entry["class"]
+        if class_id and cls["id"] != class_id:
+            continue
+        comps = []
+        for r in entry["results"]:
+            comps.append({
+                "name": r["name"], "club": r.get("club") or "",
+                "timeSecs": r["total_seconds"] if r["status"] == "ok" else None,
+                "place": r.get("position"),
+                "status": _STATUS_TO_ENTRY.get(r["status"], r["status"]),
+                "splits": [{"control": s["control"], "time": s["cumulative_seconds"]}
+                           for s in r["splits"] if s["control"] != "F"],
+            })
+        out.append({"className": cls["name"], "clsId": str(cls["id"]), "competitors": comps})
+    return jsonify(out)
+
+
+@app.route("/manifest.json")
+def entry_manifest():
+    return jsonify({
+        "name": store.EVENT["name"], "short_name": "Entry", "start_url": "/enter",
+        "display": "standalone", "background_color": "#1a3a2a", "theme_color": "#2d5a3d",
+        "icons": [{"src": url_for("static", filename="entry/OWA_LOGO.jpg"),
+                   "sizes": "192x192", "type": "image/jpeg"}],
+    })
+
+
+@app.route("/sw.js")
+def entry_sw():
+    # Served at root so its scope covers the entry page (a /static/ SW couldn't).
+    path = os.path.join(app.root_path, "static", "entry", "sw.js")
+    with open(path, encoding="utf-8") as f:
+        return Response(f.read(), mimetype="application/javascript")
 
 
 @app.route("/api/entries", methods=["POST"])
@@ -542,70 +811,7 @@ def profile_page():
     if card is None and not name:
         abort(404)
     profile = store.competitor_profile(card=card, name=name)
-    return render_template("profile.html", profile=profile,
-                           trends=analytics.split_trends(profile))
-
-
-# ---------------------------------------------------------------------------
-# AI layer: performance analytics + course-setting review
-# ---------------------------------------------------------------------------
-
-def _profile_weak_legs(profile):
-    """Weak legs from a person's most recent linear-course result."""
-    results = profile.get("results")
-    if not results:
-        return []
-    latest = max(results, key=lambda r: r["event"]["date_iso"])
-    classes, _ = store.evaluate_event(latest["event"]["id"])
-    entry = next((e for e in classes if e["class"]["name"] == latest["class"]), None)
-    if entry is None or entry["course"]["type"] != "linear":
-        return []
-    data = analytics.competitor_legs(
-        entry["results"], entry["course"]["controls"], latest["result"]["id"])
-    return data["weak_legs"]
-
-
-@app.route("/api/profile/advice")
-def api_profile_advice():
-    card = request.args.get("card", type=int)
-    name = request.args.get("name")
-    if card is None and not name:
-        abort(404)
-    profile = store.competitor_profile(card=card, name=name)
-    weak = _profile_weak_legs(profile)
-    return jsonify(ai.training_advice(profile["name"] or name or "", weak))
-
-
-@app.route("/api/courses/<int:course_id>/review")
-def api_course_review(course_id):
-    course = store.get_course(course_id)
-    if course is None:
-        abort(404)
-    all_courses = [item["course"] for item in store.courses_with_classes()]
-    shared = [s for s in analytics.shared_legs(all_courses)
-              if course["name"] in s["courses"]]
-    findings = analytics.course_checks(course)
-    return jsonify(ai.course_review(course["name"], findings, shared))
-
-
-@app.route("/api/classes/<int:class_id>/legs")
-def api_class_legs(class_id):
-    """Per-leg field average / best for a class (linear courses only)."""
-    cls = store.get_class(class_id)
-    if cls is None:
-        abort(404)
-    course = store.get_course(cls["course_id"])
-    if course is None or course["type"] != "linear":
-        return jsonify({"legs": []})
-    classes, _ = store.evaluate()
-    entry = next((e for e in classes if e["class"]["id"] == class_id), None)
-    results = entry["results"] if entry else []
-    stats = analytics.class_leg_stats(results, course["controls"])
-    return jsonify({"legs": [
-        {"control": s["control"], "count": s["count"],
-         "avg": format_duration(s["avg_seconds"]) if s["avg_seconds"] is not None else None,
-         "best": format_duration(s["best_seconds"]) if s["best_seconds"] is not None else None}
-        for s in stats]})
+    return render_template("profile.html", profile=profile)
 
 
 # ---------------------------------------------------------------------------

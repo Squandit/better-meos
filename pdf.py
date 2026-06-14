@@ -103,6 +103,73 @@ def splits_slip_pdf(row: dict, event: dict) -> bytes:
     return buf.getvalue()
 
 
+def start_list_pdf(classes: list[dict], event: dict) -> bytes:
+    """Start list grouped by class. ``classes`` = [{name, rows:[{bib,name,club,
+    card,start}]}]."""
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    styles = _styles()
+    story = [
+        Paragraph(f"<b>{escape(event.get('name', ''))}</b> — Start list", styles["Title"]),
+        Paragraph(escape(event.get("date", "")), styles["Normal"]),
+        Spacer(1, 6 * mm),
+    ]
+    for cls in classes:
+        story.append(Paragraph(escape(cls["name"]), styles["Heading2"]))
+        data = [["Bib", "Start", "Name", "Club", "SI"]]
+        for r in cls["rows"]:
+            data.append([str(r.get("bib") or ""), r.get("start") or "-",
+                         r["name"], r.get("club") or "", str(r.get("card") or "")])
+        tbl = Table(data, colWidths=[14 * mm, 24 * mm, 52 * mm, 40 * mm, 24 * mm])
+        tbl.setStyle(_table_style())
+        story.append(tbl)
+        story.append(Spacer(1, 7 * mm))
+    doc.build(story)
+    return buf.getvalue()
+
+
+def bib_labels_pdf(labels: list[dict], event: dict) -> bytes:
+    """A grid of bib labels (large bib number + name/class) for printing."""
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    styles = _styles()
+    cell_style = styles["Normal"]
+    cells = []
+    for lab in labels:
+        block = [
+            Paragraph(f"<font size=22><b>{escape(str(lab.get('bib') or ''))}</b></font>",
+                      cell_style),
+            Paragraph(f"<b>{escape(lab.get('name', ''))}</b>", cell_style),
+            Paragraph(escape(f"{lab.get('class', '')} · {lab.get('club', '')}"), cell_style),
+        ]
+        cells.append(block)
+    # Lay out 3 per row.
+    rows, row = [], []
+    for block in cells:
+        inner = Table([[p] for p in block], colWidths=[58 * mm])
+        row.append(inner)
+        if len(row) == 3:
+            rows.append(row); row = []
+    if row:
+        while len(row) < 3:
+            row.append("")
+        rows.append(row)
+    story = [Paragraph(f"<b>{escape(event.get('name', ''))}</b> — Bib labels", styles["Title"]),
+             Spacer(1, 5 * mm)]
+    if rows:
+        grid = Table(rows, colWidths=[60 * mm] * 3)
+        grid.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, _LINE),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(grid)
+    doc.build(story)
+    return buf.getvalue()
+
+
 def class_results_pdf(classes: list[dict], event: dict) -> bytes:
     """Whole-event results (one block per class) as PDF bytes.
 

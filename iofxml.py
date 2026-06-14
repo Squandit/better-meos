@@ -93,15 +93,22 @@ def parse_courses(source) -> list[dict]:
     courses = []
     for course in root.iter(f"{{{NS}}}Course"):
         name = _text(course, "Name", "").strip()
-        codes = []
+        codes, leg_lengths = [], []
         for cc in _findall(course, "CourseControl"):
             if cc.get("type") != "Control":
                 continue
             code = _text(cc, "Control")
             if code and code.strip().isdigit():
                 codes.append(int(code.strip()))
+                leg = _text(cc, "LegLength")
+                leg_lengths.append(int(float(leg)) if leg and leg.strip() else None)
+        length = _text(course, "Length")  # course length in metres (geometry)
         if name and codes:
-            courses.append({"name": name, "type": "linear", "controls": codes})
+            courses.append({
+                "name": name, "type": "linear", "controls": codes,
+                "length_m": int(float(length)) if length and length.strip() else None,
+                "leg_lengths": leg_lengths,
+            })
     if not courses:
         raise ValueError("No courses with controls found in the file")
     return courses
@@ -135,6 +142,29 @@ def parse_startlist(source) -> list[dict]:
                 "card_number": int(card) if card and card.strip().isdigit() else None,
                 "start": _parse_iso(start_txt),
             })
+    return out
+
+
+def parse_entrylist(source) -> list[dict]:
+    """
+    Parse an IOF ``EntryList`` document (what Eventor exports) into competitor
+    dicts: ``[{"name", "club", "class_name", "card_number", "start": None}, ...]``.
+    """
+    root = _parse_root(source)
+    _require_v3(root, "EntryList")
+    out = []
+    for pe in root.iter(f"{{{NS}}}PersonEntry"):
+        person = _find(pe, "Person")
+        org = _find(pe, "Organisation")
+        cls = _find(pe, "Class")
+        card = _text(pe, "ControlCard")
+        out.append({
+            "name": _split_name(person) if person is not None else "",
+            "club": (_text(org, "Name", "") or "").strip() if org is not None else "",
+            "class_name": _text(cls, "Name", "").strip() if cls is not None else "",
+            "card_number": int(card) if card and card.strip().isdigit() else None,
+            "start": None,
+        })
     return out
 
 

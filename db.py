@@ -53,20 +53,36 @@ CREATE TABLE IF NOT EXISTS courses (
     name TEXT NOT NULL,
     type TEXT NOT NULL,
     time_limit_minutes INTEGER,
-    penalty_per_minute INTEGER NOT NULL DEFAULT 0
+    penalty_per_minute INTEGER NOT NULL DEFAULT 0,
+    start_mode TEXT NOT NULL DEFAULT 'clock',   -- clock | punch (free start)
+    start_control INTEGER,                       -- start-punch code in punch mode
+    length_m INTEGER                             -- course length (course geometry)
 );
 CREATE TABLE IF NOT EXISTS controls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
     code INTEGER NOT NULL,
     sequence INTEGER NOT NULL,
-    points INTEGER
+    points INTEGER,
+    leg_length_m INTEGER                         -- length of the leg to this control
 );
 CREATE TABLE IF NOT EXISTS classes (
     id INTEGER PRIMARY KEY,
     event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    course_id INTEGER NOT NULL
+    course_id INTEGER NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'individual',     -- individual | relay
+    legs INTEGER NOT NULL DEFAULT 1,             -- relay leg count
+    fee REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS teams (
+    id INTEGER PRIMARY KEY,
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    class_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    club TEXT,
+    bib INTEGER,
+    start TEXT
 );
 CREATE TABLE IF NOT EXISTS competitors (
     id INTEGER PRIMARY KEY,
@@ -78,6 +94,10 @@ CREATE TABLE IF NOT EXISTS competitors (
     start TEXT,
     finish TEXT,
     manual_status TEXT,
+    bib INTEGER,
+    hired INTEGER NOT NULL DEFAULT 0,            -- hire/rental card flag
+    team_id INTEGER,                             -- relay team membership
+    leg INTEGER,                                 -- relay leg number
     -- Backs store._check_card_unique at the DB level (NULLs are unconstrained,
     -- so hire-card competitors with no number are allowed).
     UNIQUE (event_id, card_number)
@@ -97,6 +117,15 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'operator',
     club TEXT
 );
+CREATE TABLE IF NOT EXISTS members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    club TEXT,
+    card_number INTEGER,
+    type TEXT NOT NULL DEFAULT 'senior',
+    email TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_members_name ON members(name);
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -137,8 +166,33 @@ def connect(path: str | None = None) -> sqlite3.Connection:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA foreign_keys = ON")
         _conn.executescript(SCHEMA)
+        _migrate(_conn)
         _conn.commit()
         return _conn
+
+
+# Columns added after the original schema; applied to pre-existing databases so
+# they upgrade in place (CREATE TABLE IF NOT EXISTS never alters an existing table).
+_MIGRATIONS = [
+    ("courses", "start_mode", "TEXT NOT NULL DEFAULT 'clock'"),
+    ("courses", "start_control", "INTEGER"),
+    ("courses", "length_m", "INTEGER"),
+    ("controls", "leg_length_m", "INTEGER"),
+    ("classes", "kind", "TEXT NOT NULL DEFAULT 'individual'"),
+    ("classes", "legs", "INTEGER NOT NULL DEFAULT 1"),
+    ("classes", "fee", "REAL NOT NULL DEFAULT 0"),
+    ("competitors", "bib", "INTEGER"),
+    ("competitors", "hired", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "team_id", "INTEGER"),
+    ("competitors", "leg", "INTEGER"),
+]
+
+
+def _migrate(conn) -> None:
+    for table, col, decl in _MIGRATIONS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 def _c() -> sqlite3.Connection:
@@ -309,12 +363,16 @@ def save_course(event_id: int, course: dict) -> None:
         db = _c()
         db.execute(
             """INSERT OR REPLACE INTO courses
-               (id, event_id, name, type, time_limit_minutes, penalty_per_minute)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (id, event_id, name, type, time_limit_minutes, penalty_per_minute,
+                start_mode, start_control, length_m)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (course["id"], event_id, course["name"], course["type"],
-             course["time_limit_minutes"], course["penalty_per_minute"]),
+             course["time_limit_minutes"], course["penalty_per_minute"],
+             course.get("start_mode", "clock"), course.get("start_control"),
+             course.get("length_m")),
         )
         db.execute("DELETE FROM controls WHERE course_id = ?", (course["id"],))
+        leg_lengths = course.get("leg_lengths") or []
         if course["type"] == "score":
             for seq, ctl in enumerate(course["controls"]):
                 db.execute(
@@ -323,9 +381,11 @@ def save_course(event_id: int, course: dict) -> None:
                 )
         else:
             for seq, code in enumerate(course["controls"]):
+                length = leg_lengths[seq] if seq < len(leg_lengths) else None
                 db.execute(
-                    "INSERT INTO controls (course_id, code, sequence, points) VALUES (?, ?, ?, NULL)",
-                    (course["id"], code, seq),
+                    "INSERT INTO controls (course_id, code, sequence, points, leg_length_m) "
+                    "VALUES (?, ?, ?, NULL, ?)",
+                    (course["id"], code, seq, length),
                 )
         db.commit()
 
@@ -343,8 +403,10 @@ def delete_course(course_id: int) -> None:
 def save_class(event_id: int, cls: dict) -> None:
     with _lock:
         _c().execute(
-            "INSERT OR REPLACE INTO classes (id, event_id, name, course_id) VALUES (?, ?, ?, ?)",
-            (cls["id"], event_id, cls["name"], cls["course_id"]),
+            "INSERT OR REPLACE INTO classes (id, event_id, name, course_id, kind, legs, fee) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (cls["id"], event_id, cls["name"], cls["course_id"],
+             cls.get("kind", "individual"), cls.get("legs", 1), cls.get("fee", 0)),
         )
         _c().commit()
 
@@ -352,6 +414,27 @@ def save_class(event_id: int, cls: dict) -> None:
 def delete_class(class_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM classes WHERE id = ?", (class_id,))
+        _c().commit()
+
+
+# ---------------------------------------------------------------------------
+# Teams (relay)
+# ---------------------------------------------------------------------------
+
+def save_team(event_id: int, team: dict) -> None:
+    with _lock:
+        _c().execute(
+            "INSERT OR REPLACE INTO teams (id, event_id, class_id, name, club, bib, start) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (team["id"], event_id, team["class_id"], team["name"], team.get("club"),
+             team.get("bib"), _iso(team.get("start"))),
+        )
+        _c().commit()
+
+
+def delete_team(team_id: int) -> None:
+    with _lock:
+        _c().execute("DELETE FROM teams WHERE id = ?", (team_id,))
         _c().commit()
 
 
@@ -365,11 +448,13 @@ def save_competitor(event_id: int, comp: dict) -> None:
         db = _c()
         db.execute(
             """INSERT OR REPLACE INTO competitors
-               (id, event_id, name, club, class_id, card_number, start, finish, manual_status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, event_id, name, club, class_id, card_number, start, finish,
+                manual_status, bib, hired, team_id, leg)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
-             comp["manual_status"]),
+             comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
+             comp.get("team_id"), comp.get("leg")),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -414,6 +499,60 @@ def get_user(username: str) -> dict | None:
 def count_users() -> int:
     with _lock:
         return _c().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+
+
+# ---------------------------------------------------------------------------
+# Members (the runner database powering the entry page)
+# ---------------------------------------------------------------------------
+
+def insert_member(member: dict) -> int:
+    with _lock:
+        cur = _c().execute(
+            "INSERT INTO members (name, club, card_number, type, email) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (member["name"], member.get("club"), member.get("card_number"),
+             member.get("type", "senior"), member.get("email")))
+        _c().commit()
+        return cur.lastrowid
+
+
+def all_members() -> list[dict]:
+    with _lock:
+        rows = _c().execute("SELECT * FROM members ORDER BY name").fetchall()
+        return [dict(r) for r in rows]
+
+
+def search_members(query: str, limit: int = 8) -> list[dict]:
+    with _lock:
+        rows = _c().execute(
+            "SELECT * FROM members WHERE LOWER(name) LIKE ? ORDER BY name LIMIT ?",
+            (f"%{query.lower()}%", limit)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def find_member(name: str) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM members WHERE LOWER(name) = ?",
+                           (name.lower(),)).fetchone()
+        return dict(row) if row else None
+
+
+def delete_member(member_id: int) -> None:
+    with _lock:
+        _c().execute("DELETE FROM members WHERE id = ?", (member_id,))
+        _c().commit()
+
+
+def replace_members(members: list[dict]) -> None:
+    with _lock:
+        _c().execute("DELETE FROM members")
+        for m in members:
+            _c().execute(
+                "INSERT INTO members (name, club, card_number, type, email) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (m["name"], m.get("club"), m.get("card_number"),
+                 m.get("type", "senior"), m.get("email")))
+        _c().commit()
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +620,8 @@ def load_event(event_id: int) -> dict:
         courses: dict[int, dict] = {}
         for row in db.execute("SELECT * FROM courses WHERE event_id = ?", (event_id,)):
             ctls = db.execute(
-                "SELECT code, points FROM controls WHERE course_id = ? ORDER BY sequence",
+                "SELECT code, points, leg_length_m FROM controls "
+                "WHERE course_id = ? ORDER BY sequence",
                 (row["id"],),
             ).fetchall()
             if row["type"] == "score":
@@ -495,12 +635,25 @@ def load_event(event_id: int) -> dict:
                 "controls": controls,
                 "time_limit_minutes": row["time_limit_minutes"],
                 "penalty_per_minute": row["penalty_per_minute"],
+                "start_mode": row["start_mode"] or "clock",
+                "start_control": row["start_control"],
+                "length_m": row["length_m"],
+                "leg_lengths": [c["leg_length_m"] for c in ctls],
             }
 
         classes: dict[int, dict] = {}
         for row in db.execute("SELECT * FROM classes WHERE event_id = ?", (event_id,)):
             classes[row["id"]] = {
                 "id": row["id"], "name": row["name"], "course_id": row["course_id"],
+                "kind": row["kind"] or "individual", "legs": row["legs"] or 1,
+                "fee": row["fee"] or 0,
+            }
+
+        teams: dict[int, dict] = {}
+        for row in db.execute("SELECT * FROM teams WHERE event_id = ?", (event_id,)):
+            teams[row["id"]] = {
+                "id": row["id"], "class_id": row["class_id"], "name": row["name"],
+                "club": row["club"] or "", "bib": row["bib"], "start": _dt(row["start"]),
             }
 
         competitors: dict[int, dict] = {}
@@ -523,6 +676,10 @@ def load_event(event_id: int) -> dict:
                 "finish": _dt(row["finish"]),
                 "punches": punches,
                 "manual_status": row["manual_status"] or "",
+                "bib": row["bib"],
+                "hired": bool(row["hired"]),
+                "team_id": row["team_id"],
+                "leg": row["leg"],
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),
@@ -530,7 +687,7 @@ def load_event(event_id: int) -> dict:
         # belonging to other events.
         counters = {}
         for kind, table in (("course", "courses"), ("class", "classes"),
-                            ("competitor", "competitors")):
+                            ("competitor", "competitors"), ("team", "teams")):
             row = db.execute(f"SELECT MAX(id) AS m FROM {table}").fetchone()
             counters[kind] = row["m"] or 0
 
@@ -538,5 +695,6 @@ def load_event(event_id: int) -> dict:
             "courses": courses,
             "classes": classes,
             "competitors": competitors,
+            "teams": teams,
             "counters": counters,
         }

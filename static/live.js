@@ -14,7 +14,7 @@
 (function () {
     "use strict";
 
-    var LIVE_PAGES = { overview: 1, results: 1, splits: 1, download: 1, live: 1 };
+    var LIVE_PAGES = { overview: 1, results: 1, splits: 1, download: 1, live: 1, speaker: 1 };
     var page = document.body.getAttribute("data-page");
     if (!page || !LIVE_PAGES[page]) { return; }
     if (typeof EventSource === "undefined") { return; }

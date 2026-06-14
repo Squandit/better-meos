@@ -34,39 +34,4 @@
         </tbody>
     </table>
 </section>
-
-<section class="panel">
-    <div class="panel-head">
-        <h4>Coaching focus</h4>
-        <button class="btn" data-advice
-                data-q="{% if profile.card %}card={{ profile.card }}{% else %}name={{ profile.name|urlencode }}{% endif %}">
-            Get advice
-        </button>
-    </div>
-    <p class="advice-text" data-advice-text>Generate a training focus from this
-        competitor's split times relative to the field.</p>
-    <span class="review-source" data-advice-source hidden></span>
-</section>
-
-<script>
-(function () {
-    var btn = document.querySelector("[data-advice]");
-    if (!btn) { return; }
-    btn.addEventListener("click", function () {
-        var out = document.querySelector("[data-advice-text]");
-        var src = document.querySelector("[data-advice-source]");
-        out.textContent = "Thinking…"; src.hidden = true;
-        btn.disabled = true;
-        fetch("/api/profile/advice?" + btn.dataset.q)
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-                btn.disabled = false;
-                out.textContent = d.text;
-                src.hidden = false;
-                src.textContent = d.source === "ai" ? "AI coach" : "rule-based";
-            })
-            .catch(function () { btn.disabled = false; out.textContent = "Could not generate advice."; });
-    });
-})();
-</script>
 {% endblock %}

@@ -14,10 +14,25 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import smtplib
 from email.message import EmailMessage
 
 log = logging.getLogger("notify")
+
+# Basic, conservative recipient check; also rejects header-injection newlines.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _valid_email(addr: str) -> bool:
+    return bool(addr) and "\n" not in addr and "\r" not in addr and bool(_EMAIL_RE.match(addr))
+
+
+def _num(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def is_enabled() -> bool:
@@ -26,8 +41,8 @@ def is_enabled() -> bool:
 
 def send_entry_confirmation(entry: dict, event: dict) -> bool:
     """Send (or log) an entry-confirmation email. Returns True if actually sent."""
-    to = entry.get("email")
-    if not to:
+    to = (entry.get("email") or "").strip()
+    if not _valid_email(to):
         return False
     subject = f"Entry confirmed — {event.get('name', '')}"
     card = entry.get("card_number") or "hired on the day"
@@ -40,6 +55,36 @@ def send_entry_confirmation(entry: dict, event: dict) -> bool:
     )
     if not is_enabled():
         log.info("[email disabled] would send %r to %s", subject, to)
+        return False
+    return _send(to, subject, body)
+
+
+def send_entry_receipt(data: dict, event: dict) -> bool:
+    """Send a paid-entry receipt from the entry page (entries list + total +
+    PayPal reference). Returns True if actually sent; logs a no-op when SMTP
+    isn't configured."""
+    to = (data.get("email") or "").strip()
+    if not _valid_email(to):
+        return False
+    lines = []
+    for e in data.get("entries", []):
+        if not isinstance(e, dict):
+            continue
+        status = "Confirmed" if e.get("ok") else f"Error: {e.get('detail', '')}"
+        lines.append(f"  {e.get('name', '')} — {e.get('className', '')} "
+                     f"(${_num(e.get('price')):.2f}) — {status}")
+    total = _num(data.get("total"))
+    body = (
+        f"Your entries for {event.get('name', '')} have been received:\n\n"
+        + "\n".join(lines)
+        + f"\n\nTotal paid: ${total:.2f}\n"
+        f"PayPal reference: {data.get('paypalId', '')}\n\n"
+        "If you have any issues, contact the organiser and quote the PayPal "
+        "reference above as proof of payment.\n"
+    )
+    subject = f"Entry confirmation — {event.get('name', '')}"
+    if not is_enabled():
+        log.info("[email disabled] would send receipt %r to %s", subject, to)
         return False
     return _send(to, subject, body)
 

@@ -77,8 +77,9 @@ _lock = threading.RLock()
 _courses: dict[int, dict] = {}
 _classes: dict[int, dict] = {}
 _competitors: dict[int, dict] = {}
+_teams: dict[int, dict] = {}
 
-_counters = {"course": 0, "class": 0, "competitor": 0}
+_counters = {"course": 0, "class": 0, "competitor": 0, "team": 0}
 
 
 def _next_id(kind: str) -> int:
@@ -130,6 +131,16 @@ def _as_int(value, field: str, *, minimum: int | None = None, allow_blank=False)
     if minimum is not None and out < minimum:
         raise StoreError(f"{field} must be {minimum} or greater")
     return out
+
+
+def _as_float(value, field: str, *, default: float = 0.0) -> float:
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return default
+    try:
+        return float(text)
+    except ValueError:
+        raise StoreError(f"{field} must be a number (got {value!r})")
 
 
 def _clean_str(value, field: str, *, required=False) -> str:
@@ -198,7 +209,13 @@ def engine_course(course: dict) -> dict:
             "time_limit_minutes": course["time_limit_minutes"],
             "penalty_per_minute": course["penalty_per_minute"],
         }
-    return {"type": "linear", "controls": list(course["controls"])}
+    return {
+        "type": "linear",
+        "controls": list(course["controls"]),
+        "start_mode": course.get("start_mode", "clock"),
+        "start_control": course.get("start_control"),
+        "leg_lengths": course.get("leg_lengths") or [],
+    }
 
 
 def _engine_card(comp: dict, classes: dict | None = None) -> dict:
@@ -231,7 +248,8 @@ def _seed() -> None:
     _courses.clear()
     _classes.clear()
     _competitors.clear()
-    _counters.update(course=0, **{"class": 0}, competitor=0)
+    _teams.clear()
+    _counters.update(course=0, **{"class": 0}, competitor=0, team=0)
 
     roster = mock_classes()
 
@@ -284,7 +302,8 @@ def _seed() -> None:
 # public creators below).
 
 def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
-                   penalty_per_minute=0) -> int:
+                   penalty_per_minute=0, start_mode="clock", start_control=None,
+                   length_m=None, leg_lengths=None) -> int:
     cid = _next_id("course")
     _courses[cid] = {
         "id": cid,
@@ -293,20 +312,26 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
         "controls": controls,
         "time_limit_minutes": time_limit_minutes if ctype == "score" else None,
         "penalty_per_minute": penalty_per_minute if ctype == "score" else 0,
+        "start_mode": start_mode,
+        "start_control": start_control,
+        "length_m": length_m,
+        "leg_lengths": leg_lengths or [],
     }
     db.save_course(_active_event_id, _courses[cid])
     return cid
 
 
-def _insert_class(*, name, course_id) -> int:
+def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0) -> int:
     cid = _next_id("class")
-    _classes[cid] = {"id": cid, "name": name, "course_id": course_id}
+    _classes[cid] = {"id": cid, "name": name, "course_id": course_id,
+                     "kind": kind, "legs": legs, "fee": fee}
     db.save_class(_active_event_id, _classes[cid])
     return cid
 
 
 def _insert_competitor(*, name, club, class_id, card_number, start, finish,
-                       punches, manual_status) -> int:
+                       punches, manual_status, bib=None, hired=False,
+                       team_id=None, leg=None) -> int:
     cid = _next_id("competitor")
     _competitors[cid] = {
         "id": cid,
@@ -318,6 +343,10 @@ def _insert_competitor(*, name, club, class_id, card_number, start, finish,
         "finish": finish,
         "punches": punches,
         "manual_status": manual_status,
+        "bib": bib,
+        "hired": hired,
+        "team_id": team_id,
+        "leg": leg,
     }
     db.save_competitor(_active_event_id, _competitors[cid])
     return cid
@@ -441,6 +470,135 @@ def result_for(comp_id: int) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Teams / relay
+# ---------------------------------------------------------------------------
+
+def teams_in_class(class_id: int) -> list[dict]:
+    return [t for t in _teams.values() if t["class_id"] == class_id]
+
+
+def get_team(team_id: int) -> dict | None:
+    return _teams.get(team_id)
+
+
+def create_team(data: dict) -> dict:
+    with _lock:
+        name = _clean_str(data.get("name"), "Team name", required=True)
+        class_id = _as_int(data.get("class_id"), "Class")
+        cls = _classes.get(class_id)
+        if cls is None:
+            raise StoreError("That class no longer exists")
+        if cls.get("kind") != "relay":
+            raise StoreError("Teams can only be added to a relay class")
+        tid = _next_id("team")
+        _teams[tid] = {
+            "id": tid, "class_id": class_id, "name": name,
+            "club": _clean_str(data.get("club"), "Club"),
+            "bib": _as_int(data.get("bib"), "Bib", minimum=1, allow_blank=True),
+            "start": parse_clock(data.get("start"), "Start time"),
+        }
+        db.save_team(_active_event_id, _teams[tid])
+        return dict(_teams[tid])
+
+
+def delete_team(team_id: int) -> None:
+    with _lock:
+        if team_id not in _teams:
+            raise StoreError("That team no longer exists")
+        # Detach members from the team (they remain as competitors).
+        for c in _competitors.values():
+            if c.get("team_id") == team_id:
+                c["team_id"] = None
+                c["leg"] = None
+                db.save_competitor(_active_event_id, c)
+        del _teams[team_id]
+        db.delete_team(team_id)
+
+
+def team_results() -> list[dict]:
+    """
+    Relay standings: for each relay class, rank teams by total time.
+
+    A team's members are the competitors carrying its ``team_id`` (ordered by
+    ``leg``); the team time is the sum of its members' run times, valid only when
+    every leg is OK. Teams with any non-OK leg are unranked.
+    """
+    with _lock:
+        _, by_id = evaluate()
+        out = []
+        for cls in _classes_sorted():
+            if cls.get("kind") != "relay":
+                continue
+            teams = []
+            for team in teams_in_class(cls["id"]):
+                members = sorted(
+                    (c for c in _competitors.values() if c.get("team_id") == team["id"]),
+                    key=lambda c: (c.get("leg") or 0))
+                legs = []
+                total = 0
+                ok = bool(members)
+                for m in members:
+                    res = by_id.get(m["id"])
+                    leg_ok = res is not None and res["status"] == "ok" \
+                        and res["total_seconds"] is not None
+                    legs.append({"name": m["name"], "leg": m.get("leg"),
+                                 "seconds": res["total_seconds"] if res else None,
+                                 "status": res["status"] if res else "dns"})
+                    if leg_ok:
+                        total += res["total_seconds"]
+                    else:
+                        ok = False
+                teams.append({"team": team, "legs": legs,
+                              "total_seconds": total if ok else None, "ok": ok})
+            ranked = sorted((t for t in teams if t["ok"]),
+                            key=lambda t: t["total_seconds"])
+            for i, t in enumerate(ranked):
+                t["position"] = i + 1
+            for t in teams:
+                if not t["ok"]:
+                    t["position"] = None
+            out.append({"class": cls,
+                        "teams": ranked + [t for t in teams if not t["ok"]]})
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Economy (entry fees + hire cards) and bib numbers
+# ---------------------------------------------------------------------------
+
+def economy_summary() -> dict:
+    """Fee totals per class plus hire-card counts for the active event."""
+    with _lock:
+        rows = []
+        grand_fee = 0.0
+        hire_total = 0
+        for cls in _classes_sorted():
+            members = _competitors_in_class(cls["id"])
+            fee = cls.get("fee", 0) or 0
+            hired = sum(1 for c in members if c.get("hired"))
+            subtotal = fee * len(members)
+            grand_fee += subtotal
+            hire_total += hired
+            rows.append({"class": cls["name"], "entries": len(members),
+                         "fee": fee, "subtotal": subtotal, "hired": hired})
+        return {"rows": rows, "total_fees": grand_fee, "hire_cards": hire_total}
+
+
+def assign_bibs(start: int = 1) -> int:
+    """Number every competitor sequentially (by start time, then name)."""
+    with _lock:
+        ordered = sorted(
+            _competitors.values(),
+            key=lambda c: (c["start"] or datetime.max, c["name"].lower()))
+        n = start
+        for c in ordered:
+            c["bib"] = n
+            db.save_competitor(_active_event_id, c)
+            n += 1
+        return n - start
+
+
+# ---------------------------------------------------------------------------
 # Serialisation for the JSON editor
 # ---------------------------------------------------------------------------
 
@@ -457,6 +615,10 @@ def competitor_json(comp: dict) -> dict:
         "start": format_clock(comp["start"]),
         "finish": format_clock(comp["finish"]),
         "manual_status": comp["manual_status"] or "",
+        "bib": comp.get("bib"),
+        "hired": bool(comp.get("hired")),
+        "team_id": comp.get("team_id"),
+        "leg": comp.get("leg"),
         "punches": [
             {"code": p["code"], "time": format_clock(p["time"])}
             for p in comp["punches"]
@@ -476,6 +638,9 @@ def course_json(course: dict) -> dict:
         ),
         "time_limit_minutes": course["time_limit_minutes"],
         "penalty_per_minute": course["penalty_per_minute"],
+        "start_mode": course.get("start_mode", "clock"),
+        "start_control": course.get("start_control"),
+        "length_m": course.get("length_m"),
     }
 
 
@@ -518,6 +683,17 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         out["manual_status"] = status
     if has("punches"):
         out["punches"] = _coerce_punches(data.get("punches"))
+    if has("bib"):
+        out["bib"] = _as_int(data.get("bib"), "Bib", minimum=1, allow_blank=True)
+    if has("hired"):
+        out["hired"] = bool(data.get("hired"))
+    if has("team_id"):
+        team_id = _as_int(data.get("team_id"), "Team", minimum=1, allow_blank=True)
+        if team_id is not None and team_id not in _teams:
+            raise StoreError("That team no longer exists")
+        out["team_id"] = team_id
+    if has("leg"):
+        out["leg"] = _as_int(data.get("leg"), "Leg", minimum=1, allow_blank=True)
 
     # Cross-field: finish must not precede start.
     start = out.get("start", current["start"] if current else None)
@@ -552,6 +728,10 @@ def create_competitor(data: dict) -> dict:
             finish=fields.get("finish"),
             punches=fields.get("punches", []),
             manual_status=fields.get("manual_status", ""),
+            bib=fields.get("bib"),
+            hired=fields.get("hired", False),
+            team_id=fields.get("team_id"),
+            leg=fields.get("leg"),
         )
         return competitor_json(_competitors[cid])
 
@@ -587,6 +767,13 @@ def _check_unique_class_name(name: str, *, ignore: int | None = None) -> None:
             raise StoreError(f"A class named {name!r} already exists")
 
 
+def _class_kind(value) -> str:
+    kind = _clean_str(value, "Class kind").lower() or "individual"
+    if kind not in ("individual", "relay"):
+        raise StoreError("Class kind must be 'individual' or 'relay'")
+    return kind
+
+
 def create_class(data: dict) -> dict:
     with _lock:
         name = _clean_str(data.get("name"), "Class name", required=True)
@@ -594,7 +781,10 @@ def create_class(data: dict) -> dict:
         course_id = _as_int(data.get("course_id"), "Course")
         if course_id not in _courses:
             raise StoreError("That course no longer exists")
-        cid = _insert_class(name=name, course_id=course_id)
+        kind = _class_kind(data.get("kind"))
+        legs = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
+        fee = _as_float(data.get("fee"), "Fee")
+        cid = _insert_class(name=name, course_id=course_id, kind=kind, legs=legs, fee=fee)
         return dict(_classes[cid])
 
 
@@ -612,6 +802,12 @@ def update_class(class_id: int, data: dict) -> dict:
             if course_id not in _courses:
                 raise StoreError("That course no longer exists")
             cls["course_id"] = course_id
+        if "kind" in data:
+            cls["kind"] = _class_kind(data.get("kind"))
+        if "legs" in data:
+            cls["legs"] = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
+        if "fee" in data:
+            cls["fee"] = _as_float(data.get("fee"), "Fee")
         db.save_class(_active_event_id, cls)
         return dict(cls)
 
@@ -655,10 +851,26 @@ def _validated_course_fields(data: dict) -> dict:
         }
 
     controls = _coerce_linear_controls(data.get("controls"))
-    return {
+    start_mode = _clean_str(data.get("start_mode"), "Start mode").lower() or "clock"
+    if start_mode not in ("clock", "punch"):
+        raise StoreError("Start mode must be 'clock' or 'punch'")
+    start_control = _as_int(data.get("start_control"), "Start control",
+                            minimum=1, allow_blank=True)
+    if start_mode == "punch" and start_control is None:
+        raise StoreError("A punch-start course needs a start control code")
+    length_m = _as_int(data.get("length_m"), "Course length", minimum=0, allow_blank=True)
+    out = {
         "name": name, "type": "linear", "controls": controls,
         "time_limit_minutes": None, "penalty_per_minute": 0,
+        "start_mode": start_mode, "start_control": start_control,
+        "length_m": length_m,
     }
+    # Only carry leg_lengths when explicitly supplied (the IOF importer sends
+    # them; the course editor doesn't). update_course preserves the existing
+    # value when absent, so editing a course can't wipe imported leg lengths.
+    if isinstance(data.get("leg_lengths"), list):
+        out["leg_lengths"] = data["leg_lengths"]
+    return out
 
 
 def create_course(data: dict) -> dict:
@@ -668,6 +880,10 @@ def create_course(data: dict) -> dict:
             name=fields["name"], ctype=fields["type"], controls=fields["controls"],
             time_limit_minutes=fields["time_limit_minutes"],
             penalty_per_minute=fields["penalty_per_minute"],
+            start_mode=fields.get("start_mode", "clock"),
+            start_control=fields.get("start_control"),
+            length_m=fields.get("length_m"),
+            leg_lengths=fields.get("leg_lengths") or [],
         )
         return course_json(_courses[cid])
 
@@ -766,6 +982,26 @@ def find_by_card(card_number: int) -> dict | None:
         if c["card_number"] == card_number:
             return c
     return None
+
+
+def add_radio_punch(card_number: int, code: int, time: datetime,
+                    station_id: str | None = None) -> dict:
+    """
+    Record a single live punch from a radio / online control.
+
+    Unlike a finish download (which replaces the whole card), a radio control
+    streams one intermediate punch at a time. The punch is inserted into the
+    competitor's list in time order so the splits stay correct as the run
+    progresses. Raises StoreError if no competitor is registered for the card.
+    """
+    with _lock:
+        comp = find_by_card(card_number)
+        if comp is None:
+            raise StoreError(f"No competitor registered for SI card {card_number}")
+        comp["punches"].append({"code": code, "time": time, "station_id": station_id})
+        comp["punches"].sort(key=lambda p: p["time"])
+        db.save_competitor(_active_event_id, comp)
+        return comp
 
 
 def apply_card_read(card: dict) -> dict:
@@ -882,6 +1118,7 @@ def set_active_event(event_id: int) -> dict:
         _courses.clear(); _courses.update(data["courses"])
         _classes.clear(); _classes.update(data["classes"])
         _competitors.clear(); _competitors.update(data["competitors"])
+        _teams.clear(); _teams.update(data.get("teams", {}))
         _counters.update(data["counters"])
         _apply_event(row)
         return row
@@ -982,6 +1219,7 @@ def _load_active() -> None:
     _courses.clear(); _courses.update(data["courses"])
     _classes.clear(); _classes.update(data["classes"])
     _competitors.clear(); _competitors.update(data["competitors"])
+    _teams.clear(); _teams.update(data.get("teams", {}))
     _counters.update(data["counters"])
 
 

@@ -370,6 +370,39 @@ body.overlay-open { overflow: hidden; }
 }
 .field input.mono, .mini-table input.mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
+/* Shared control styling so forms outside the modal .field grid (tool/draw
+   forms, table-embedded selects, the event switcher) don't fall back to
+   browser defaults. Bare controls only — class-bearing ones keep their look. */
+.tool-form input:not([type=file]):not([type=checkbox]):not([type=radio]),
+.tool-form select,
+.panel .table td select,
+.panel .table td input:not([type=file]):not([type=checkbox]):not([type=radio]),
+select.event-switcher {
+    padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px;
+    font-size: 14px; background: var(--surface); color: var(--ink); font-family: inherit;
+}
+.tool-form input:focus, .tool-form select:focus,
+.panel .table td select:focus, .panel .table td input:focus,
+select.event-switcher:focus {
+    outline: 2px solid var(--green); outline-offset: -1px; border-color: var(--green);
+}
+select.event-switcher { font-weight: 600; max-width: 220px; }
+/* Native date/time pickers and file inputs across the app. */
+input[type=date], input[type=time] {
+    padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px;
+    font-size: 14px; background: var(--surface); color: var(--ink); font-family: inherit;
+}
+input[type=file] {
+    font-size: 13px; color: var(--muted);
+    border: 1px dashed var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface);
+}
+input[type=file]::file-selector-button {
+    margin-right: 10px; padding: 7px 13px; border: 0; border-radius: 8px;
+    background: var(--green); color: #fff; font-weight: 600; font-size: 13px;
+    cursor: pointer; font-family: inherit;
+}
+input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
+
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .segmented label { padding: 9px 16px; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--muted); }
 .segmented label + label { border-left: 1px solid var(--line); }
@@ -457,6 +490,13 @@ body.overlay-open { overflow: hidden; }
 .split-cell.best { background: var(--green-soft); }
 .split-cell.best .cum { color: var(--green); }
 .split-cell.miss .miss { color: #b8302f; }
+.split-cell .vel { display: block; color: #9aa5b1; font-size: 9.5px; }
+
+/* ---- Speaker view + misc form bits ------------------------------------- */
+.speaker-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 720px) { .speaker-grid { grid-template-columns: 1fr; } }
+.check-field .check { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; font-size: 13.5px; }
+.check-field .check input { width: auto; }
 
 /* ---- Printable splits slip --------------------------------------------- */
 
@@ -510,7 +550,7 @@ body.overlay-open { overflow: hidden; }
 .btn.ghost { background: transparent; color: var(--green); border: 1px solid var(--green); }
 .btn.danger { background: #b8302f; }
 .tool-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.tool-form input[type=file] { font-size: 13px; }
+.tool-form label { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .tool-note { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
 .tool-note code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
 .tool-result { font-size: 13px; }
@@ -549,13 +589,6 @@ body.overlay-open { overflow: hidden; }
 
 .link-btn { background: none; border: 0; cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px 6px; }
 .link-btn.danger:hover { color: #b8302f; }
-
-/* ---- AI review / coaching ---------------------------------------------- */
-
-.course-review { margin: 8px 16px 14px; padding: 12px 14px; background: var(--green-soft); border-radius: 9px; }
-.review-text { margin: 0; white-space: pre-line; font-size: 13.5px; }
-.review-source, [data-advice-source] { display: inline-block; margin-top: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
-.advice-text { white-space: pre-line; }
 
 /* ---- Operator dashboard console ---------------------------------------- */
 

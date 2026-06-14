@@ -206,6 +206,8 @@
                 start: field("start").value,
                 finish: field("finish").value,
                 manual_status: field("manual_status").value,
+                bib: field("bib") ? field("bib").value : "",
+                hired: field("hired") ? field("hired").checked : false,
                 punches: readPunches()
             };
         }
@@ -319,6 +321,8 @@
                 field("start").value = c.start || "";
                 field("finish").value = c.finish || "";
                 field("manual_status").value = c.manual_status || "";
+                if (field("bib")) { field("bib").value = c.bib == null ? "" : c.bib; }
+                if (field("hired")) { field("hired").checked = !!c.hired; }
                 punchBody.innerHTML = "";
                 (c.punches || []).forEach(function (p) { addPunchRow(p.code, p.time); });
                 updatePunchEmpty();
@@ -424,6 +428,9 @@
             clearError(form);
             form.elements.name.value = row.dataset.name || "";
             if (row.dataset.courseId) { form.elements.course_id.value = row.dataset.courseId; }
+            if (form.elements.kind) { form.elements.kind.value = row.dataset.kind || "individual"; }
+            if (form.elements.legs) { form.elements.legs.value = row.dataset.legs || "1"; }
+            if (form.elements.fee) { form.elements.fee.value = row.dataset.fee || ""; }
             titleEl.textContent = "Edit class";
             openOverlay(modal);
         }
@@ -431,7 +438,12 @@
         form.addEventListener("submit", function (e) {
             e.preventDefault();
             clearError(form);
-            var payload = { name: form.elements.name.value, course_id: form.elements.course_id.value };
+            var payload = {
+                name: form.elements.name.value, course_id: form.elements.course_id.value,
+                kind: form.elements.kind ? form.elements.kind.value : "individual",
+                legs: form.elements.legs ? form.elements.legs.value : 1,
+                fee: form.elements.fee ? form.elements.fee.value : 0
+            };
             var req = editId
                 ? api("PUT", "/api/classes/" + editId, payload)
                 : api("POST", "/api/classes", payload);
@@ -574,6 +586,9 @@
             } else {
                 payload.controls = rows.filter(function (r) { return r.code !== ""; })
                     .map(function (r) { return r.code; });
+                payload.start_mode = form.elements.start_mode ? form.elements.start_mode.value : "clock";
+                payload.start_control = form.elements.start_control ? form.elements.start_control.value : "";
+                payload.length_m = form.elements.length_m ? form.elements.length_m.value : "";
             }
             return payload;
         }
@@ -595,6 +610,9 @@
                 form.reset();
                 clearError(form);
                 form.elements.name.value = c.name || "";
+                if (form.elements.start_mode) { form.elements.start_mode.value = c.start_mode || "clock"; }
+                if (form.elements.start_control) { form.elements.start_control.value = c.start_control == null ? "" : c.start_control; }
+                if (form.elements.length_m) { form.elements.length_m.value = c.length_m == null ? "" : c.length_m; }
                 applyTypeUI(c.type);
                 if (c.type === "score") {
                     form.elements.time_limit_minutes.value = c.time_limit_minutes == null ? "" : c.time_limit_minutes;
