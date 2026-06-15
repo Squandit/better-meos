@@ -50,11 +50,67 @@ _start_lock = threading.Lock()
 _recent: deque = deque(maxlen=25)
 _recent_lock = threading.Lock()
 
+# The most recently seen card number (any read), so the registration page can
+# autofill the SI number the moment a card touches the reader. ``seq`` rises on
+# every read so the page can tell a fresh tap from a repeat.
+_last_seen: dict = {"card_number": None, "name": "", "club": "", "seq": 0}
+_seen_lock = threading.Lock()
+
 
 def recent_reads() -> list[dict]:
     """Most-recent-first list of recent card reads (for the dashboard)."""
     with _recent_lock:
         return list(reversed(_recent))
+
+
+def last_seen() -> dict:
+    """The most recently read card number + any known name/club (registration)."""
+    with _seen_lock:
+        return dict(_last_seen)
+
+
+def _note_seen(card: dict) -> None:
+    """Record a just-read card number (+ runner-DB name/club) for registration."""
+    num = card.get("card_number")
+    if not num:
+        return
+    name = club = ""
+    try:
+        import runners  # local import: separate DB, avoid any import cycle
+        r = runners.lookup(num)
+        if r:
+            name, club = r.get("name", ""), r.get("club", "")
+    except Exception:  # pragma: no cover - lookup is best-effort
+        pass
+    with _seen_lock:
+        _last_seen.update({"card_number": num, "name": name, "club": club,
+                           "seq": _last_seen["seq"] + 1})
+
+
+# ---------------------------------------------------------------------------
+# Serial-port discovery (so the operator needn't know which COM port)
+# ---------------------------------------------------------------------------
+
+def list_serial_ports() -> list[dict]:
+    """Available serial ports as ``[{device, description, hwid}]`` (empty if
+    pyserial isn't present)."""
+    try:
+        from serial.tools import list_ports
+    except Exception:  # pragma: no cover - pyserial missing
+        return []
+    return [{"device": p.device, "description": p.description or "",
+             "hwid": p.hwid or ""} for p in list_ports.comports()]
+
+
+def autodetect_port() -> str | None:
+    """Best guess at the SI reader's COM port. SPORTident USB stations use a
+    Silicon Labs CP210x bridge (USB VID 10C4); fall back to the only/first port."""
+    ports = list_serial_ports()
+    for p in ports:
+        blob = (p["hwid"] + " " + p["description"]).upper()
+        if "10C4" in blob or "CP210" in blob or "SPORTIDENT" in blob:
+            return p["device"]
+    return ports[0]["device"] if ports else None
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +140,7 @@ def process_card(card: dict, *, station_id: str | None = None,
         card = {**card, "station_id": station_id}
     if auto_create is None:
         auto_create = AUTO_CREATE
+    _note_seen(card)  # surface the card number for the registration page
     when = datetime.now().strftime("%H:%M:%S")
     try:
         comp = store.apply_card_read(card)
@@ -236,7 +293,16 @@ def start(port: str | None = None, station_id: str = "main") -> bool:
     if not store.EVENT.get("reader_enabled"):
         log.info("SI reader disabled (set BMEOS_READER to enable); running on simulated reads")
         return False
-    return _start_one(port or store.EVENT.get("reader_port"), station_id)
+    resolved = port or store.EVENT.get("reader_port")
+    # Blank or "auto" -> find the SPORTident USB port ourselves.
+    if not resolved or str(resolved).strip().lower() == "auto":
+        resolved = autodetect_port()
+        if resolved:
+            log.info("auto-detected SI reader on %s", resolved)
+        else:
+            log.warning("no serial port found to auto-detect the SI reader")
+            return False
+    return _start_one(resolved, station_id)
 
 
 def start_all() -> int:

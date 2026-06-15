@@ -697,3 +697,14 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .setup-checklist li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .setup-checklist li:last-child { border-bottom: 0; }
 .setup-step-title { font-weight: 600; font-size: 13.5px; margin-bottom: 5px; }
+
+/* ---- Registration page ------------------------------------------------ */
+.reg-wrap { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .reg-wrap { grid-template-columns: 1fr; } }
+.reg-reader { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 12px; padding: 8px 12px; background: var(--bg); border-radius: 8px; }
+.reg-reader .dot { width: 9px; height: 9px; border-radius: 50%; background: #2fbf71; box-shadow: 0 0 0 3px rgba(47,191,113,.18); animation: reg-pulse 1.4s ease-in-out infinite; }
+.reg-reader .dot.off { background: #b8302f; box-shadow: none; animation: none; }
+@keyframes reg-pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+.reg-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; }
+.reg-list li { padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.reg-list li.empty { color: var(--muted); border: 0; }

@@ -1269,6 +1269,28 @@ def api_stream():
 # SI reader (simulated download for hardware-free testing)
 # ---------------------------------------------------------------------------
 
+@app.route("/register")
+def register_page():
+    """Fast on-the-day registration: type or tap a card to autofill, then save."""
+    return render_template("register.html", active="register",
+                           class_options=store.class_options(),
+                           reader_enabled=store.EVENT.get("reader_enabled"))
+
+
+@app.route("/api/reader/last-card")
+def api_reader_last_card():
+    """The most recently read card number (+ known name/club), for registration
+    autofill when a card touches the reader."""
+    return jsonify(si_reader.last_seen())
+
+
+@app.route("/api/reader/ports")
+def api_reader_ports():
+    """Available serial ports + the auto-detected SI reader port (Settings help)."""
+    return jsonify({"ports": si_reader.list_serial_ports(),
+                    "detected": si_reader.autodetect_port()})
+
+
 @app.route("/api/reader/simulate", methods=["POST"])
 def api_reader_simulate():
     """

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Register{% endblock %}
+{% block heading %}Registration{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>On-the-day registration</h3>
+    <p>Fill in the boxes, or <strong>tap the SI card on the reader</strong> to
+       autofill the card number (and the name/club/class if we've seen the card
+       before). Save, and it clears for the next person.</p>
+</div>
+
+<div class="reg-wrap">
+    <section class="panel reg-form-panel">
+        <div class="panel-body">
+            <div class="reg-reader" data-reader-state>
+                {% if reader_enabled %}
+                <span class="dot"></span> Waiting for a card on the reader…
+                {% else %}
+                <span class="dot off"></span> Reader off — type the SI number (or use Simulate on the Overview page). Set <code>BMEOS_READER</code> to enable.
+                {% endif %}
+            </div>
+            <form data-register-form>
+                <div class="form-error" data-form-error hidden></div>
+                <div class="field-grid">
+                    <label class="field field-wide">
+                        <span class="field-label">Name</span>
+                        <input type="text" name="name" autocomplete="off" required autofocus>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Class / category</span>
+                        <select name="class_id" required>
+                            <option value="">— pick —</option>
+                            {% for c in class_options %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Club</span>
+                        <input type="text" name="club" autocomplete="off">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">SI card <span class="hint" data-card-hint></span></span>
+                        <input type="number" name="card_number" inputmode="numeric" min="1" autocomplete="off" class="mono">
+                    </label>
+                    <label class="field check-field">
+                        <span class="field-label">Hire card</span>
+                        <label class="check"><input type="checkbox" name="hired"> Rented today</label>
+                    </label>
+                </div>
+                <div class="ops-bar" style="margin-top:8px">
+                    <button class="btn btn-primary" type="submit">Register competitor</button>
+                    <button class="btn btn-ghost" type="button" data-clear>Clear</button>
+                    <span class="toolbar-spacer"></span>
+                    <span class="tool-result" data-result></span>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head"><div class="panel-head-main"><h4>Just registered</h4></div></div>
+        <div class="panel-body">
+            <ul class="reg-list" data-reg-list><li class="empty">No one yet this session.</li></ul>
+        </div>
+    </section>
+</div>
+
+<script>
+(function () {
+    var form = document.querySelector("[data-register-form]");
+    var out = form.querySelector("[data-result]");
+    var err = form.querySelector("[data-form-error]");
+    var hint = form.querySelector("[data-card-hint]");
+    var list = document.querySelector("[data-reg-list]");
+    var readerEnabled = {{ 'true' if reader_enabled else 'false' }};
+    function f(name) { return form.elements[name]; }
+
+    function autofillFromCard(card) {
+        f("card_number").value = card;
+        fetch("/api/runners/lookup?card=" + encodeURIComponent(card))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d) { return; }
+                if (!f("name").value && d.name) { f("name").value = d.name; }
+                if (!f("club").value && d.club) { f("club").value = d.club; }
+                if (d.class_id && !f("class_id").value) { f("class_id").value = d.class_id; }
+            }).catch(function () {});
+    }
+
+    // Typing/entering an SI number autofills the known runner.
+    f("card_number").addEventListener("change", function () {
+        var v = f("card_number").value.trim();
+        if (v) { autofillFromCard(v); }
+    });
+
+    // Tap-to-autofill: poll the reader's last-seen card; a new tap fills the form.
+    var lastSeq = null;
+    function pollCard() {
+        fetch("/api/reader/last-card").then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (lastSeq === null) { lastSeq = d.seq; return; }   // ignore stale card on load
+                if (d.seq !== lastSeq && d.card_number) {
+                    lastSeq = d.seq;
+                    autofillFromCard(d.card_number);
+                    hint.textContent = "card " + d.card_number + " detected";
+                }
+            }).catch(function () {});
+    }
+    if (readerEnabled) { setInterval(pollCard, 1000); pollCard(); }
+
+    function clearForm(keepClass) {
+        var cls = f("class_id").value;
+        form.reset();
+        if (keepClass) { f("class_id").value = cls; }
+        hint.textContent = "";
+        f("name").focus();
+    }
+    document.querySelector("[data-clear]").addEventListener("click", function () { clearForm(false); });
+
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        err.hidden = true;
+        var payload = {
+            name: f("name").value, club: f("club").value,
+            class_id: f("class_id").value, card_number: f("card_number").value,
+            hired: f("hired").checked
+        };
+        out.className = "tool-result"; out.textContent = "Saving…";
+        fetch("/api/competitors", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (!res.ok) { out.textContent = ""; err.textContent = (res.d && res.d.error) || "Could not register"; err.hidden = false; return; }
+                out.className = "tool-result ok"; out.textContent = "Registered " + payload.name;
+                var li = document.createElement("li");
+                li.textContent = payload.name + (payload.card_number ? " · SI " + payload.card_number : "");
+                if (list.querySelector(".empty")) { list.innerHTML = ""; }
+                list.insertBefore(li, list.firstChild);
+                clearForm(true);   // keep the class for the next entrant
+            })
+            .catch(function () { out.textContent = ""; err.textContent = "Could not register"; err.hidden = false; });
+    });
+})();
+</script>
+{% endblock %}

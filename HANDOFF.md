@@ -177,6 +177,19 @@ Built in 7 committed/pushed phases on top of 1.1 (tests now **133 passing**):
   settings: `prize_season`, `series_points_*`, `eventor_*`. New DB columns
   (competitors time edits, courses `variants`) with migrations.
 
+### 1.3 DONE — registration page, reader autodetect, usage guide (2026-06-15, PC)
+- **/register**: MeOS-style fast on-the-day entry (name/class/club/SI). Tapping a
+  card on the reader autofills the SI number (polls `/api/reader/last-card`) and,
+  if the card is known, name/club/usual class from the runner DB. Typing an SI
+  autofills too. Saves via `/api/competitors`, keeps the class for the next person.
+- **Reader COM-port autodetect** (`si_reader.autodetect_port` / `list_serial_ports`,
+  `/api/reader/ports`): set `BMEOS_READER_PORT=auto` (or blank) and it finds the
+  SPORTident CP210x USB station itself; `start()` resolves auto. `si_reader`
+  tracks the last-seen card number (`_note_seen`/`last_seen`).
+- **EVENT-GUIDE.md**: full-event walkthrough incl. real SI reader setup + a
+  simulate-with-real-reader test plan. (In-app guide is `guide.py`/`/guide`.)
+- New nav + Setup tile for Register. Tests in `tests/test_register.py`. 144 passing.
+
 ---
 
 ## 2. Continue on another computer (setup)
