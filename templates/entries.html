@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Entries{% endblock %}
+{% block heading %}Entries{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Registrations</h3>
+    <p>Online and on-the-day entries. Run the draw to turn entries into
+       competitors with start times. Public form:
+       <a href="{{ url_for('enter') }}" target="_blank" rel="noopener">{{ url_for('enter', _external=True) }}</a></p>
+</div>
+
+<section class="panel">
+    <div class="panel-head"><h4>Start-list draw</h4></div>
+    <form class="tool-form" data-draw-form>
+        <label>First start <input name="first_start" value="10:00:00" size="9"></label>
+        <label>Interval (min) <input name="interval_minutes" value="2" size="4" inputmode="numeric"></label>
+        <button class="btn" type="submit">Generate start list</button>
+        <span class="tool-result" data-result></span>
+    </form>
+    <p class="tool-note">Each class is drawn alphabetically from the first start, spaced by the interval.
+        Already-drawn entries are skipped, so you can re-run after late entries.</p>
+</section>
+
+<section class="panel" data-entries>
+    <div class="panel-head">
+        <h4>{{ entries|length }} entr{{ 'y' if entries|length == 1 else 'ies' }}</h4>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th><th>Class</th><th>Club</th><th>SI</th>
+                <th>Status</th><th style="text-align:right"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entries %}
+            <tr data-entry-row data-id="{{ e.id }}">
+                <td><span class="cell-name">{{ e.name }}</span></td>
+                <td>{{ e.class_name }}</td>
+                <td>{{ e.club }}</td>
+                <td class="mono dim">{{ e.card_number or '—' }}</td>
+                <td>
+                    {% if e.converted %}<span class="chip">drawn</span>
+                    {% else %}<span class="chip grey">pending</span>{% endif %}
+                    {% if e.paid %}<span class="chip">paid</span>{% endif %}
+                    {% if e.late %}<span class="chip grey">late</span>{% endif %}
+                </td>
+                <td style="text-align:right">
+                    {% if not e.paid %}<button class="link-btn" data-mark-paid>Mark paid</button>{% endif %}
+                    <button class="link-btn danger" data-delete-entry data-name="{{ e.name }}">Delete</button>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="empty">No entries yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<script>
+(function () {
+    var drawForm = document.querySelector("[data-draw-form]");
+    var out = drawForm.querySelector("[data-result]");
+    drawForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        out.textContent = "Drawing…"; out.className = "tool-result";
+        fetch("/api/entries/draw", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                first_start: drawForm.elements.first_start.value,
+                interval_minutes: drawForm.elements.interval_minutes.value
+            })
+        }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+              if (!res.ok) { out.className = "tool-result err"; out.textContent = (res.d && res.d.error) || "Failed"; return; }
+              var msg = "Created " + res.d.created + " competitor(s)";
+              if (res.d.skipped && res.d.skipped.length) { msg += " · skipped " + res.d.skipped.length; }
+              out.className = "tool-result ok"; out.textContent = msg;
+              setTimeout(function () { window.location.reload(); }, 900);
+          }).catch(function () { out.className = "tool-result err"; out.textContent = "Failed"; });
+    });
+
+    document.querySelector("[data-entries]").addEventListener("click", function (e) {
+        var row = e.target.closest("[data-entry-row]");
+        if (!row) { return; }
+        if (e.target.closest("[data-mark-paid]")) {
+            fetch("/api/entries/" + row.dataset.id + "/paid", { method: "POST" })
+                .then(function (r) { if (r.ok) { window.location.reload(); } });
+            return;
+        }
+        var del = e.target.closest("[data-delete-entry]");
+        if (!del) { return; }
+        if (!window.confirm("Delete entry for " + del.dataset.name + "?")) { return; }
+        fetch("/api/entries/" + row.dataset.id, { method: "DELETE" })
+            .then(function (r) { if (r.ok) { row.remove(); } });
+    });
+})();
+</script>
+{% endblock %}

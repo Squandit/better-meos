@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Configuration</h3>
+    <p>Interchangeable values for this install. Saved to <code>config.json</code>
+       (gitignored). Blank fields fall back to environment variables.</p>
+</div>
+
+<form data-config-form>
+    {% for group in groups %}
+    <section class="panel">
+        <div class="panel-body">
+            <div class="section-title">{{ group.group }}</div>
+            {% for f in group.fields %}
+            <label class="config-field">
+                <span class="config-label">{{ f.label }}</span>
+                {% if f.type == "bool" %}
+                <input type="checkbox" data-key="{{ f.key }}" data-type="bool" {% if f.value %}checked{% endif %}>
+                {% elif f.type == "password" %}
+                <input type="password" data-key="{{ f.key }}" data-type="password"
+                       placeholder="{% if f.is_set %}•••••••• (set){% else %}not set{% endif %}" autocomplete="new-password">
+                {% elif f.type in ("int", "float") %}
+                <input type="number" data-key="{{ f.key }}" data-type="{{ f.type }}"
+                       step="{{ '0.01' if f.type == 'float' else '1' }}" value="{{ f.value if f.value is not none else '' }}">
+                {% else %}
+                <input type="text" data-key="{{ f.key }}" data-type="str" value="{{ f.value if f.value is not none else '' }}">
+                {% endif %}
+                {% if f.help %}<span class="hint">{{ f.help }}</span>{% endif %}
+            </label>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+
+    <div class="ops-bar">
+        <button class="btn" type="submit">Save settings</button>
+        <span class="toolbar-spacer"></span>
+        <span data-config-status class="tool-note"></span>
+    </div>
+</form>
+
+<script>
+(function () {
+    var form = document.querySelector("[data-config-form]");
+    var status = document.querySelector("[data-config-status]");
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var payload = {};
+        form.querySelectorAll("[data-key]").forEach(function (input) {
+            var type = input.dataset.type;
+            if (type === "bool") {
+                payload[input.dataset.key] = input.checked;
+            } else if (type === "password") {
+                if (input.value) { payload[input.dataset.key] = input.value; }  // blank = keep
+            } else {
+                payload[input.dataset.key] = input.value;
+            }
+        });
+        status.textContent = "Saving…";
+        fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (!res.ok) { status.textContent = (res.d && res.d.error) || "Could not save"; return; }
+                status.textContent = "Saved. " + (res.d.note || "");
+                form.querySelectorAll('[data-type="password"]').forEach(function (p) { p.value = ""; });
+            })
+            .catch(function () { status.textContent = "Could not save"; });
+    });
+})();
+</script>
+{% endblock %}

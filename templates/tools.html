@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Import / Export{% endblock %}
+{% block heading %}Import / Export{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Import &amp; export</h3>
+    <p>Load courses and start lists, publish results, and back up the event.</p>
+</div>
+
+<section class="panel">
+    <div class="panel-head"><h4>Export &amp; publish</h4></div>
+    <div class="tool-links">
+        <a class="btn" href="{{ url_for('export_results_xml') }}">Results — IOF XML</a>
+        <a class="btn" href="{{ url_for('export_results_pdf') }}">Results — PDF</a>
+        <a class="btn" href="{{ url_for('export_startlist_pdf') }}">Start list — PDF</a>
+        <a class="btn" href="{{ url_for('export_bibs_pdf') }}">Bib labels — PDF</a>
+        <a class="btn" href="{{ url_for('api_backup') }}">Backup database</a>
+        <a class="btn ghost" href="{{ url_for('public_results', slug=event.slug) }}" target="_blank" rel="noopener">Open public results</a>
+    </div>
+    <div class="tool-form" style="margin-top:12px">
+        <button class="btn btn-soft" data-assign-bibs>Assign bib numbers</button>
+        <span class="tool-result" data-bib-result></span>
+    </div>
+    <script>
+    document.querySelector("[data-assign-bibs]").addEventListener("click", function () {
+        var out = document.querySelector("[data-bib-result]");
+        fetch("/api/bibs/assign", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { out.className = "tool-result ok"; out.textContent = "Numbered " + d.assigned + " competitors"; })
+            .catch(function () { out.className = "tool-result err"; out.textContent = "Failed"; });
+    });
+    </script>
+    <p class="tool-note">Public results URL:
+        <code>{{ url_for('public_results', slug=event.slug, _external=True) }}</code></p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>Import courses (IOF XML)</h4></div>
+    <form class="tool-form" data-upload="/api/import/courses">
+        <input type="file" name="file" accept=".xml" required>
+        <button class="btn" type="submit">Import courses</button>
+        <span class="tool-result" data-result></span>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>Import members (CSV)</h4></div>
+    <form class="tool-form" data-upload="/api/import/members">
+        <input type="file" name="file" accept=".csv,.txt" required>
+        <button class="btn" type="submit">Import members</button>
+        <span class="tool-result" data-result></span>
+    </form>
+    <p class="tool-note">The roster the <a href="{{ url_for('enter') }}" target="_blank" rel="noopener">entry page</a>
+        looks people up in. Columns: <code>name, club, card, type, email</code>
+        (type = senior / junior / concession). Re-import replaces by name (merge).</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>Import start list (CSV or IOF XML)</h4></div>
+    <form class="tool-form" data-upload="/api/import/startlist">
+        <input type="file" name="file" accept=".csv,.xml,.txt" required>
+        <button class="btn" type="submit">Import start list</button>
+        <span class="tool-result" data-result></span>
+    </form>
+    <p class="tool-note">CSV columns: <code>name, club, class, card, start</code>
+        (start as <code>HH:MM:SS</code>). Classes must already exist.</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>Import Eventor entries (IOF XML EntryList)</h4></div>
+    <form class="tool-form" data-upload="/api/import/eventor">
+        <input type="file" name="file" accept=".xml" required>
+        <button class="btn" type="submit">Import entries</button>
+        <span class="tool-result" data-result></span>
+    </form>
+    <p class="tool-note">Export the EntryList from Eventor and import it here. Classes must already exist.</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>Restore from backup</h4></div>
+    <form class="tool-form" data-upload="/api/restore" data-reload="1">
+        <input type="file" name="file" accept=".db" required>
+        <button class="btn danger" type="submit">Restore (overwrites current event)</button>
+        <span class="tool-result" data-result></span>
+    </form>
+</section>
+
+<script>
+document.querySelectorAll("form[data-upload]").forEach(function (form) {
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var url = form.getAttribute("data-upload");
+        var out = form.querySelector("[data-result]");
+        var btn = form.querySelector("button");
+        out.textContent = "Working…"; out.className = "tool-result";
+        btn.disabled = true;
+        fetch(url, { method: "POST", body: new FormData(form) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                btn.disabled = false;
+                if (!res.ok) {
+                    out.className = "tool-result err";
+                    out.textContent = (res.d && res.d.error) || "Failed";
+                    return;
+                }
+                if (form.getAttribute("data-reload")) { window.location.reload(); return; }
+                var d = res.d;
+                out.className = "tool-result ok";
+                if (d.created !== undefined) {
+                    var msg = "Imported " + d.created;
+                    if (d.names) { msg += " course(s): " + d.names.join(", "); }
+                    if (d.skipped && d.skipped.length) {
+                        msg += " · skipped " + d.skipped.length +
+                               " (" + d.skipped.map(function (s) { return "row " + s.row + ": " + s.reason; }).join("; ") + ")";
+                    }
+                    out.textContent = msg;
+                } else {
+                    out.textContent = "Done";
+                }
+            })
+            .catch(function () { btn.disabled = false; out.className = "tool-result err"; out.textContent = "Failed"; });
+    });
+});
+</script>
+{% endblock %}

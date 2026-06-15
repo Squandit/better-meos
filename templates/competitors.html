@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pos, badge, time_cell %}
+{% block title %}Competitors{% endblock %}
+{% block heading %}Competitors{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Competitor list</h3>
+    <p>All entries across every class. Click a competitor to edit them, or add a new entry.</p>
+</div>
+
+<div data-filter data-competitors>
+    <div class="toolbar">
+        <input class="search" type="search" placeholder="Filter by name, club, class or SI…" aria-label="Filter competitors">
+        <span class="muted-count"><span data-count>{{ rows|length }}</span> of {{ rows|length }} shown</span>
+        <span class="toolbar-spacer"></span>
+        <button type="button" class="btn btn-primary" data-new-competitor>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add competitor
+        </button>
+    </div>
+    <section class="panel">
+        <table class="table table-rows">
+            <thead>
+                <tr>
+                    <th style="width:46px;text-align:center">#</th>
+                    <th>Athlete</th>
+                    <th style="width:90px">Class</th>
+                    <th style="width:100px">SI card</th>
+                    <th style="width:84px">Start</th>
+                    <th class="num" style="width:96px">Time</th>
+                    <th style="width:74px;text-align:right">Status</th>
+                    <th style="width:84px;text-align:right">Edit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr class="entry-row" data-id="{{ r.id }}" tabindex="0" role="button" aria-label="Edit {{ r.name }}">
+                    <td style="text-align:center">{{ pos(r) }}</td>
+                    <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                    <td>{{ r['class'] }}</td>
+                    <td class="mono dim">{{ r.si or '—' }}</td>
+                    <td class="mono dim">{{ r.start or '—' }}</td>
+                    <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
+                    <td style="text-align:right">{% if r.is_ok %}<span class="badge badge-ok">OK</span>{% else %}{{ badge(r) }}{% endif %}{% if r.manual %}<span class="manual-dot" title="Operator override">M</span>{% endif %}</td>
+                    <td style="text-align:right" class="row-actions">
+                        <button type="button" class="icon-btn" data-edit title="Edit {{ r.name }}" aria-label="Edit {{ r.name }}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>
+                        </button>
+                        <button type="button" class="icon-btn icon-danger" data-delete data-name="{{ r.name }}" title="Delete {{ r.name }}" aria-label="Delete {{ r.name }}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="empty">No competitors yet. Use <strong>Add competitor</strong> to enter the first one.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}
+
+{% block editor %}
+{# --- Competitor editor drawer --------------------------------------------- #}
+<aside class="drawer" id="competitor-drawer" aria-hidden="true" aria-labelledby="competitor-drawer-title">
+    <form class="drawer-inner" data-competitor-form novalidate>
+        <header class="drawer-head">
+            <div>
+                <h3 id="competitor-drawer-title" data-drawer-title>Edit competitor</h3>
+                <p class="drawer-sub" data-drawer-sub>Entry details &amp; punches</p>
+            </div>
+            <button type="button" class="icon-btn" data-close title="Close" aria-label="Close editor">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </header>
+
+        <div class="drawer-body">
+            <div class="form-error" data-form-error hidden></div>
+
+            <div class="field-grid">
+                <label class="field field-wide">
+                    <span class="field-label">Name</span>
+                    <input type="text" name="name" autocomplete="off" required>
+                </label>
+                <label class="field">
+                    <span class="field-label">Club</span>
+                    <input type="text" name="club" autocomplete="off">
+                </label>
+                <label class="field">
+                    <span class="field-label">Class</span>
+                    <select name="class_id" required>
+                        {% for c in class_options %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">SI card</span>
+                    <input type="number" name="card_number" inputmode="numeric" min="1" autocomplete="off">
+                </label>
+                <label class="field">
+                    <span class="field-label">Status</span>
+                    <select name="manual_status">
+                        <option value="">Automatic</option>
+                        {% for s in status_options %}<option value="{{ s.value }}">{{ s.label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Start <span class="hint">HH:MM:SS</span></span>
+                    <input type="text" name="start" placeholder="09:27:08" autocomplete="off" class="mono">
+                </label>
+                <label class="field">
+                    <span class="field-label">Finish <span class="hint">HH:MM:SS</span></span>
+                    <input type="text" name="finish" placeholder="10:49:53" autocomplete="off" class="mono">
+                </label>
+                <label class="field">
+                    <span class="field-label">Bib</span>
+                    <input type="number" name="bib" inputmode="numeric" min="1" autocomplete="off">
+                </label>
+                <label class="field check-field">
+                    <span class="field-label">Hire card</span>
+                    <label class="check"><input type="checkbox" name="hired"> Rented on the day</label>
+                </label>
+                <label class="field" data-team-field hidden>
+                    <span class="field-label">Relay team</span>
+                    <select name="team_id"><option value="">— none —</option></select>
+                </label>
+                <label class="field" data-leg-field hidden>
+                    <span class="field-label">Leg</span>
+                    <input type="number" name="leg" inputmode="numeric" min="1">
+                </label>
+            </div>
+
+            <div class="subsection">
+                <div class="subsection-head">
+                    <h4>Punches</h4>
+                    <div class="subsection-actions">
+                        <button type="button" class="btn btn-ghost btn-sm" data-sort-punches>Sort by time</button>
+                        <button type="button" class="btn btn-soft btn-sm" data-add-punch>+ Add punch</button>
+                    </div>
+                </div>
+                <table class="mini-table" data-punch-table>
+                    <thead>
+                        <tr><th style="width:34px"></th><th>Control</th><th>Time</th><th style="width:78px"></th></tr>
+                    </thead>
+                    <tbody data-punch-body></tbody>
+                </table>
+                <p class="mini-empty" data-punch-empty hidden>No punches recorded.</p>
+            </div>
+
+            <div class="subsection">
+                <div class="subsection-head"><h4>Evaluation</h4><span class="hint" data-preview-hint>Live</span></div>
+                <div class="preview-card" data-preview>
+                    <div class="preview-line">
+                        <span class="preview-badge" data-preview-badge>—</span>
+                        <span class="preview-figure" data-preview-figure></span>
+                        <span class="preview-auto" data-preview-auto hidden></span>
+                    </div>
+                    <p class="preview-note" data-preview-note hidden></p>
+                    <table class="splits preview-splits" data-preview-splits hidden>
+                        <thead><tr><th>Control</th><th>Leg</th><th>Cumulative</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <footer class="drawer-foot">
+            <button type="button" class="btn btn-danger-ghost" data-delete-current hidden>Delete</button>
+            <span class="toolbar-spacer"></span>
+            <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+            <button type="submit" class="btn btn-primary" data-save>Save</button>
+        </footer>
+    </form>
+</aside>
+
+{# Row template cloned for each punch in the editor. #}
+<template data-punch-template>
+    <tr class="punch-row">
+        <td class="reorder">
+            <button type="button" class="micro-btn" data-up title="Move up" aria-label="Move punch up">&#9650;</button>
+            <button type="button" class="micro-btn" data-down title="Move down" aria-label="Move punch down">&#9660;</button>
+        </td>
+        <td><input type="number" inputmode="numeric" min="1" class="mono punch-code" placeholder="138" aria-label="Control code"></td>
+        <td><input type="text" class="mono punch-time" placeholder="09:38:27" aria-label="Punch time"></td>
+        <td class="reorder"><button type="button" class="micro-btn micro-danger" data-remove title="Remove punch" aria-label="Remove punch">&times;</button></td>
+    </tr>
+</template>
+{% endblock %}

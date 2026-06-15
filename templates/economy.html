@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Economy{% endblock %}
+{% block heading %}Economy{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Entry fees &amp; hire cards</h3>
+    <p>Fee per class × entries, plus hire-card counts. Set a class's fee in the class editor.</p>
+</div>
+
+<section class="panel">
+    <table class="table">
+        <thead>
+            <tr><th>Class</th><th class="num">Entries</th><th class="num">Fee</th>
+                <th class="num">Subtotal</th><th class="num">Hire cards</th></tr>
+        </thead>
+        <tbody>
+            {% for r in economy.rows %}
+            <tr>
+                <td>{{ r.class }}</td>
+                <td class="num">{{ r.entries }}</td>
+                <td class="num">{{ '%.2f'|format(r.fee) }}</td>
+                <td class="num strong">{{ '%.2f'|format(r.subtotal) }}</td>
+                <td class="num">{{ r.hired }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty">No classes yet.</td></tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td class="strong">Total</td><td></td><td></td>
+                <td class="num strong">{{ '%.2f'|format(economy.total_fees) }}</td>
+                <td class="num strong">{{ economy.hire_cards }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</section>
+{% endblock %}

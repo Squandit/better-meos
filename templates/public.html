@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ event.name }} · results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="public-page" data-page="results">
+<header class="public-head">
+    <h1>{{ event.name }}</h1>
+    <p>{{ event.date }} · results</p>
+</header>
+
+<main class="public-main">
+    {% for cls in classes %}
+    <section class="panel class-card">
+        <div class="panel-head">
+            <h4>{{ cls.name }}</h4>
+            <span class="chip">{{ cls.meta }}</span>
+        </div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th style="width:46px;text-align:center">#</th>
+                    <th>Athlete</th>
+                    {% if cls.is_score %}<th class="num" style="width:80px">Points</th>{% endif %}
+                    <th class="num" style="width:104px">Time</th>
+                    <th style="width:70px;text-align:right"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in cls.rows %}
+                <tr>
+                    <td style="text-align:center">{% if r.position %}{{ r.position }}{% else %}&ndash;{% endif %}</td>
+                    <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                    {% if cls.is_score %}<td class="num">{% if r.points is not none %}{{ r.points }}{% else %}&ndash;{% endif %}</td>{% endif %}
+                    <td class="num strong{% if not r.time %} dim{% endif %}">{% if r.time %}{{ r.time }}{% else %}&ndash;{% endif %}</td>
+                    <td style="text-align:right">{% if not r.is_ok %}<span class="badge badge-{{ r.status }}">{{ r.status_label }}</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% endfor %}
+</main>
+
+<footer class="public-foot">Live results · better-meos</footer>
+<script src="{{ url_for('static', filename='live.js') }}"></script>
+</body>
+</html>

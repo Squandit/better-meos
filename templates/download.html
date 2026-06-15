@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, time_cell, splits_rows %}
+{% block title %}Download{% endblock %}
+{% block heading %}Download{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Finish downloads</h3>
+    <p>Cards read at the finish, most recent first. Click a row to inspect its splits.</p>
+</div>
+
+<div class="toolbar" data-download>
+    <button class="btn btn-primary" data-simulate>Simulate download</button>
+    <label class="check"><input type="checkbox" data-autoprint> Auto-print splits</label>
+    <span class="muted-count" data-sim-result></span>
+    <span class="toolbar-spacer"></span>
+    <span class="muted-count">{{ count }} downloaded</span>
+</div>
+
+<section class="panel">
+    <div class="panel-head">
+        <h4>Finishes</h4>
+        <span class="chip grey">Reader {{ event.reader_port }} &middot; {{ 'live' if event.reader_enabled else 'simulated' }}</span>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:84px">Finish</th>
+                <th style="width:100px">SI card</th>
+                <th>Athlete</th>
+                <th style="width:84px">Class</th>
+                <th class="num" style="width:104px">Time</th>
+                <th style="width:150px;text-align:right"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr class="runner{% if r.splits %} has-splits{% endif %}" data-id="{{ r.id }}" data-key="{{ r.id }}@{{ r.finish }}"{% if r.splits %} tabindex="0" role="button" aria-expanded="false"{% endif %}>
+                <td class="mono">{{ r.finish }}</td>
+                <td class="mono dim">{{ r.si }}</td>
+                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                <td>{{ r['class'] }}</td>
+                <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
+                <td style="text-align:right">
+                    {{ badge(r) }}
+                    <a class="link-btn" href="{{ url_for('slip', comp_id=r.id) }}?print=1" target="_blank" rel="noopener" onclick="event.stopPropagation()">Print</a>
+                    {% if r.splits %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}
+                </td>
+            </tr>
+            {{ splits_rows(r, 6) }}
+            {% else %}
+            <tr><td colspan="6" class="empty">No cards downloaded yet. Use <strong>Simulate download</strong> to test.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<script>
+(function () {
+    var bar = document.querySelector("[data-download]");
+    var toggle = bar.querySelector("[data-autoprint]");
+    var out = bar.querySelector("[data-sim-result]");
+
+    toggle.checked = localStorage.getItem("bm-autoprint") === "1";
+    toggle.addEventListener("change", function () {
+        localStorage.setItem("bm-autoprint", toggle.checked ? "1" : "0");
+    });
+
+    bar.querySelector("[data-simulate]").addEventListener("click", function () {
+        out.textContent = "Reading…";
+        fetch("/api/reader/simulate", { method: "POST" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                out.textContent = d.ok ? ("Downloaded " + d.name) : (d.error || "Failed");
+                setTimeout(function () { window.location.reload(); }, 400);
+            })
+            .catch(function () { out.textContent = "Failed"; });
+    });
+
+    // Auto-print: when on, print the newest download once. Keyed on id+finish
+    // so a re-download (new finish time) of the same competitor prints again.
+    if (toggle.checked) {
+        var first = document.querySelector("tr.runner[data-id]");
+        if (first) {
+            var key = first.getAttribute("data-key");
+            if (sessionStorage.getItem("bm-printed") !== key) {
+                sessionStorage.setItem("bm-printed", key);
+                window.open("/slip/" + first.getAttribute("data-id") + "?print=1", "_blank");
+            }
+        }
+    }
+})();
+</script>
+{% endblock %}

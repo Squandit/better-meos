@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Courses{% endblock %}
+{% block heading %}Courses{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Courses &amp; controls</h3>
+    <p>The control sequences used to validate punches.</p>
+</div>
+
+<div class="toolbar" data-courses>
+    <span class="muted-count">{{ courses|length }} course{{ '' if courses|length == 1 else 's' }}</span>
+    <span class="toolbar-spacer"></span>
+    <button type="button" class="btn btn-primary" data-new-course>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add course
+    </button>
+</div>
+
+{% for course in courses %}
+<section class="panel" data-course-row data-id="{{ course.id }}">
+    <div class="panel-head">
+        <div class="panel-head-main">
+            <h4>{{ course.name }}</h4>
+            <span class="chip grey">{% if course.is_score %}Score{% else %}Linear{% endif %}</span>
+            {% if course.classes %}<span class="chip grey">{{ course.classes | join(', ') }}</span>{% endif %}
+        </div>
+        <div class="row-actions">
+            <button type="button" class="btn btn-ghost btn-sm" data-edit-course>Edit</button>
+            <button type="button" class="btn btn-danger-ghost btn-sm" data-delete-course data-name="{{ course.name }}">Delete</button>
+        </div>
+    </div>
+    <div class="panel-body">
+        {% if course.is_score %}
+            <p class="cell-sub" style="margin-top:0">
+                {{ course.controls|length }} controls &middot; {{ course.total_pts }} pts total &middot;
+                {% if course.time_limit is not none %}{{ course.time_limit }} min limit{% else %}no time limit{% endif %} &middot;
+                {{ course.penalty }} pts/min over-time penalty
+            </p>
+            <div class="controls-row">
+                {% for ctl in course.controls %}
+                <span class="control"><span class="code">{{ ctl.code }}</span><span class="pts">{{ ctl.pts }} pts</span></span>
+                {% else %}
+                <span class="mini-empty">No controls.</span>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="cell-sub" style="margin-top:0">{{ course.count }} controls, in order, plus the finish.</p>
+            <div class="controls-row">
+                {% for ctl in course.controls %}
+                <span class="control"><span class="seq">{{ ctl.seq }}</span><span class="code">{{ ctl.code }}</span></span>
+                {% else %}
+                <span class="mini-empty">No controls.</span>
+                {% endfor %}
+                {% if course.controls %}<span class="control finish"><span class="code">Finish</span></span>{% endif %}
+            </div>
+        {% endif %}
+    </div>
+</section>
+{% else %}
+<section class="panel"><div class="empty">No courses yet. Use <strong>Add course</strong> to create one.</div></section>
+{% endfor %}
+{% endblock %}
+
+{% block editor %}
+<div class="modal modal-lg" id="course-modal" aria-hidden="true" aria-labelledby="course-modal-title" role="dialog">
+    <form class="modal-inner" data-course-form novalidate>
+        <header class="modal-head">
+            <h3 id="course-modal-title" data-modal-title>New course</h3>
+            <button type="button" class="icon-btn" data-close aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </header>
+        <div class="modal-body">
+            <div class="form-error" data-form-error hidden></div>
+
+            <div class="field-grid">
+                <label class="field field-wide">
+                    <span class="field-label">Course name</span>
+                    <input type="text" name="name" autocomplete="off" placeholder="e.g. Hard 4.8 km" required>
+                </label>
+                <div class="field field-wide">
+                    <span class="field-label">Type</span>
+                    <div class="segmented" data-type-toggle>
+                        <label><input type="radio" name="type" value="linear" checked> Linear</label>
+                        <label><input type="radio" name="type" value="score"> Score</label>
+                    </div>
+                </div>
+            </div>
+
+            {# Score-only fields #}
+            <div class="field-grid" data-score-only hidden>
+                <label class="field">
+                    <span class="field-label">Time limit <span class="hint">minutes</span></span>
+                    <input type="number" name="time_limit_minutes" inputmode="numeric" min="1" placeholder="60">
+                </label>
+                <label class="field">
+                    <span class="field-label">Penalty <span class="hint">pts / min over</span></span>
+                    <input type="number" name="penalty_per_minute" inputmode="numeric" min="0" placeholder="10">
+                </label>
+            </div>
+
+            <div class="field-grid">
+                <label class="field">
+                    <span class="field-label">Start</span>
+                    <select name="start_mode">
+                        <option value="clock">Clock (timed start)</option>
+                        <option value="punch">Punch (free start)</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Start control <span class="hint">punch start</span></span>
+                    <input type="number" name="start_control" inputmode="numeric" min="1" placeholder="1">
+                </label>
+                <label class="field">
+                    <span class="field-label">Length <span class="hint">metres</span></span>
+                    <input type="number" name="length_m" inputmode="numeric" min="0" placeholder="4800">
+                </label>
+            </div>
+
+            <div class="subsection">
+                <div class="subsection-head">
+                    <h4 data-controls-heading>Controls (in order)</h4>
+                    <button type="button" class="btn btn-soft btn-sm" data-add-control>+ Add control</button>
+                </div>
+                <table class="mini-table" data-control-table>
+                    <thead data-linear-head>
+                        <tr><th style="width:34px"></th><th style="width:48px">#</th><th>Control code</th><th style="width:48px"></th></tr>
+                    </thead>
+                    <thead data-score-head hidden>
+                        <tr><th style="width:34px"></th><th>Control code</th><th>Points</th><th style="width:48px"></th></tr>
+                    </thead>
+                    <tbody data-control-body></tbody>
+                </table>
+                <p class="mini-empty" data-control-empty hidden>No controls yet — add at least one.</p>
+            </div>
+        </div>
+        <footer class="modal-foot">
+            <span class="toolbar-spacer"></span>
+            <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+        </footer>
+    </form>
+</div>
+
+{# Linear control row: ordered code only. #}
+<template data-linear-row-template>
+    <tr class="control-edit-row" data-kind="linear">
+        <td class="reorder">
+            <button type="button" class="micro-btn" data-up aria-label="Move up">&#9650;</button>
+            <button type="button" class="micro-btn" data-down aria-label="Move down">&#9660;</button>
+        </td>
+        <td class="seq-cell mono dim" data-seq>1</td>
+        <td><input type="number" inputmode="numeric" min="1" class="mono ctl-code" placeholder="138" aria-label="Control code"></td>
+        <td class="reorder"><button type="button" class="micro-btn micro-danger" data-remove aria-label="Remove">&times;</button></td>
+    </tr>
+</template>
+
+{# Score control row: code + points. #}
+<template data-score-row-template>
+    <tr class="control-edit-row" data-kind="score">
+        <td class="reorder">
+            <button type="button" class="micro-btn" data-up aria-label="Move up">&#9650;</button>
+            <button type="button" class="micro-btn" data-down aria-label="Move down">&#9660;</button>
+        </td>
+        <td><input type="number" inputmode="numeric" min="1" class="mono ctl-code" placeholder="138" aria-label="Control code"></td>
+        <td><input type="number" inputmode="numeric" min="0" class="mono ctl-points" placeholder="30" aria-label="Points"></td>
+        <td class="reorder"><button type="button" class="micro-btn micro-danger" data-remove aria-label="Remove">&times;</button></td>
+    </tr>
+</template>
+{% endblock %}

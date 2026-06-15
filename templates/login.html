@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in · better-meos</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="enter-page">
+<div class="enter-card" style="max-width:360px">
+    <h1>better-meos</h1>
+    <p class="enter-sub">Operator sign in</p>
+    <form class="enter-form" method="post">
+        <label>Username <input name="username" autocomplete="username" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        {% if error %}<div class="form-error">{{ error }}</div>{% endif %}
+        <button class="btn" type="submit">Sign in</button>
+    </form>
+</div>
+</body>
+</html>

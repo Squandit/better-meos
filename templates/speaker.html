@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, time_cell %}
+{% block title %}Speaker{% endblock %}
+{% block heading %}Speaker{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Commentator view</h3>
+    <p>Who's out on course and who's just finished. Updates live as cards download.</p>
+</div>
+
+<div class="speaker-grid">
+    <section class="panel">
+        <div class="panel-head"><h4>Out on course</h4><span class="chip grey">{{ out|length }}</span></div>
+        <table class="table">
+            <thead><tr><th style="width:84px">Started</th><th>Athlete</th><th style="width:90px">Class</th></tr></thead>
+            <tbody>
+                {% for r in out %}
+                <tr><td class="mono">{{ r.start }}</td>
+                    <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                    <td>{{ r['class'] }}</td></tr>
+                {% else %}
+                <tr><td colspan="3" class="empty">Nobody out on course.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head"><h4>Just finished</h4></div>
+        <table class="table">
+            <thead><tr><th style="width:84px">Finish</th><th>Athlete</th><th class="num" style="width:96px">Time</th><th style="width:60px;text-align:right"></th></tr></thead>
+            <tbody>
+                {% for r in recent %}
+                <tr><td class="mono">{{ r.finish }}</td>
+                    <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                    <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
+                    <td style="text-align:right">{{ badge(r) }}</td></tr>
+                {% else %}
+                <tr><td colspan="4" class="empty">No finishes yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

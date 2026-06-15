@@ -1,0 +1,14 @@
+# better-meos runtime + dev dependencies.
+# Install into the project venv:  venv\Scripts\python -m pip install -r requirements.txt
+Flask>=3.0
+waitress>=3.0          # production WSGI server used by the launcher / exe
+sportident>=1.2        # SI card reader (real hardware path)
+pyngrok>=7.0           # remote entry hosting (ngrok tunnel)
+
+# Optional integrations (scaffolded behind config):
+reportlab>=4.0         # PDF printouts (results, splits, start lists, bib labels)
+stripe>=9.0            # card payments, scaffolded behind STRIPE_*
+
+# Dev / test / packaging
+pytest>=8.0
+pyinstaller>=6.0       # builds dist/better-meos.exe (see better-meos.spec)

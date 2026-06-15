@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event Entry</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#2d5a3d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="OWA Entry">
+  <link rel="apple-touch-icon" href="/static/entry/OWA_LOGO.jpg">
+  <!-- CONFIG_INJECT -->
+  <style>
+    :root {
+      --forest: #1a3a2a; --moss: #2d5a3d; --leaf: #4a8c5c;
+      --lime: #8bc34a; --cream: #f5f0e8; --bark: #8b6914;
+      --sand: #e8dcc8; --text: #1a2018; --muted: #6b7a65;
+      --error: #c0392b; --success: #27ae60; --gold: #f0b429;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', sans-serif; min-height: 100vh;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 1rem 0.75rem; position: relative; overflow-x: hidden; background: #2a2a2a;
+    }
+    .map-bg { position: fixed; inset: 0; z-index: 0; background-image: url('/static/entry/map.png'); background-size: cover; background-position: center; filter: brightness(0.35) saturate(0.7); }
+    .card { background: var(--cream); border-radius: 14px; width: 100%; max-width: 420px; box-shadow: 0 32px 80px rgba(0,0,0,0.6); overflow: hidden; position: relative; z-index: 1; }
+    .card-header { background: var(--moss); padding: 1rem 1.25rem; position: relative; overflow: hidden; display: flex; align-items: center; gap: 0.75rem; }
+    .card-header::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, transparent 60%); pointer-events: none; }
+    .header-logo { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid rgba(255,255,255,0.2); background: var(--forest); }
+    .header-text { flex: 1; }
+    .header-text h1 { font-family: 'DM Sans', sans-serif; color: var(--cream); font-size: 1.3rem; line-height: 1.1; margin-bottom: 0.15rem; }
+    .header-text p { color: rgba(245,240,232,0.6); font-size: 0.82rem; }
+    .price-badge { display: inline-block; background: var(--gold); color: #3a2800; font-weight: 600; font-size: 0.75rem; padding: 0.18rem 0.55rem; border-radius: 20px; margin-top: 0.5rem; }
+    .card-body { padding: 1.25rem 1.5rem; }
+    .field { margin-bottom: 0.85rem; }
+    label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.4rem; }
+    input[type=text], input[type=email], input[type=tel], select {
+      width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid var(--sand); border-radius: 8px;
+      font-family: 'DM Sans', sans-serif; font-size: 0.88rem; color: var(--text); background: white;
+      transition: border-color 0.2s, box-shadow 0.2s; appearance: none;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(74,140,92,0.15); }
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7a65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 0.85rem center; padding-right: 2.5rem; cursor: pointer;
+    }
+    .btn { border: none; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.1s; }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: var(--moss); color: white; padding: 0.6rem 1rem; font-size: 0.88rem; width: 100%; }
+    .btn-primary:hover { background: var(--forest); }
+    .btn-danger-sm { background: none; border: none; color: var(--error); cursor: pointer; font-size: 1.1rem; padding: 0.1rem 0.3rem; line-height: 1; }
+    .btn-edit-sm { background: none; border: none; color: var(--leaf); cursor: pointer; font-size: 0.8rem; padding: 0.1rem 0.3rem; font-family: 'DM Sans', sans-serif; font-weight: 600; }
+
+    .not-member-msg { background: #fff8e6; border-left: 3px solid var(--gold); color: #7a5800; border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.875rem; margin-bottom: 1rem; display: none; }
+    .not-member-msg.show { display: block; }
+
+    /* Cart */
+    .cart { margin-bottom: 1.25rem; }
+    .cart-title { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+    .cart-item { background: white; border: 1.5px solid var(--sand); border-radius: 8px; padding: 0.6rem 0.85rem; margin-bottom: 0.4rem; font-size: 0.9rem; }
+    .cart-item-top { display: flex; align-items: center; justify-content: space-between; }
+    .cart-item-info { flex: 1; }
+    .cart-item-name { font-weight: 600; color: var(--text); }
+    .cart-item-sub { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; }
+    .cart-item-price { font-weight: 600; color: var(--forest); margin: 0 0.5rem; }
+    .cart-item-actions { display: flex; align-items: center; gap: 0.1rem; }
+
+    /* Inline edit panel */
+    .cart-item-edit { display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--sand); }
+    .cart-item-edit.open { display: block; }
+    .edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .edit-field label { font-size: 0.72rem; }
+    .edit-field input, .edit-field select { padding: 0.45rem 0.65rem; font-size: 0.85rem; }
+    .edit-actions { display: flex; gap: 0.5rem; }
+    .btn-save-edit { background: var(--moss); color: white; padding: 0.4rem 0.9rem; font-size: 0.82rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 600; }
+    .btn-cancel-edit { background: var(--sand); color: var(--text); padding: 0.4rem 0.9rem; font-size: 0.82rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 600; }
+
+    .cart-total { display: flex; justify-content: space-between; align-items: center; background: var(--sand); border-radius: 8px; padding: 0.75rem 1rem; margin-top: 0.5rem; margin-bottom: 1.25rem; }
+    .cart-total-label { font-size: 0.85rem; color: var(--muted); font-weight: 500; }
+    .cart-total-amount { font-family: 'DM Sans', sans-serif; font-size: 1.5rem; color: var(--forest); }
+    .cart-cap-note { font-size: 0.75rem; color: var(--bark); font-weight: 600; margin-top: 0.15rem; }
+
+    .fee-display { display: flex; justify-content: space-between; align-items: center; background: var(--sand); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.1rem; }
+    .fee-display span:first-child { font-size: 0.85rem; color: var(--muted); font-weight: 500; }
+    .fee-amount { font-family: 'DM Sans', sans-serif; font-size: 1.3rem; color: var(--forest); }
+    .fee-amount.unset { color: var(--muted); font-size: 0.9rem; font-family: 'DM Sans', sans-serif; }
+
+    #paypal-button-container { margin-top: 0.5rem; }
+    #paypal-button-container.hidden { display: none; }
+    .info-msg { padding: 0.85rem 1rem; border-radius: 8px; font-size: 0.9rem; margin-bottom: 1rem; display: none; }
+    .info-msg.error { background: #fdecea; color: var(--error); border-left: 3px solid var(--error); }
+    .info-msg.info { background: #e8f4fd; color: #1a5276; border-left: 3px solid #3498db; }
+    .info-msg.show { display: block; }
+
+    .success-screen { display: none; text-align: center; padding: 2rem; }
+    .success-screen.show { display: block; }
+    .success-icon { font-size: 3rem; margin-bottom: 1rem; }
+    .success-screen h2 { font-family: 'DM Sans', sans-serif; font-size: 1.6rem; color: var(--forest); margin-bottom: 0.5rem; }
+    .success-screen p { color: var(--muted); margin-bottom: 0.5rem; font-size: 0.9rem; }
+    .success-list { list-style: none; margin: 0.75rem 0 1.5rem; text-align: left; background: white; border-radius: 8px; padding: 0.75rem 1rem; }
+    .success-list li { font-size: 0.9rem; color: var(--text); padding: 0.25rem 0; border-bottom: 1px solid var(--sand); }
+    .success-list li:last-child { border-bottom: none; }
+
+    .autocomplete-wrapper { position: relative; }
+    .autocomplete-items { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1.5px solid var(--sand); border-top: none; border-radius: 0 0 8px 8px; z-index: 100; box-shadow: 0 8px 20px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; }
+    .autocomplete-items div { padding: 0.6rem 0.85rem; cursor: pointer; font-size: 0.9rem; color: var(--text); border-bottom: 1px solid var(--sand); }
+    .autocomplete-items div:last-child { border-bottom: none; }
+    .autocomplete-items div:hover { background: var(--sand); }
+
+    .sandbox-badge { text-align: center; font-size: 0.72rem; color: var(--bark); background: rgba(139,105,20,0.1); padding: 0.3rem; margin-top: 0.75rem; border-radius: 6px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+    .divider { border: none; border-top: 1.5px solid var(--sand); margin: 1.25rem 0; }
+    .made-by { text-align: center; font-size: 0.68rem; color: var(--muted); margin-top: 1rem; opacity: 0.6; }
+
+    /* Remember me banner */
+    .remember-banner { background: var(--sand); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1rem; display: none; }
+    .remember-banner-title { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.5rem; }
+    .remember-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+    .remember-chip { background: white; border: 1.5px solid var(--sand); border-radius: 20px; padding: 0.3rem 0.75rem; font-size: 0.82rem; cursor: pointer; color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; transition: border-color 0.2s, background 0.2s; }
+    .remember-chip:hover { border-color: var(--leaf); background: rgba(74,140,92,0.08); }
+    .remember-chip.added { background: var(--moss); color: white; border-color: var(--moss); }
+    .remember-clear { font-size: 0.72rem; color: var(--muted); background: none; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; text-decoration: underline; padding: 0; }
+
+    /* Countdown */
+    .countdown-bar { background: var(--sand); border-radius: 8px; padding: 0.6rem 1rem; margin-bottom: 1rem; display: none; text-align: center; }
+    .countdown-bar.urgent { background: #fdecea; }
+    .countdown-time { font-family: 'DM Sans', sans-serif; font-size: 1.4rem; color: var(--forest); }
+    .countdown-label { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
+
+    /* Entries closed */
+    .entries-closed { display: none; background: var(--error); color: white; text-align: center; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .entries-closed h3 { font-family: 'DM Sans', sans-serif; font-size: 1.2rem; margin-bottom: 0.25rem; }
+    .entries-closed p { font-size: 0.85rem; opacity: 0.85; }
+
+    /* PayPal expiry warning */
+    .paypal-warning { background: #fff8e6; border-left: 3px solid var(--gold); color: #7a5800; border-radius: 8px; padding: 0.65rem 1rem; font-size: 0.82rem; margin-bottom: 0.75rem; display: none; }
+    .paypal-warning.show { display: block; }
+
+    /* Loading overlay */
+    .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 999; align-items: center; justify-content: center; flex-direction: column; gap: 1rem; }
+    .loading-overlay.show { display: flex; }
+    .loading-spinner { width: 48px; height: 48px; border: 4px solid rgba(255,255,255,0.2); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { color: white; font-size: 0.95rem; font-weight: 600; }
+
+    /* Connection warning */
+    .connection-warning { display: none; position: fixed; top: 0; left: 0; right: 0; background: var(--error); color: white; text-align: center; padding: 0.6rem; font-size: 0.85rem; font-weight: 600; z-index: 998; }
+    .connection-warning.show { display: block; }
+
+    /* Network access info */
+    .network-info { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 0.5rem; }
+
+    /* Page tabs */
+    .page-tabs { display: flex; background: var(--forest); border-bottom: 2px solid rgba(255,255,255,0.08); }
+    .page-tab { flex: 1; padding: 0.65rem 0.5rem; text-align: center; font-size: 0.82rem; font-weight: 600; color: rgba(245,240,232,0.5); cursor: pointer; border: none; background: none; font-family: 'DM Sans', sans-serif; transition: color 0.2s, border-bottom 0.2s; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .page-tab.active { color: var(--cream); border-bottom-color: var(--lime); }
+    .page-tab.disabled { opacity: 0.3; cursor: not-allowed; }
+    .page-panel { display: none; }
+    .page-panel.active { display: block; }
+
+    /* Refresh progress bar */
+    .refresh-bar-wrap { height: 3px; background: rgba(255,255,255,0.1); position: relative; overflow: hidden; }
+    .refresh-bar { height: 100%; background: var(--lime); width: 100%; transform-origin: left; transition: none; }
+    .refresh-bar.animating { transition: transform linear; transform: scaleX(0); }
+
+    /* Results */
+    .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; gap: 0.5rem; flex-wrap: wrap; }
+    .results-class-filter { flex: 1; min-width: 120px; padding: 0.5rem 0.75rem; border: 1.5px solid var(--sand); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; background: white; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7a65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2rem; cursor: pointer; }
+    .results-refresh { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+    .results-class-section { margin-bottom: 1.25rem; }
+    .results-class-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.5rem; padding-bottom: 0.35rem; border-bottom: 2px solid var(--sand); }
+    .results-class-name { font-family: 'DM Sans', sans-serif; font-size: 1rem; color: var(--forest); }
+    .results-class-updated { font-size: 0.68rem; color: var(--muted); }
+    .results-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .results-table th { text-align: left; padding: 0.45rem 0.4rem; font-size: 0.68rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; background: var(--sand); }
+    .results-table td { padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--sand); color: var(--text); vertical-align: middle; }
+    .results-table tr:last-child td { border-bottom: none; }
+    .results-place { font-family: 'DM Sans', sans-serif; font-size: 1.1rem; color: var(--forest); min-width: 1.5rem; display: inline-block; text-align: center; }
+    .results-place.gold { color: #b8860b; }
+    .results-place.silver { color: #888; }
+    .results-place.bronze { color: #a0522d; }
+    .results-time { font-weight: 600; color: var(--text); white-space: nowrap; }
+    .results-diff { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+    .status-ok { color: var(--success); font-size: 0.75rem; }
+    .status-bad { color: var(--error); font-size: 0.75rem; font-weight: 600; }
+    .results-empty { text-align: center; padding: 2rem; color: var(--muted); font-size: 0.85rem; }
+    .results-name { font-weight: 500; line-height: 1.2; }
+    .results-club { font-size: 0.7rem; color: var(--muted); }
+
+    /* Highlighted row (your entry) */
+    .results-table tr.my-result td { background: rgba(139,195,74,0.12); }
+    .results-table tr.my-result .results-name { color: var(--forest); font-weight: 700; }
+
+    /* New result highlight (orange flash) */
+    .results-table tr.new-result td { background: rgba(240,180,41,0.18); }
+    @keyframes fadeNewResult { from { background: rgba(240,180,41,0.35); } to { background: transparent; } }
+    .results-table tr.fade-new td { animation: fadeNewResult 60s forwards; }
+  </style>
+</head>
+<body>
+<div class="map-bg"></div>
+<div class="card">
+  <div class="card-header">
+    <img src="/static/entry/OWA_LOGO.jpg" class="header-logo" alt="OWA Logo">
+    <div class="header-text">
+      <h1 id="event-name">Event Entry</h1>
+      <p>Members only — add everyone, then pay once</p>
+      <div class="price-badge" id="price-hint">Loading prices...</div>
+    </div>
+  </div>
+
+  <!-- Page tabs -->
+  <div class="page-tabs">
+    <button class="page-tab active" id="tab-entry-btn" onclick="switchPage('entry')">📋 Entry</button>
+    <button class="page-tab" id="tab-results-btn" onclick="switchPage('results')">🏆 Results</button>
+  </div>
+
+  <div class="card-body">
+    <div class="page-panel active" id="panel-entry">
+    <div id="main-form">
+      <div id="msg" class="info-msg"></div>
+      <div class="entries-closed" id="entries-closed">
+        <h3>Entries Closed</h3>
+        <p>The entry deadline has passed. Please see the event organiser.</p>
+      </div>
+      <div class="countdown-bar" id="countdown-bar">
+        <div class="countdown-time" id="countdown-time">--:--:--</div>
+        <div class="countdown-label">until entries close</div>
+      </div>
+
+      <!-- Cart -->
+      <div class="cart" id="cart-section" style="display:none">
+        <div class="cart-title">Your cart</div>
+        <div id="cart-items"></div>
+        <div class="cart-total">
+          <div>
+            <div class="cart-total-label">Total to pay</div>
+            <div id="cap-note" class="cart-cap-note" style="display:none">Family cap applied — max $<span id="cap-amount"></span></div>
+          </div>
+          <div class="cart-total-amount" id="cart-total">$0.00</div>
+        </div>
+      </div>
+
+      <hr class="divider" id="form-divider" style="display:none">
+
+      <!-- Remember me banner -->
+      <div class="remember-banner" id="remember-banner">
+        <div class="remember-banner-title">Your usual people — tap to add</div>
+        <div class="remember-chips" id="remember-chips"></div>
+        <button class="remember-clear" onclick="clearRemembered()">Clear saved people</button>
+      </div>
+
+      <!-- Person form -->
+      <div id="person-form">
+        <div class="not-member-msg" id="not-member-msg">
+          ⚠️ This name isn't in the members database. Only registered members can use this entry system.
+        </div>
+
+        <div class="field">
+          <label>Full Name</label>
+          <div class="autocomplete-wrapper">
+            <input type="text" id="name" placeholder="Jane Smith" autocomplete="off">
+            <div id="nameautocomplete-list" class="autocomplete-items" style="display:none"></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Club</label>
+          <select id="club">
+            <option value="">-- Select club --</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>SI Card Number</label>
+          <input type="text" id="card" placeholder="e.g. 1234567" inputmode="numeric" pattern="[0-9]*">
+        </div>
+
+        <div class="field">
+          <label>Course</label>
+          <select id="class">
+            <option value="">-- Loading courses... --</option>
+          </select>
+        </div>
+
+        <div class="fee-display">
+          <span>Entry fee</span>
+          <span class="fee-amount unset" id="price-shown">Select a name first</span>
+        </div>
+
+        <button class="btn btn-primary" onclick="addToCart()">+ Add to cart</button>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Email field (shown when cart has items) -->
+      <div id="email-section" style="display:none">
+        <div class="field">
+          <label>Email <span style="color:var(--error)">*</span> (required — for confirmation)</label>
+          <input type="email" id="email" placeholder="you@example.com" required>
+        </div>
+      </div>
+
+      <div id="pay-section" style="display:none">
+        <div class="paypal-warning" id="paypal-warning">⚠️ You've been on this page a while — if payment fails, refresh the page and try again.</div>
+        <div id="paypal-button-container" class="hidden"></div>
+        <div id="sandbox-note" class="sandbox-badge" style="display:none">⚠️ Sandbox / Test Mode — no real payments</div>
+      </div>
+      <div id="empty-pay-note" style="font-size:0.8rem; color:var(--muted); text-align:center; padding: 0.25rem 0;">
+        Add at least one person to pay
+      </div>
+    </div>
+
+    <div id="success-screen" class="success-screen" style="padding:0">
+      <!-- Confirmation card matching email layout -->
+      <div style="background:var(--moss);padding:1.25rem 1.5rem;border-radius:0">
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <img src="/static/entry/OWA_LOGO.jpg" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.2)">
+          <div>
+            <div style="font-family:'DM Sans',sans-serif;color:var(--cream);font-size:1.2rem;line-height:1.1" id="success-event-name"></div>
+            <div style="color:rgba(245,240,232,0.65);font-size:0.78rem;margin-top:0.1rem">Entry Confirmation ✓</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:1.25rem 1.5rem">
+        <p style="font-size:0.85rem;color:var(--text);margin-bottom:0.75rem">Your entries have been received. Here's a summary:</p>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:1rem;font-size:0.82rem" id="success-table">
+          <thead><tr style="background:var(--sand)">
+            <th style="padding:5px 8px;text-align:left">Name</th>
+            <th style="padding:5px 8px;text-align:left">Course</th>
+            <th style="padding:5px 8px;text-align:left">Fee</th>
+            <th style="padding:5px 8px;text-align:left">Status</th>
+          </tr></thead>
+          <tbody id="success-table-body"></tbody>
+        </table>
+        <p style="font-size:1rem;font-weight:600;color:var(--forest);margin-bottom:0.35rem" id="success-total"></p>
+        <p id="cap-charged" style="display:none;font-size:0.75rem;color:var(--bark);font-weight:600;margin-bottom:0.35rem"></p>
+        <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.75rem" id="paypal-ref"></p>
+        <p id="email-confirm" style="display:none;font-size:0.8rem;margin-bottom:0.75rem;padding:0.5rem 0.75rem;border-radius:6px"></p>
+        <p style="font-size:0.75rem;color:var(--muted);margin-bottom:1.25rem">If you have any issues, contact the organiser and quote your PayPal reference above as proof of payment.</p>
+        <button class="btn btn-primary" onclick="resetForm()" style="width:auto;padding:0.6rem 1.25rem">Start a new cart</button>
+      </div>
+    </div>
+
+    </div><!-- end main-form -->
+    </div><!-- end panel-entry -->
+
+    <!-- Results panel -->
+    <div class="page-panel" id="panel-results">
+      <div class="refresh-bar-wrap"><div class="refresh-bar" id="refresh-bar"></div></div>
+      <div style="padding:1rem 1.25rem 0">
+      <div class="results-header">
+        <select class="results-class-filter" id="results-class-filter" onchange="loadResults()">
+          <option value="">All classes</option>
+        </select>
+        <span class="results-refresh" id="results-refresh-time">Not loaded yet</span>
+      </div>
+      <div id="results-container">
+        <div class="results-empty">Switch to Results to load them</div>
+      </div>
+      </div><!-- end padding -->
+    </div>
+
+    <div class="made-by">Made by Quinn Lommers</div>
+    <div class="network-info" id="network-info"></div>
+  </div>
+</div>
+
+<script>
+  const config = window.ENTRY_CONFIG;
+  const prices = config.prices;
+  const FAMILY_CAP = config.prices.familyCap || 25;
+
+  document.getElementById('event-name').textContent = config.event.name;
+  document.getElementById('price-hint').textContent =
+    `Seniors $${prices.senior} · Juniors $${prices.junior} · Concession $${prices.concession || '?'} · Cap $${FAMILY_CAP}`;
+  document.getElementById('cap-amount').textContent = FAMILY_CAP;
+
+  if (config.paypal.sandbox) document.getElementById('sandbox-note').style.display = 'block';
+
+  // Show network address for other devices
+  if (config.networkAddress) {
+    document.getElementById('network-info').textContent =
+      `Other devices on this network: http://${config.networkAddress}:3000`;
+  }
+
+  // Populate clubs
+  const clubSel = document.getElementById('club');
+  (config.clubs || []).forEach(club => {
+    const opt = document.createElement('option');
+    opt.value = club; opt.textContent = club;
+    clubSel.appendChild(opt);
+  });
+
+  // Store courses for use in edit dropdowns
+  let allCourses = [];
+
+  // Load courses from MeOS
+  fetch('/get-classes')
+    .then(r => r.text())
+    .then(xml => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xml, 'application/xml');
+      // Support both <Class> (EntryClasses format) and <cls> (MOPComplete format)
+      const classes = doc.getElementsByTagName('Class').length > 0
+        ? doc.getElementsByTagName('Class')
+        : doc.getElementsByTagName('cls');
+      const sel = document.getElementById('class');
+      sel.innerHTML = '<option value="">-- Select a course --</option>';
+      for (let c of classes) {
+        const id = c.getAttribute('id');
+        const nameEl = c.getElementsByTagName('Name')[0];
+        const name = nameEl ? nameEl.textContent.trim() : c.textContent.trim();
+        if (!id || !name) continue;
+        allCourses.push({ id, name });
+        const opt = document.createElement('option');
+        opt.value = id; opt.textContent = name;
+        sel.appendChild(opt);
+      }
+    })
+    .catch(() => {
+      document.getElementById('class').innerHTML = '<option value="">-- Could not load courses --</option>';
+      showMsg('Could not connect to MeOS. Make sure MeOS is running.', 'error');
+    });
+
+  // Cart state
+  let cart = [];
+  let currentClassId = null;
+  let currentClassName = null;
+  let currentMember = null;
+
+  function updateFeeDisplay() {
+    const el = document.getElementById('price-shown');
+    const notMemberMsg = document.getElementById('not-member-msg');
+    const nameVal = document.getElementById('name').value.trim();
+    // Anyone can enter -- being in the database just autofills + sets the type.
+    notMemberMsg.classList.remove('show');
+    if (!nameVal) {
+      el.textContent = 'Enter a name';
+      el.className = 'fee-amount unset';
+      return;
+    }
+    const type = (currentMember && currentMember.type) || 'senior';
+    const price = prices[type] !== undefined ? prices[type] : prices['senior'];
+    el.textContent = `$${price.toFixed(2)} AUD (${type})`;
+    el.className = 'fee-amount';
+  }
+
+  function getPersonPrice() {
+    const type = (currentMember && currentMember.type) || 'senior';
+    return prices[type] !== undefined ? prices[type] : prices['senior'];
+  }
+
+  // Name autocomplete
+  const nameInp = document.getElementById('name');
+  const nameList = document.getElementById('nameautocomplete-list');
+
+  // Shared function to set a member from the database
+  function setMember(c) {
+    currentMember = c;
+    if (c.club) document.getElementById('club').value = c.club;
+    if (c.card) document.getElementById('card').value = c.card;
+    updateFeeDisplay();
+  }
+
+  nameInp.addEventListener('input', function() {
+    const val = this.value.trim().toLowerCase();
+    nameList.innerHTML = ''; nameList.style.display = 'none';
+    currentMember = null; updateFeeDisplay();
+    if (!val) return;
+    fetch('/search-competitors?q=' + encodeURIComponent(val))
+      .then(r => r.json())
+      .then(results => {
+        if (!results.length) return;
+        results.forEach(c => {
+          const div = document.createElement('div');
+          div.textContent = c.club ? `${c.name} (${c.club})` : c.name;
+          div.addEventListener('mousedown', (e) => {
+            // Use mousedown instead of click so it fires before blur
+            e.preventDefault();
+            nameInp.value = c.name;
+            nameList.innerHTML = ''; nameList.style.display = 'none';
+            setMember(c);
+          });
+          nameList.appendChild(div);
+        });
+        nameList.style.display = 'block';
+      });
+  });
+
+  // Also do exact lookup on blur in case they typed the full name manually
+  nameInp.addEventListener('blur', function() {
+    const name = this.value.trim();
+    // If we already have a member set (from autocomplete click), skip
+    if (currentMember && currentMember.name.toLowerCase() === name.toLowerCase()) return;
+    if (!name) { currentMember = null; updateFeeDisplay(); return; }
+    fetch('/lookup-competitor?name=' + encodeURIComponent(name))
+      .then(r => r.json())
+      .then(data => {
+        if (data) setMember(data);
+        else { currentMember = null; updateFeeDisplay(); }
+      })
+      .catch(() => { currentMember = null; updateFeeDisplay(); });
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target !== nameInp) { nameList.innerHTML = ''; nameList.style.display = 'none'; }
+  });
+
+  document.getElementById('class').addEventListener('change', function() {
+    currentClassId = this.value;
+    currentClassName = this.options[this.selectedIndex].textContent;
+  });
+
+  function cartRawTotal() { return cart.reduce((sum, e) => sum + e.price, 0); }
+  function cartTotal() { return Math.min(cartRawTotal(), FAMILY_CAP); }
+
+  function buildCourseOptions(selectedId) {
+    return allCourses.map(c =>
+      `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${escHtml(c.name)}</option>`
+    ).join('');
+  }
+
+  function buildClubOptions(selectedClub) {
+    return (config.clubs || []).map(c =>
+      `<option value="${escHtml(c)}" ${c === selectedClub ? 'selected' : ''}>${escHtml(c)}</option>`
+    ).join('');
+  }
+
+  function renderCart() {
+    const cartSection = document.getElementById('cart-section');
+    const formDivider = document.getElementById('form-divider');
+    const paySection = document.getElementById('pay-section');
+    const emailSection = document.getElementById('email-section');
+    const emptyNote = document.getElementById('empty-pay-note');
+
+    if (cart.length === 0) {
+      cartSection.style.display = 'none';
+      formDivider.style.display = 'none';
+      paySection.style.display = 'none';
+      emailSection.style.display = 'none';
+      emptyNote.style.display = 'block';
+      return;
+    }
+
+    cartSection.style.display = 'block';
+    formDivider.style.display = 'block';
+    paySection.style.display = 'block';
+    emailSection.style.display = 'block';
+    emptyNote.style.display = 'none';
+
+    const itemsEl = document.getElementById('cart-items');
+    itemsEl.innerHTML = '';
+    cart.forEach((entry, i) => {
+      const div = document.createElement('div');
+      div.className = 'cart-item';
+      div.innerHTML = `
+        <div class="cart-item-top">
+          <div class="cart-item-info">
+            <div class="cart-item-name">${escHtml(entry.name)}</div>
+            <div class="cart-item-sub">${escHtml(entry.className)}${entry.club ? ' &middot; ' + escHtml(entry.club) : ''} &middot; SI: ${escHtml(entry.card)}</div>
+          </div>
+          <div class="cart-item-price">$${entry.price.toFixed(2)}</div>
+          <div class="cart-item-actions">
+            <button class="btn-edit-sm" onclick="toggleEdit(${i})" title="Edit">✏️</button>
+            <button class="btn-danger-sm" onclick="removeFromCart(${i})" title="Remove">&#x2715;</button>
+          </div>
+        </div>
+        <div class="cart-item-edit" id="edit-panel-${i}">
+          <div class="edit-row">
+            <div class="edit-field">
+              <label>Course</label>
+              <select id="edit-course-${i}">${buildCourseOptions(entry.classId)}</select>
+            </div>
+            <div class="edit-field">
+              <label>Club</label>
+              <select id="edit-club-${i}"><option value="">--</option>${buildClubOptions(entry.club)}</select>
+            </div>
+          </div>
+          <div class="edit-row">
+            <div class="edit-field">
+              <label>SI Card</label>
+              <input type="text" id="edit-card-${i}" value="${escHtml(entry.card)}">
+            </div>
+          </div>
+          <div class="edit-actions">
+            <button class="btn-save-edit" onclick="saveEdit(${i})">Save</button>
+            <button class="btn-cancel-edit" onclick="toggleEdit(${i})">Cancel</button>
+          </div>
+        </div>
+      `;
+      itemsEl.appendChild(div);
+    });
+
+    const raw = cartRawTotal();
+    document.getElementById('cart-total').textContent = `$${cartTotal().toFixed(2)}`;
+    document.getElementById('cap-note').style.display = raw > FAMILY_CAP ? 'block' : 'none';
+
+    renderPayPalButton();
+  }
+
+  function toggleEdit(i) {
+    const panel = document.getElementById(`edit-panel-${i}`);
+    panel.classList.toggle('open');
+  }
+
+  function saveEdit(i) {
+    const courseEl = document.getElementById(`edit-course-${i}`);
+    const clubEl = document.getElementById(`edit-club-${i}`);
+    const cardEl = document.getElementById(`edit-card-${i}`);
+    cart[i].classId = courseEl.value;
+    cart[i].className = courseEl.options[courseEl.selectedIndex].textContent;
+    cart[i].club = clubEl.value;
+    cart[i].card = cardEl.value.trim();
+    renderCart();
+  }
+
+  async function addToCart() {
+    const name = document.getElementById('name').value.trim();
+    const club = document.getElementById('club').value.trim();
+    const card = document.getElementById('card').value.trim();
+    if (!name) { showMsg('Please enter a name.', 'error'); return; }
+    if (!currentClassId) { showMsg('Please select a course.', 'error'); return; }
+    if (!card) { showMsg('Please enter an SI card number.', 'error'); return; }
+
+    // Check if already in cart
+    if (cart.some(e => e.name.toLowerCase() === name.toLowerCase())) {
+      showMsg(`${name} is already in your cart.`, 'error'); return;
+    }
+
+    // Check if already entered in MeOS
+    showMsg('Checking entry status...', 'info');
+    try {
+      const check = await fetch('/check-entered?name=' + encodeURIComponent(name)).then(r => r.json());
+      if (check.entered) {
+        showMsg(`${name} is already entered in MeOS for this event. Payment has not been taken.`, 'error');
+        return;
+      }
+    } catch (e) {
+      // If check fails, proceed anyway
+    }
+
+    clearMsg();
+    cart.push({ name, club, card, classId: currentClassId, className: currentClassName, price: getPersonPrice() });
+    nameInp.value = '';
+    document.getElementById('club').value = '';
+    document.getElementById('card').value = '';
+    document.getElementById('class').value = '';
+    currentClassId = null; currentClassName = null; currentMember = null;
+    updateFeeDisplay(); renderCart();
+  }
+
+  function removeFromCart(i) {
+    cart.splice(i, 1);
+    renderCart();
+    renderRememberBanner();
+    if (cart.length === 0) {
+      document.getElementById('paypal-button-container').classList.add('hidden');
+      document.getElementById('paypal-button-container').innerHTML = '';
+    }
+  }
+
+  // PayPal
+  let paypalLoaded = false;
+  function loadPayPalSDK() {
+    return new Promise(resolve => {
+      if (paypalLoaded) { resolve(); return; }
+      const env = config.paypal.sandbox ? 'sandbox.' : '';
+      const script = document.createElement('script');
+      script.src = `https://${env}paypal.com/sdk/js?client-id=${config.paypal.clientId}&currency=${config.paypal.currency}`;
+      script.onload = () => { paypalLoaded = true; resolve(); };
+      document.head.appendChild(script);
+    });
+  }
+
+  function renderPayPalButton() {
+    const container = document.getElementById('paypal-button-container');
+    container.classList.remove('hidden');
+    container.innerHTML = '';
+    loadPayPalSDK().then(() => {
+      paypal.Buttons({
+        style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'pay' },
+        createOrder: function(data, actions) {
+          clearMsg();
+          const emailVal = document.getElementById('email').value.trim();
+          if (!emailVal || !emailVal.includes('@')) {
+            showMsg('Please enter a valid email address before paying.', 'error');
+            return false;
+          }
+          return actions.order.create({
+            purchase_units: [{
+              amount: { value: cartTotal().toFixed(2), currency_code: config.paypal.currency },
+              description: `${config.event.name} — ${cart.map(e => e.name).join(', ')}`
+            }]
+          });
+        },
+        onApprove: function(data, actions) {
+          return actions.order.capture().then(details => submitAllToMeOS(details));
+        },
+        onError: function(err) {
+          showMsg('Payment failed. Please try again.', 'error');
+          console.error(err);
+        }
+      }).render('#paypal-button-container');
+    });
+  }
+
+  function submitAllToMeOS(paypalDetails) {
+    const email = document.getElementById('email').value.trim();
+
+    // Show loading overlay
+    const overlay = document.getElementById('loading-overlay');
+    document.getElementById('loading-text').textContent = 'Submitting entries to MeOS...';
+    overlay.classList.add('show');
+
+    const submitEntry = (entry, attempt) => {
+      const url = `/submit-entry?class=${entry.classId}&name=${encodeURIComponent(entry.name)}&club=${encodeURIComponent(entry.club)}&card=${encodeURIComponent(entry.card)}`;
+      return fetch(url).then(r => r.text()).then(xml => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xml, 'application/xml');
+        const status = doc.getElementsByTagName('Status')[0];
+        const ok = status && status.childNodes[0].nodeValue === 'OK';
+        const info = doc.getElementsByTagName('Info')[0];
+        if (!ok && attempt < 2) {
+          // Retry once after 5 seconds
+          document.getElementById('loading-text').textContent = `Retrying ${entry.name}...`;
+          return new Promise(resolve => setTimeout(() => resolve(submitEntry(entry, attempt + 1)), 5000));
+        }
+        return { name: entry.name, className: entry.className, price: entry.price, ok, detail: info ? info.childNodes[0].nodeValue : '' };
+      }).catch(() => {
+        if (attempt < 2) {
+          document.getElementById('loading-text').textContent = `Retrying ${entry.name}...`;
+          return new Promise(resolve => setTimeout(() => resolve(submitEntry(entry, attempt + 1)), 5000));
+        }
+        return { name: entry.name, className: entry.className, price: entry.price, ok: false, detail: 'Could not reach MeOS after 2 attempts' };
+      });
+    };
+
+    const promises = cart.map(entry => submitEntry(entry, 1));
+
+    Promise.all(promises).then(results => {
+      const total = cartTotal();
+      const raw = cartRawTotal();
+
+      // Log entry + get email status back
+      fetch('/log-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entries: results,
+          total,
+          paypalId: paypalDetails.id,
+          email,
+          timestamp: new Date().toISOString()
+        })
+      })
+      .then(r => r.json())
+      .then(logResult => {
+        // Hide loading
+        overlay.classList.remove('show');
+
+        // Populate success card
+        document.getElementById('success-event-name').textContent = config.event.name;
+
+        const tbody = document.getElementById('success-table-body');
+        tbody.innerHTML = '';
+        results.forEach(r => {
+          const tr = document.createElement('tr');
+          tr.style.borderBottom = '1px solid var(--sand)';
+          tr.innerHTML = `
+            <td style="padding:5px 8px">${escHtml(r.name)}</td>
+            <td style="padding:5px 8px">${escHtml(r.className)}</td>
+            <td style="padding:5px 8px">$${r.price.toFixed(2)}</td>
+            <td style="padding:5px 8px;color:${r.ok ? 'var(--success)' : 'var(--error)'}">${r.ok ? '✓' : '⚠ ' + escHtml(r.detail)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById('success-total').textContent = `Total paid: $${total.toFixed(2)} AUD`;
+        document.getElementById('paypal-ref').textContent = `PayPal reference: ${paypalDetails.id}`;
+
+        const capCharged = document.getElementById('cap-charged');
+        if (raw > FAMILY_CAP) {
+          capCharged.textContent = `Family cap applied — you saved $${(raw - total).toFixed(2)}`;
+          capCharged.style.display = 'block';
+        }
+
+        const emailConfirm = document.getElementById('email-confirm');
+        if (email) {
+          if (logResult.emailSent) {
+            emailConfirm.textContent = `✓ Confirmation sent to ${email}`;
+            emailConfirm.style.background = '#eafaf1';
+            emailConfirm.style.color = 'var(--success)';
+          } else {
+            emailConfirm.textContent = `⚠️ Email to ${email} could not be sent — screenshot this page as proof`;
+            emailConfirm.style.background = '#fff8e6';
+            emailConfirm.style.color = 'var(--bark)';
+          }
+          emailConfirm.style.display = 'block';
+        }
+
+        // Remember these names for results highlighting
+        results.forEach(r => myNames.add(r.name.toLowerCase()));
+
+        // Save successfully entered people to remembered
+        results.filter(r => r.ok).forEach(r => {
+          const member = { name: r.name, club: r.club || '', card: r.card || '', type: r.type || 'senior' };
+          addToRemembered(member);
+        });
+        renderRememberBanner();
+
+        document.getElementById('main-form').style.display = 'none';
+        document.getElementById('success-screen').classList.add('show');
+      })
+      .catch(() => {
+        overlay.classList.remove('show');
+        showMsg('Entries submitted but could not confirm. Check admin panel.', 'error');
+      });
+    });
+  }
+
+  function resetForm() {
+    cart = []; currentClassId = null; currentClassName = null; currentMember = null;
+    nameInp.value = '';
+    document.getElementById('club').value = '';
+    document.getElementById('card').value = '';
+    document.getElementById('class').value = '';
+    document.getElementById('email').value = '';
+    updateFeeDisplay(); clearMsg(); renderCart();
+    document.getElementById('main-form').style.display = 'block';
+    document.getElementById('success-screen').classList.remove('show');
+    document.getElementById('paypal-button-container').innerHTML = '';
+    document.getElementById('paypal-button-container').classList.add('hidden');
+    document.getElementById('email-confirm').style.display = 'none';
+  }
+
+  // ── Countdown timer ──────────────────────────────────────────────────────
+  function initCountdown() {
+    const closeTime = config.event && config.event.closeTime;
+    if (!closeTime) return;
+    const closeDate = new Date(closeTime);
+    if (isNaN(closeDate.getTime())) return;
+
+    function updateCountdown() {
+      const now = new Date();
+      const diff = closeDate - now;
+      if (diff <= 0) {
+        // Entries closed — block form
+        document.getElementById('countdown-bar').style.display = 'none';
+        document.getElementById('entries-closed').style.display = 'block';
+        document.getElementById('person-form').style.opacity = '0.4';
+        document.getElementById('person-form').style.pointerEvents = 'none';
+        document.getElementById('pay-section').style.display = 'none';
+        document.getElementById('empty-pay-note').style.display = 'none';
+        return;
+      }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      const timeStr = h > 0
+        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+        : `${m}:${String(s).padStart(2,'0')}`;
+      document.getElementById('countdown-time').textContent = timeStr;
+      const bar = document.getElementById('countdown-bar');
+      bar.style.display = 'block';
+      bar.classList.toggle('urgent', diff < 10 * 60 * 1000); // red under 10 mins
+      setTimeout(updateCountdown, 1000);
+    }
+    updateCountdown();
+  }
+  initCountdown();
+
+  // PWA service worker registration
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  // PayPal session expiry warning — show after 25 minutes
+  let paypalWarningTimer = null;
+  function resetPaypalTimer() {
+    clearTimeout(paypalWarningTimer);
+    document.getElementById('paypal-warning').classList.remove('show');
+    paypalWarningTimer = setTimeout(() => {
+      if (cart.length > 0) {
+        document.getElementById('paypal-warning').classList.add('show');
+      }
+    }, 25 * 60 * 1000);
+  }
+  // Reset timer when cart changes
+  const origRenderCart = renderCart;
+
+  // Keepalive — check server connection every 15 seconds
+  setInterval(() => {
+    fetch('/get-classes').then(() => {
+      document.getElementById('connection-warning').classList.remove('show');
+    }).catch(() => {
+      document.getElementById('connection-warning').classList.add('show');
+    });
+  }, 15000);
+
+  // ── Results ───────────────────────────────────────────────────────────────
+  const REFRESH_INTERVAL = 30000; // 30 seconds
+  let resultsRefreshTimer = null;
+  let resultsActive = false;
+  let currentPage = 'entry';
+
+  function switchPage(page) {
+    const closeTime = config.event && config.event.closeTime;
+    const entriesClosed = closeTime && new Date() >= new Date(closeTime);
+
+    // Block switching to entry if closed
+    if (page === 'entry' && entriesClosed) return;
+
+    currentPage = page;
+    document.getElementById('panel-entry').classList.toggle('active', page === 'entry');
+    document.getElementById('panel-results').classList.toggle('active', page === 'results');
+    document.getElementById('tab-entry-btn').classList.toggle('active', page === 'entry');
+    document.getElementById('tab-results-btn').classList.toggle('active', page === 'results');
+
+    if (page === 'results') {
+      resultsActive = true;
+      loadResultClasses();
+      loadResults();
+      startRefreshBar();
+    } else {
+      resultsActive = false;
+      clearTimeout(resultsRefreshTimer);
+      stopRefreshBar();
+    }
+  }
+
+  function formatTime(secs) {
+    if (!secs && secs !== 0) return '—';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+
+  function timeDiff(secs, leaderSecs) {
+    if (!secs || !leaderSecs || secs === leaderSecs) return '';
+    const diff = secs - leaderSecs;
+    return `+${formatTime(diff)}`;
+  }
+
+  function statusLabel(status) {
+    switch(status) {
+      case 'mp': return '<span class="status-bad">Mispunch</span>';
+      case 'dnf': return '<span class="status-bad">DNF</span>';
+      case 'dns': return '<span class="status-bad">DNS</span>';
+      case 'dq': return '<span class="status-bad">DQ</span>';
+      case 'nc': return '<span class="status-bad">NC</span>';
+      default: return '<span class="status-ok">✓</span>';
+    }
+  }
+
+  function placeClass(place) {
+    if (place === 1) return 'results-place gold';
+    if (place === 2) return 'results-place silver';
+    if (place === 3) return 'results-place bronze';
+    return 'results-place';
+  }
+
+  // Load class list for filter dropdown
+  function loadResultClasses() {
+    const filter = document.getElementById('results-class-filter');
+    const current = filter.value;
+    fetch('/get-result-classes')
+      .then(r => r.text())
+      .then(xml => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xml, 'application/xml');
+        // Support both formats
+        const classes = doc.getElementsByTagName('cls').length > 0
+          ? doc.getElementsByTagName('cls')
+          : doc.getElementsByTagName('Class');
+        filter.innerHTML = '<option value="">All classes</option>';
+        Array.from(classes).forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.getAttribute('id');
+          const nameEl = c.getElementsByTagName('Name')[0];
+          opt.textContent = nameEl ? nameEl.textContent.trim() : c.textContent.trim();
+          if (opt.value === current) opt.selected = true;
+          filter.appendChild(opt);
+        });
+      }).catch(() => {});
+  }
+
+  function loadResults() {
+    if (!resultsActive) return;
+    const classId = document.getElementById('results-class-filter').value;
+    const url = '/get-results' + (classId ? '?classId=' + classId : '');
+
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        renderResults(data);
+        document.getElementById('results-refresh-time').textContent =
+          'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        // Schedule next refresh
+        clearTimeout(resultsRefreshTimer);
+        resultsRefreshTimer = setTimeout(() => {
+          loadResults();
+          startRefreshBar();
+        }, REFRESH_INTERVAL);
+      })
+      .catch(() => {
+        document.getElementById('results-refresh-time').textContent = 'Could not reach MeOS';
+        clearTimeout(resultsRefreshTimer);
+        resultsRefreshTimer = setTimeout(() => {
+          loadResults();
+          startRefreshBar();
+        }, REFRESH_INTERVAL);
+      });
+  }
+
+  // Track last seen result times per person for "new result" highlighting
+  let lastSeenTimes = {};
+  const RECENT_THRESHOLD = 60000; // highlight new results for 60 seconds
+
+  // Names entered this session (for "my result" highlighting)
+  let myNames = new Set();
+
+  // Track after successful payment
+  const origSubmitAll = submitAllToMeOS;
+
+  function renderResults(data) {
+    const container = document.getElementById('results-container');
+    if (!data || data.length === 0) {
+      container.innerHTML = '<div class="results-empty">No results yet — check back after the event starts.</div>';
+      return;
+    }
+
+    const now = Date.now();
+
+    // Build new DOM nodes with fade-in instead of replacing innerHTML
+    const newContainer = document.createDocumentFragment();
+
+    data.forEach(cls => {
+      // Find leader time (fastest OK result)
+      const okResults = cls.competitors.filter(c => c.status === 'ok' && c.timeSecs);
+      const leaderTime = okResults.length ? Math.min(...okResults.map(c => c.timeSecs)) : null;
+
+      const section = document.createElement('div');
+      section.className = 'results-class-section';
+
+      const finishedCount = cls.competitors.filter(c => c.status === 'ok').length;
+      const dnsCount = cls.competitors.filter(c => c.status === 'dns').length;
+      const issueCount = cls.competitors.filter(c => c.status !== 'ok' && c.status !== 'dns').length;
+
+      section.innerHTML = `
+        <div class="results-class-header">
+          <span class="results-class-name">${escHtml(cls.className)}</span>
+          <span class="results-class-updated">${finishedCount} finished${issueCount > 0 ? ' · ' + issueCount + ' issue' + (issueCount>1?'s':'') : ''}${dnsCount > 0 ? ' · ' + dnsCount + ' DNS' : ''}</span>
+        </div>
+        <table class="results-table">
+          <thead><tr>
+            <th style="width:2.2rem">#</th>
+            <th>Name</th>
+            <th>Time</th>
+            <th>+Leader</th>
+          </tr></thead>
+          <tbody id="tbody-${cls.clsId}"></tbody>
+        </table>
+        ${dnsCount > 0 ? `<div id="dns-${cls.clsId}" style="margin-top:0.35rem"></div>` : ''}`;
+
+      newContainer.appendChild(section);
+
+      // Detect new results & update lastSeenTimes
+      cls.competitors.forEach(c => {
+        const key = cls.clsId + ':' + c.name;
+        if (c.timeSecs && !lastSeenTimes[key]) {
+          lastSeenTimes[key] = now;
+        }
+      });
+    });
+
+    // Fade in if container was empty, otherwise update in place
+    const wasEmpty = container.querySelector('.results-empty');
+    container.innerHTML = '';
+    container.appendChild(newContainer);
+
+    // Populate tbodies
+    data.forEach(cls => {
+      const tbody = document.getElementById('tbody-' + cls.clsId);
+      if (!tbody) return;
+
+      const okResults = cls.competitors.filter(c => c.status === 'ok' && c.timeSecs);
+      const leaderTime = okResults.length ? Math.min(...okResults.map(c => c.timeSecs)) : null;
+
+      // Separate DNS from other statuses
+      const mainCompetitors = cls.competitors.filter(c => c.status !== 'dns');
+      const dnsCompetitors = cls.competitors.filter(c => c.status === 'dns');
+
+      mainCompetitors.forEach(c => {
+        const key = cls.clsId + ':' + c.name;
+        const isNew = c.timeSecs && lastSeenTimes[key] && (now - lastSeenTimes[key] < RECENT_THRESHOLD);
+        const isMe = myNames.has(c.name.toLowerCase());
+        const diff = (c.status === 'ok' && c.timeSecs && leaderTime && c.timeSecs !== leaderTime)
+          ? '+' + formatTime(c.timeSecs - leaderTime) : '';
+
+        const tr = document.createElement('tr');
+        if (isMe) tr.classList.add('my-result');
+        if (isNew && !isMe) tr.classList.add('fade-new');
+
+        let placeDisplay;
+        if (c.status !== 'ok') {
+          placeDisplay = `<span class="status-bad">${c.status.toUpperCase()}</span>`;
+        } else if (c.place === 1) {
+          placeDisplay = '🥇';
+        } else if (c.place === 2) {
+          placeDisplay = '🥈';
+        } else if (c.place === 3) {
+          placeDisplay = '🥉';
+        } else {
+          placeDisplay = `<span class="results-place">${c.place || '—'}</span>`;
+        }
+
+        const hasSplits = c.splits && c.splits.length;
+        tr.innerHTML = `
+          <td style="text-align:center;font-size:1.1rem">${placeDisplay}</td>
+          <td>
+            <div class="results-name">${escHtml(c.name)}${isMe ? ' <span style="font-size:0.68rem;background:var(--lime);color:var(--forest);border-radius:10px;padding:0.1rem 0.4rem;font-weight:700">YOU</span>' : ''}${hasSplits ? ' <span style="color:var(--muted);font-size:0.8rem">▸</span>' : ''}</div>
+            ${c.club ? `<div class="results-club">${escHtml(c.club)}</div>` : ''}
+          </td>
+          <td class="results-time">${c.status === 'ok' ? formatTime(c.timeSecs) : '—'}</td>
+          <td class="results-diff">${diff}</td>
+        `;
+        tbody.appendChild(tr);
+
+        // Tap a row to expand its split times.
+        if (hasSplits) {
+          tr.style.cursor = 'pointer';
+          tr.addEventListener('click', function () {
+            const next = tr.nextElementSibling;
+            if (next && next.classList.contains('splits-detail')) { next.remove(); return; }
+            const sr = document.createElement('tr');
+            sr.className = 'splits-detail';
+            let prev = 0;
+            const rows = c.splits.map(function (s, i) {
+              const leg = s.time - prev; prev = s.time;
+              return `<tr><td style="padding:2px 8px">${i + 1}. ${escHtml(String(s.control))}</td>`
+                + `<td style="padding:2px 8px;text-align:right">${formatTime(leg)}</td>`
+                + `<td style="padding:2px 8px;text-align:right;color:var(--muted)">${formatTime(s.time)}</td></tr>`;
+            }).join('');
+            sr.innerHTML = `<td colspan="4" style="background:var(--sand);padding:6px 8px">
+              <table style="width:100%;font-size:0.82rem"><thead><tr style="color:var(--muted)">
+              <th style="text-align:left;padding:2px 8px">Control</th><th style="text-align:right;padding:2px 8px">Leg</th>
+              <th style="text-align:right;padding:2px 8px">Time</th></tr></thead><tbody>${rows}</tbody></table></td>`;
+            tr.after(sr);
+          });
+        }
+      });
+
+      // DNS section — greyed out below main results
+      const dnsContainer = document.getElementById('dns-' + cls.clsId);
+      if (dnsContainer && dnsCompetitors.length > 0) {
+        dnsContainer.innerHTML = `
+          <div style="font-size:0.68rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.35rem 0.4rem;margin-top:0.25rem">Did Not Start</div>
+          ${dnsCompetitors.map(c => {
+            const isMe = myNames.has(c.name.toLowerCase());
+            return `<div style="display:flex;align-items:center;padding:0.35rem 0.4rem;opacity:0.45;font-size:0.82rem;border-top:1px solid var(--sand)">
+              <span style="width:2.2rem;text-align:center;color:var(--muted)">—</span>
+              <span style="flex:1;color:var(--text)">${escHtml(c.name)}${isMe ? ' <span style="font-size:0.68rem;background:var(--lime);color:var(--forest);border-radius:10px;padding:0.1rem 0.4rem;font-weight:700">YOU</span>' : ''}</span>
+              <span style="font-size:0.75rem;color:var(--muted)">DNS</span>
+            </div>`;
+          }).join('')}`;
+      }
+    });
+
+    if (wasEmpty) {
+      container.style.opacity = '0';
+      container.style.transition = 'opacity 0.4s';
+      requestAnimationFrame(() => { container.style.opacity = '1'; });
+    }
+  }
+
+  // Refresh progress bar
+  let barAnimFrame = null;
+  function startRefreshBar() {
+    const bar = document.getElementById('refresh-bar');
+    bar.classList.remove('animating');
+    bar.style.transform = 'scaleX(1)';
+    // Force reflow
+    void bar.offsetWidth;
+    bar.classList.add('animating');
+    bar.style.transitionDuration = REFRESH_INTERVAL + 'ms';
+    bar.style.transform = 'scaleX(0)';
+  }
+  function stopRefreshBar() {
+    const bar = document.getElementById('refresh-bar');
+    bar.classList.remove('animating');
+    bar.style.transform = 'scaleX(1)';
+  }
+
+  // Check if entries are closed on load and set default tab
+  (function() {
+    const closeTime = config.event && config.event.closeTime;
+    const entriesClosed = closeTime && new Date() >= new Date(closeTime);
+    const entryTab = document.getElementById('tab-entry-btn');
+    const resultsTab = document.getElementById('tab-results-btn');
+    if (entriesClosed) {
+      entryTab.classList.add('disabled');
+      entryTab.title = 'Entries are closed';
+      switchPage('results');
+    }
+  })();
+
+  // ── Remember Me ───────────────────────────────────────────────────────────
+  const REMEMBER_KEY = 'owa_entry_remembered';
+  let rememberedPeople = [];
+
+  function loadRemembered() {
+    try {
+      const stored = localStorage.getItem(REMEMBER_KEY);
+      if (stored) rememberedPeople = JSON.parse(stored);
+    } catch (e) { rememberedPeople = []; }
+    // Populate myNames from remembered people so YOU badge persists across sessions
+    rememberedPeople.forEach(p => myNames.add(p.name.toLowerCase()));
+    renderRememberBanner();
+  }
+
+  function saveRemembered() {
+    try { localStorage.setItem(REMEMBER_KEY, JSON.stringify(rememberedPeople)); }
+    catch (e) {}
+  }
+
+  function addToRemembered(member) {
+    // Don't duplicate
+    if (rememberedPeople.some(p => p.name.toLowerCase() === member.name.toLowerCase())) return;
+    rememberedPeople.push({ name: member.name, club: member.club, card: member.card, type: member.type });
+    if (rememberedPeople.length > 10) rememberedPeople.shift(); // max 10
+    saveRemembered();
+    renderRememberBanner();
+  }
+
+  function clearRemembered() {
+    if (!confirm('Clear your saved people?')) return;
+    rememberedPeople = [];
+    saveRemembered();
+    renderRememberBanner();
+  }
+
+  function renderRememberBanner() {
+    const banner = document.getElementById('remember-banner');
+    const chips = document.getElementById('remember-chips');
+    if (!rememberedPeople.length) { banner.style.display = 'none'; return; }
+    banner.style.display = 'block';
+    chips.innerHTML = '';
+    rememberedPeople.forEach(p => {
+      const inCart = cart.some(e => e.name.toLowerCase() === p.name.toLowerCase());
+      const btn = document.createElement('button');
+      btn.className = 'remember-chip' + (inCart ? ' added' : '');
+      btn.textContent = inCart ? '✓ ' + p.name : p.name;
+      btn.disabled = inCart;
+      btn.addEventListener('click', () => quickAddFromRemembered(p));
+      chips.appendChild(btn);
+    });
+  }
+
+  async function quickAddFromRemembered(p) {
+    // Look up full member data from database
+    const member = await fetch('/lookup-competitor?name=' + encodeURIComponent(p.name))
+      .then(r => r.json()).catch(() => null);
+    if (!member) { showMsg(p.name + ' not found in database.', 'error'); return; }
+
+    // Check if already in cart
+    if (cart.some(e => e.name.toLowerCase() === p.name.toLowerCase())) return;
+
+    // Check MeOS
+    showMsg('Checking ' + p.name + '...', 'info');
+    try {
+      const check = await fetch('/check-entered?name=' + encodeURIComponent(p.name)).then(r => r.json());
+      if (check.entered) {
+        showMsg(p.name + ' is already entered in MeOS.', 'error');
+        return;
+      }
+    } catch(e) {}
+    clearMsg();
+
+    // Fill form with their details and prompt for course
+    nameInp.value = member.name;
+    setMember(member);
+    document.getElementById('card').value = member.card || '';
+    if (member.club) document.getElementById('club').value = member.club;
+    showMsg('Select a course for ' + member.name + ' then click Add to cart.', 'info');
+    document.getElementById('class').focus();
+  }
+
+  // Save to remembered after successful payment
+  loadRemembered();
+
+  function showMsg(text, type) {
+    const el = document.getElementById('msg');
+    el.textContent = text; el.className = `info-msg ${type} show`;
+  }
+  function clearMsg() { document.getElementById('msg').className = 'info-msg'; }
+  function escHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loading-text">Submitting entries...</div>
+</div>
+<div class="connection-warning" id="connection-warning">
+  ⚠️ Connection to server lost — do not pay until this message disappears
+</div>
+</body>
+</html>

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pos, badge, time_cell, splits_rows %}
+{% block title %}Splits{% endblock %}
+{% block heading %}Splits{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Split times</h3>
+    <p>Every competitor against every leg. Each cell shows the cumulative time
+       (with split rank) and the leg time below it; the fastest leg in a column
+       is highlighted, and times behind the leg leader are shown in grey.</p>
+</div>
+
+{% for cls in classes %}
+<section class="panel class-card" id="cls-{{ cls.name }}">
+    <div class="panel-head">
+        <h4>{{ cls.name }}</h4>
+        <span class="chip">{{ cls.meta }}</span>
+        {% if cls.length_m %}<span class="chip grey">{{ '%.1f'|format(cls.length_m / 1000) }} km</span>{% endif %}
+    </div>
+
+    {% if cls.is_score %}
+    {# Score legs aren't comparable across route choices; show per-runner splits. #}
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:46px;text-align:center">#</th>
+                <th>Athlete</th>
+                <th class="num" style="width:80px">Points</th>
+                <th class="num" style="width:104px">Time</th>
+                <th style="width:104px;text-align:right"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in cls.rows %}
+            <tr class="runner{% if r.splits %} has-splits{% endif %}"{% if r.splits %} tabindex="0" role="button" aria-expanded="false"{% endif %}>
+                <td style="text-align:center">{{ pos(r) }}</td>
+                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                <td class="num{% if r.points is none %} dim{% endif %}">{% if r.points is not none %}{{ r.points }}{% else %}&ndash;{% endif %}</td>
+                <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
+                <td style="text-align:right">{{ badge(r) }}{% if r.splits %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}</td>
+            </tr>
+            {{ splits_rows(r, 5) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="splits-matrix-wrap">
+        <table class="splits-matrix">
+            <thead>
+                <tr>
+                    <th class="c-pos">#</th>
+                    <th class="c-name">Athlete</th>
+                    {% for leg in cls.matrix.legs %}
+                    <th class="c-leg">{{ loop.index if leg.code != 'F' else 'F' }}<span class="ctl">{{ leg.label }}</span></th>
+                    {% endfor %}
+                    <th class="c-total">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in cls.matrix.rows %}
+                <tr>
+                    <td class="c-pos">{% if row.position %}{{ row.position }}{% else %}&ndash;{% endif %}</td>
+                    <td class="c-name">
+                        <a href="{{ url_for('slip', comp_id=row.id) }}" target="_blank" rel="noopener">{{ row.name }}</a>
+                        {% if row.status != 'ok' %}<span class="badge badge-{{ row.status }}">{{ row.status|upper }}</span>{% endif %}
+                    </td>
+                    {% for cell in row.cells %}
+                    <td class="split-cell{% if cell.best_leg %} best{% endif %}{% if cell.missing %} miss{% endif %}">
+                        {% if cell.missing %}
+                            <span class="miss">&ndash;</span>
+                        {% else %}
+                            <span class="cum">{{ cell.cum }}</span><span class="rk">{{ cell.cum_rank }}</span>
+                            <span class="leg">{{ cell.leg }}<span class="rk">{{ cell.leg_rank }}</span></span>
+                            {% if cell.velocity %}<span class="vel">{{ cell.velocity }}/km</span>{% endif %}
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="c-total">{{ row.total or '–' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</section>
+{% endfor %}
+{% endblock %}
