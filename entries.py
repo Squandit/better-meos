@@ -13,6 +13,7 @@ by the route via :mod:`payments` (scaffolded).
 
 from __future__ import annotations
 
+import random
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -20,6 +21,8 @@ import db
 import notify
 import store
 from store import StoreError, parse_clock, format_clock
+
+DRAW_METHODS = ("alpha", "random", "club_spread")
 
 
 def _event_id() -> int:
@@ -103,14 +106,49 @@ def mark_paid(entry_id: int) -> None:
     db.update_entry(entry_id, paid=1)
 
 
-def draw_startlist(first_start, interval_minutes) -> dict:
+def _club_spread(members: list[dict]) -> list[dict]:
+    """Order so the same club isn't drawn back-to-back where possible: repeatedly
+    take from the club with the most remaining entries that isn't the last one
+    placed. Starts from an alphabetical order so the result is deterministic."""
+    groups: dict[str, list] = {}
+    for e in sorted(members, key=lambda e: e["name"].lower()):
+        groups.setdefault((e["club"] or "").strip().lower(), []).append(e)
+    remaining = {k: list(v) for k, v in groups.items()}
+    out: list[dict] = []
+    last = None
+    total = sum(len(v) for v in remaining.values())
+    while len(out) < total:
+        avail = [k for k, v in remaining.items() if v]
+        choices = [k for k in avail if k != last] or avail
+        k = max(choices, key=lambda c: len(remaining[c]))
+        out.append(remaining[k].pop(0))
+        last = k
+    return out
+
+
+def _ordered(members: list[dict], method: str, rng: random.Random) -> list[dict]:
+    if method == "random":
+        shuffled = members[:]
+        rng.shuffle(shuffled)
+        return shuffled
+    if method == "club_spread":
+        return _club_spread(members)
+    return sorted(members, key=lambda e: e["name"].lower())  # alpha (default)
+
+
+def draw_startlist(first_start, interval_minutes, method="alpha",
+                   vacancy_every=0, seed=None) -> dict:
     """
     Convert not-yet-converted entries into competitors with start times.
 
-    Within each class, entries are ordered alphabetically (deterministic) and
-    given start times from ``first_start`` (HH:MM:SS) spaced ``interval_minutes``
-    apart. Already-converted entries are skipped, so re-running the draw only
-    places new (e.g. late) entries. Returns ``{"created", "skipped"}``.
+    Within each class, entries are ordered by ``method`` -- ``alpha`` (default,
+    deterministic), ``random``, or ``club_spread`` (avoid same-club adjacency) --
+    and given start times from ``first_start`` (HH:MM:SS) spaced
+    ``interval_minutes`` apart. ``vacancy_every`` (>0) leaves an empty reserve
+    slot after every that-many real starts. Already-converted entries are
+    skipped, so re-running only places new (e.g. late) entries. ``seed`` makes a
+    ``random`` draw reproducible (tests). Returns ``{"created", "skipped",
+    "vacancies"}``.
     """
     first = parse_clock(first_start, "First start")
     if first is None:
@@ -121,6 +159,14 @@ def draw_startlist(first_start, interval_minutes) -> dict:
         raise StoreError("Interval must be a whole number of minutes")
     if interval < 1:
         raise StoreError("Interval must be at least 1 minute")
+    method = (method or "alpha").strip().lower()
+    if method not in DRAW_METHODS:
+        raise StoreError("Draw method must be alpha, random or club_spread")
+    try:
+        vacancy_every = int(vacancy_every or 0)
+    except (TypeError, ValueError):
+        raise StoreError("Reserve-slot interval must be a whole number")
+    rng = random.Random(seed)
 
     pending = [e for e in db.all_entries(_event_id()) if e["competitor_id"] is None]
     by_class: dict[int, list] = {}
@@ -128,13 +174,14 @@ def draw_startlist(first_start, interval_minutes) -> dict:
         by_class.setdefault(e["class_id"], []).append(e)
 
     created = 0
+    vacancies = 0
     skipped = []
     for class_id, members in by_class.items():
         if store.get_class(class_id) is None:
             for e in members:
                 skipped.append({"name": e["name"], "reason": "class no longer exists"})
             continue
-        members.sort(key=lambda e: e["name"].lower())
+        members = _ordered(members, method, rng)
         # Continue after any start times already assigned in this class (from an
         # earlier draw), but never before the requested first start. This keeps a
         # re-run for late entries from colliding with the original draw.
@@ -143,7 +190,12 @@ def draw_startlist(first_start, interval_minutes) -> dict:
         start_time = first
         if assigned:
             start_time = max(first, max(assigned) + timedelta(minutes=interval))
+        placed = 0
         for e in members:
+            # Leave a reserve/vacant slot after every N real starts in this class.
+            if vacancy_every and placed and placed % vacancy_every == 0:
+                start_time = start_time + timedelta(minutes=interval)
+                vacancies += 1
             try:
                 comp = store.create_competitor({
                     "name": e["name"], "club": e["club"] or "",
@@ -155,5 +207,6 @@ def draw_startlist(first_start, interval_minutes) -> dict:
                 continue
             db.update_entry(e["id"], competitor_id=comp["id"])
             created += 1
+            placed += 1
             start_time = start_time + timedelta(minutes=interval)
-    return {"created": created, "skipped": skipped}
+    return {"created": created, "skipped": skipped, "vacancies": vacancies}

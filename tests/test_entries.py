@@ -81,6 +81,35 @@ def test_late_entry_redraw_does_not_collide():
     assert starts[1].strftime("%H:%M:%S") == "10:05:00"
 
 
+def test_draw_club_spread_avoids_adjacent_clubs():
+    course = store.create_course({"name": "Spread course", "type": "linear", "controls": [91]})
+    cls = store.create_class({"name": "SpreadClass", "course_id": course["id"]})
+    cid = cls["id"]
+    people = [("X1", "Xclub"), ("X2", "Xclub"), ("Y1", "Yclub"), ("Y2", "Yclub")]
+    for i, (name, club) in enumerate(people):
+        entries_mod.create({"name": name, "class_id": cid, "club": club,
+                            "card_number": 7760000 + i})
+    entries_mod.draw_startlist("10:00:00", 1, method="club_spread")
+    ordered = sorted(store._competitors_in_class(cid), key=lambda c: c["start"])
+    clubs = [c["club"] for c in ordered]
+    assert len(clubs) == 4
+    assert all(clubs[i] != clubs[i + 1] for i in range(len(clubs) - 1))
+
+
+def test_draw_reserve_slots_leave_gaps():
+    course = store.create_course({"name": "Vac course", "type": "linear", "controls": [92]})
+    cls = store.create_class({"name": "VacClass", "course_id": course["id"]})
+    cid = cls["id"]
+    for i, name in enumerate(["A", "B", "C", "D"]):
+        entries_mod.create({"name": name, "class_id": cid, "card_number": 7761000 + i})
+    out = entries_mod.draw_startlist("10:00:00", 1, vacancy_every=2)
+    assert out["vacancies"] >= 1
+    starts = sorted(c["start"].strftime("%H:%M:%S")
+                    for c in store._competitors_in_class(cid))
+    # 2 placed, then a reserve gap (10:02), then 2 more.
+    assert starts == ["10:00:00", "10:01:00", "10:03:00", "10:04:00"]
+
+
 def test_entry_rejected_when_card_belongs_to_competitor():
     cid = next(iter(store._classes))
     store.create_competitor({"name": "Has Card", "class_id": cid,

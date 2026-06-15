@@ -825,7 +825,9 @@ def api_mark_entry_paid(entry_id):
 def api_draw_startlist():
     data = _payload()
     outcome = entries_mod.draw_startlist(
-        data.get("first_start"), data.get("interval_minutes"))
+        data.get("first_start"), data.get("interval_minutes"),
+        method=data.get("method", "alpha"),
+        vacancy_every=data.get("vacancy_every", 0))
     events.publish("competitor", action="draw")
     return jsonify(outcome)
 
