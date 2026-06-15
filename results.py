@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from rules import RuleError, evaluate_formula
+
 
 def format_duration(seconds: int) -> str:
     """Format seconds as H:MM:SS (a negative duration keeps a leading minus)."""
@@ -304,6 +306,14 @@ def build_result(card: dict, course: dict) -> dict:
                 punches = punches[:i] + punches[i + 1:]
                 break
 
+    # Mass start (and chase/handicap with a common gun): everyone who ran is
+    # timed from one shared start. A competitor with no punches and no finish
+    # still counts as DNS -- they never left the line -- so only pull the gun
+    # time across for runners who actually started.
+    elif course.get("start_mode") == "mass" and course.get("mass_start") is not None:
+        if finish is not None or punches:
+            start = course["mass_start"]
+
     punched_codes = [code for code, _ in punches]
     # Kept on the result so the splits matrix can align punches to the course
     # order itself (it needs the raw punch sequence, not just punch-order splits).
@@ -325,16 +335,34 @@ def build_result(card: dict, course: dict) -> dict:
 
         elif course["type"] == "score":
             auto_status = STATUS_OK
-            points = score_points(course["controls"], punched_codes)
+            base_points = score_points(course["controls"], punched_codes)
             limit = course.get("time_limit_minutes")
-            if limit is not None and total_seconds > limit * 60:
-                seconds_over = total_seconds - limit * 60
-                # Round up: any part of a minute over the limit counts as a full one.
-                minutes_over = (seconds_over + 59) // 60
-                penalty = minutes_over * course.get("penalty_per_minute", 0)
-                points = max(0, points - penalty)
+            # Round up: any part of a minute over the limit counts as a full one.
+            over_minutes = (
+                (total_seconds - limit * 60 + 59) // 60
+                if limit is not None and total_seconds > limit * 60 else 0
+            )
+
+            formula = course.get("score_formula")
+            if formula:
+                # Operator-defined scoring (see rules.py). On a bad formula we
+                # fall back to the base point sum rather than failing the result.
+                controls_hit = len({c for c in punched_codes if c in course["controls"]})
+                try:
+                    points = int(round(evaluate_formula(formula, {
+                        "controls": controls_hit, "points": base_points,
+                        "seconds": total_seconds, "minutes": total_seconds / 60.0,
+                        "limit": limit or 0, "over_minutes": over_minutes,
+                    })))
+                except RuleError:
+                    points = base_points
+            else:
+                penalty = over_minutes * course.get("penalty_per_minute", 0)
+                points = base_points - penalty
+
+            if over_minutes:
                 auto_status = STATUS_OOT
-            result["points"] = points
+            result["points"] = max(0, points)
 
         else:
             raise ValueError(f"Unknown course type: {course['type']!r}")

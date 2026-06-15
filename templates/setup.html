@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Setup{% endblock %}
+{% block heading %}{{ event.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Event setup</h3>
+    <p>{{ event.date }}{% if event.first_start %} · first start {{ event.first_start }}{% endif %}
+       · {{ event.type|capitalize }} · everything you need to run the event.</p>
+</div>
+
+<div class="stat-grid">
+    <div class="stat accent"><div class="label">Competitors</div><div class="value">{{ counts.competitors }}</div><div class="sub">across {{ counts.classes }} classes</div></div>
+    <div class="stat"><div class="label">Downloaded</div><div class="value">{{ counts.downloaded }}</div><div class="sub">cards in</div></div>
+    <div class="stat"><div class="label">Still out</div><div class="value">{{ counts.out }}</div><div class="sub">entered, not downloaded</div></div>
+</div>
+
+<div class="section-title">Set up the event</div>
+<div class="setup-grid">
+    <a class="setup-tile" href="{{ url_for('courses') }}"><h4>Courses</h4><p>Control sequences &amp; geometry</p></a>
+    <a class="setup-tile" href="{{ url_for('classes') }}"><h4>Classes</h4><p>Categories, relay legs, fees</p></a>
+    <a class="setup-tile" href="{{ url_for('competitors') }}"><h4>Competitors</h4><p>The entry list</p></a>
+    <a class="setup-tile" href="{{ url_for('teams_page') }}"><h4>Teams</h4><p>Relay teams</p></a>
+</div>
+
+<div class="section-title">Remote entry</div>
+<section class="panel"><div class="panel-body">
+    <div class="ops-bar">
+        <span id="remote-status">{% if remote_url %}Public entry URL: <a href="{{ remote_url }}/enter" target="_blank" rel="noopener">{{ remote_url }}/enter</a>{% else %}Host the entry page online so people can enter from their phones.{% endif %}</span>
+        <span class="toolbar-spacer"></span>
+        {% if remote_url %}
+        <button class="btn btn-soft" data-remote="stop">Stop remote</button>
+        {% else %}
+        <button class="btn" data-remote="start">Start remote entry</button>
+        {% endif %}
+    </div>
+    {% if not remote_configured %}<p class="tool-note">Tip: set the ngrok token (and optional domain) in <a href="{{ url_for('config_page') }}">Settings</a> for a stable URL without the ngrok warning page.</p>{% endif %}
+    <p class="tool-note">The entry form &amp; public results are served on a separate port from this console, so sharing that URL never exposes event editing.</p>
+    <script>
+    document.querySelectorAll("[data-remote]").forEach(function (b) {
+        b.addEventListener("click", function () {
+            var stop = b.dataset.remote === "stop";
+            var el = document.getElementById("remote-status");
+            el.textContent = stop ? "Stopping…" : "Starting tunnel…";
+            fetch("/api/remote/" + b.dataset.remote, { method: "POST" })
+                .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+                .then(function (res) {
+                    if (!res.ok) { el.textContent = (res.d && res.d.error) || "Failed"; return; }
+                    window.location.reload();
+                });
+        });
+    });
+    </script>
+</div></section>
+
+<div class="section-title">Run the event</div>
+<div class="setup-grid">
+    <a class="setup-tile" href="{{ url_for('download') }}"><h4>Entry &amp; download</h4><p>Read cards / simulate downloads</p></a>
+    <a class="setup-tile" href="{{ url_for('results') }}"><h4>Results</h4><p>Standings &amp; splits</p></a>
+    <a class="setup-tile" href="{{ url_for('live') }}" target="_blank" rel="noopener"><h4>Live screen</h4><p>Projector leaderboard</p></a>
+    <a class="setup-tile" href="{{ url_for('speaker_page') }}"><h4>Speaker</h4><p>Who's out, recent finishes</p></a>
+    <a class="setup-tile" href="{{ url_for('economy_page') }}"><h4>Economy</h4><p>Fees &amp; hire cards</p></a>
+    <a class="setup-tile" href="{{ url_for('tools') }}"><h4>Import / Export</h4><p>Start lists, PDFs, backup, public results</p></a>
+    <a class="setup-tile" href="{{ url_for('config_page') }}"><h4>Settings</h4><p>PayPal, ngrok, email, fees, ports, admin password</p></a>
+</div>
+{% endblock %}

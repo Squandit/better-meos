@@ -35,14 +35,3 @@ document.querySelectorAll("[data-filter]").forEach(function (wrap) {
     }
     input.addEventListener("input", apply);
 });
-
-// Active-event switcher (top bar): switch the event server-side, then reload.
-var switcher = document.querySelector("[data-event-switcher]");
-if (switcher) {
-    switcher.addEventListener("change", function () {
-        fetch("/api/events/active", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ event_id: switcher.value })
-        }).then(function (r) { if (r.ok) { window.location.reload(); } });
-    });
-}

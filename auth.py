@@ -29,7 +29,7 @@ log = logging.getLogger("auth")
 
 # Paths reachable without logging in (public-facing surfaces + auth itself).
 _PUBLIC_EXACT = {
-    "/login", "/logout", "/api/entries", "/api/stream", "/live", "/enter",
+    "/login", "/logout", "/unlock", "/api/entries", "/api/stream", "/live", "/enter",
     # Ported entry page (public PWA) and its backend.
     "/get-classes", "/get-result-classes", "/get-results", "/search-competitors",
     "/lookup-competitor", "/check-entered", "/submit-entry", "/log-entries",

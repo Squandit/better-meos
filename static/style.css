@@ -293,23 +293,23 @@ body.overlay-open { overflow: hidden; }
 
 /* ---- Drawer (competitor editor) ----------------------------------------- */
 
+/* The competitor editor is a CENTERED modal (not a side drawer). */
 .drawer {
-    position: fixed; top: 0; right: 0; z-index: 50;
-    width: 480px; max-width: 100vw; height: 100vh;
-    background: var(--surface);
-    box-shadow: -8px 0 40px rgba(18, 26, 38, .18);
-    transform: translateX(100%);
-    /* Stay visible through the slide-out, then go fully hidden so the off-screen
-       form fields aren't tabbable / exposed to screen readers while closed. */
-    visibility: hidden;
-    transition: transform .22s cubic-bezier(.2, .7, .3, 1), visibility 0s linear .22s;
-    display: flex;
+    position: fixed; top: 50%; left: 50%; z-index: 50;
+    width: 520px; max-width: calc(100vw - 32px); max-height: 88vh;
+    background: var(--surface); border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(18, 26, 38, .28);
+    transform: translate(-50%, -48%) scale(.98);
+    /* Fade/scale in; stay hidden (not tabbable) while closed. */
+    opacity: 0; visibility: hidden;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+    display: flex; overflow: hidden;
 }
 .drawer.open {
-    transform: translateX(0); visibility: visible;
-    transition: transform .22s cubic-bezier(.2, .7, .3, 1);
+    transform: translate(-50%, -50%) scale(1); opacity: 1; visibility: visible;
+    transition: opacity .18s ease, transform .18s ease;
 }
-.drawer-inner { display: flex; flex-direction: column; width: 100%; height: 100%; }
+.drawer-inner { display: flex; flex-direction: column; width: 100%; max-height: 88vh; }
 .drawer-head {
     display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
     padding: 18px 20px; border-bottom: 1px solid var(--line);
@@ -321,6 +321,11 @@ body.overlay-open { overflow: hidden; }
     display: flex; align-items: center; gap: 10px;
     padding: 14px 20px; border-top: 1px solid var(--line); background: #fbfcfd;
 }
+
+/* Click a class row or course card (not its buttons) to open its editor. */
+tr[data-class-row] { cursor: pointer; }
+[data-course-row] { cursor: pointer; transition: border-color .12s ease; }
+[data-course-row]:hover { border-color: var(--green); }
 
 /* ---- Modal (class + course editors) ------------------------------------- */
 
@@ -462,7 +467,7 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
     .nav a.active { border-left: 0; border-bottom-color: var(--orange); }
     .nav .nav-sep { display: none; }
     .sidebar .foot { display: none; }
-    .drawer { width: 100vw; }
+    .drawer { width: calc(100vw - 24px); }
     .field-grid { grid-template-columns: 1fr; }
 }
 
@@ -497,6 +502,41 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 @media (max-width: 720px) { .speaker-grid { grid-template-columns: 1fr; } }
 .check-field .check { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; font-size: 13.5px; }
 .check-field .check input { width: auto; }
+.check { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--muted); }
+.check input { width: auto; }
+
+/* ---- Start (event selection) page -------------------------------------- */
+.start-page { background: var(--bg); }
+.start-wrap { max-width: 920px; margin: 0 auto; padding: 36px 24px 60px; }
+.start-head { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+.start-head .mark { display: grid; place-items: center; width: 44px; height: 44px; background: var(--green); color: #fff; border-radius: 11px; font-weight: 700; }
+.start-head h1 { margin: 0; font-size: 22px; }
+.start-head small { color: var(--muted); }
+.start-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 720px) { .start-grid { grid-template-columns: 1fr; } }
+.start-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 20px 22px; }
+.start-card h2 { margin: 0 0 12px; font-size: 17px; }
+.start-folder { color: var(--muted); font-size: 12.5px; margin: -6px 0 12px; }
+.start-folder code { background: var(--bg); padding: 1px 6px; border-radius: 5px; }
+.event-list { list-style: none; margin: 0; padding: 0; }
+.event-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+.event-item:hover, .event-item:focus-visible { border-color: var(--green); background: var(--green-soft); outline: none; }
+.event-item .ev-name { font-weight: 600; display: block; }
+.event-item .ev-meta { font-size: 12px; color: var(--muted); }
+.event-item .ev-open { color: var(--green); font-weight: 600; font-size: 13px; }
+.event-empty { color: var(--muted); font-size: 13.5px; padding: 8px 2px; }
+.start-form { display: flex; flex-direction: column; gap: 12px; }
+.start-form label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.start-form .hint { font-weight: 400; color: var(--muted); }
+.start-form input, .start-form select { padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; background: var(--surface); color: var(--ink); font-family: inherit; }
+.start-form .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ---- Setup hub tiles ---------------------------------------------------- */
+.setup-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.setup-tile { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 16px 18px; text-decoration: none; color: var(--ink); }
+.setup-tile:hover { border-color: var(--green); }
+.setup-tile h4 { margin: 0 0 4px; font-size: 15px; }
+.setup-tile p { margin: 0; color: var(--muted); font-size: 12.5px; }
 
 /* ---- Printable splits slip --------------------------------------------- */
 
@@ -557,6 +597,20 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .tool-result.ok { color: var(--green); }
 .tool-result.err { color: #b8302f; }
 
+/* These blocks are often placed straight inside a .panel (not wrapped in
+   .panel-body). The panel has no padding of its own, so without this they sit
+   flush against the box edges. Match .panel-body's 18px sides + give vertical
+   breathing room above the first one and below the last. */
+.panel > .tool-links,
+.panel > .tool-form,
+.panel > .tool-note { padding-left: 18px; padding-right: 18px; }
+.panel-head + .tool-links,
+.panel-head + .tool-form,
+.panel-head + .tool-note { margin-top: 14px; }
+.panel > .tool-links:last-child,
+.panel > .tool-form:last-child,
+.panel > .tool-note:last-child { padding-bottom: 16px; }
+
 /* ---- Public results page ----------------------------------------------- */
 
 .public-page { background: var(--bg); }
@@ -604,3 +658,10 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .read-list li.bad .rd-name { color: #b8302f; font-weight: 500; }
 .topbar-user { font-size: 12.5px; color: var(--muted); text-decoration: none; }
 .topbar-user:hover { color: var(--ink); }
+
+/* ---- Settings dashboard ------------------------------------------------ */
+.config-field { display: block; margin: 0 0 14px; max-width: 520px; }
+.config-field .config-label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
+.config-field input[type="text"], .config-field input[type="number"], .config-field input[type="password"] { width: 100%; }
+.config-field input[type="checkbox"] { width: auto; }
+.config-field .hint { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }

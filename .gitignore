@@ -19,9 +19,14 @@ env/
 .env
 .env.local
 *.env
-# Local entry-page / integration secrets (PayPal id, Gmail app password, etc.)
+# Local entry-page / integration secrets (PayPal id, Gmail app password,
+# ngrok token, SMTP password, hashed admin password) — the Settings dashboard.
 config.json
 config.local.json
+*.config.json
+
+# Editor/agent local settings that may hold tokens
+.claude/settings.local.json
 
 # IDE / editor
 .vscode/
@@ -40,3 +45,11 @@ desktop.ini
 dist/
 build/
 *.egg-info/
+
+# Per-event files + events folder
+*.bmeos
+events/
+runners.db
+
+# PyInstaller work dir
+build_pyi/

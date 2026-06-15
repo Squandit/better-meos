@@ -1,25 +1,20 @@
-"""Members database and the ported PayPal entry page backend."""
+"""The shared runner database and the ported PayPal entry page backend."""
 
 import app as appmod
-import members as members_mod
+import runners
 import store
 
 
 def _seed_members():
-    members_mod.import_csv(
-        "name,club,card,type,email\n"
-        "Entry Ann,REGOC,9100001,senior,ann@example.com\n"
-        "Junior Jim,REGOC,9100002,junior,\n",
-        mode="replace",
-    )
+    runners.record(9100001, "Entry Ann", "REGOC", "M21A")
+    runners.record(9100002, "Junior Jim", "REGOC", "M21A")
 
 
-def test_members_import_search_lookup():
-    _seed_members()
-    assert any(m["name"] == "Entry Ann" for m in members_mod.all_members())
-    assert members_mod.search("ann")[0]["name"] == "Entry Ann"
-    jim = members_mod.lookup("Junior Jim")
-    assert jim["type"] == "junior" and jim["card_number"] == 9100002
+def test_runner_import_search_lookup():
+    runners.import_csv("name,club,card\nImp Ivy,IMPOC,9100009\n")
+    assert runners.search("imp")[0]["name"] == "Imp Ivy"
+    ivy = runners.lookup(9100009)
+    assert ivy["name"] == "Imp Ivy" and ivy["club"] == "IMPOC"
 
 
 def test_entry_page_renders_with_config():
@@ -35,10 +30,10 @@ def test_entry_lookup_and_classes_endpoints():
     _seed_members()
     c = appmod.app.test_client()
     assert "<Class" in c.get("/get-classes").get_data(as_text=True)
-    found = c.get("/search-competitors?q=entry").get_json()
+    found = c.get("/search-competitors?q=entry%20ann").get_json()
     assert found and found[0]["name"] == "Entry Ann"
     one = c.get("/lookup-competitor?name=Entry Ann").get_json()
-    assert one["type"] == "senior"
+    assert one["club"] == "REGOC"
     assert c.get("/lookup-competitor?name=Nobody").get_json() is None
 
 

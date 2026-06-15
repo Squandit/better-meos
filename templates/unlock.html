@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unlock · better-meos</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="enter-page">
+<div class="enter-card" style="max-width:360px">
+    <h1>better-meos</h1>
+    <p class="enter-sub">Enter the admin password to use the operator console</p>
+    <form class="enter-form" method="post">
+        <input type="hidden" name="next" value="{{ next }}">
+        <label>Password <input name="password" type="password" autocomplete="current-password" autofocus required></label>
+        {% if error %}<div class="form-error">{{ error }}</div>{% endif %}
+        <button class="btn" type="submit">Unlock</button>
+    </form>
+</div>
+</body>
+</html>

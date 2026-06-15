@@ -1,6 +1,11 @@
 Project: better-meos
 Purpose: Web-based orienteering event management system
 
+IMPORTANT: At the start of every new session, read HANDOFF.md first. It is the
+running record of what has recently changed (current state, in-progress work,
+uncommitted changes, and next steps) and is the source of truth where it
+disagrees with this file.
+
 Stack:
 - Python / FastAPI backend
 - SQLite database

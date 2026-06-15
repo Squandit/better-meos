@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>better-meos — events</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="start-page">
+<div class="start-wrap">
+    <header class="start-head">
+        <span class="mark">bm</span>
+        <div><h1>better-meos</h1><small>Choose an event to run, or create a new one</small></div>
+    </header>
+
+    <div class="start-grid">
+        <section class="start-card">
+            <h2>Open an event</h2>
+            <p class="start-folder">Folder: <code>{{ folder }}</code></p>
+            <ul class="event-list">
+                {% for e in events %}
+                <li class="event-item" data-path="{{ e.path }}" tabindex="0" role="button">
+                    <div>
+                        <span class="ev-name">{{ e.name }}</span>
+                        <span class="ev-meta">{{ e.date_iso }} · {{ e.type }}</span>
+                    </div>
+                    <span class="ev-open">Open →</span>
+                </li>
+                {% else %}
+                <li class="event-empty">No events in this folder yet — create one.</li>
+                {% endfor %}
+            </ul>
+        </section>
+
+        <section class="start-card">
+            <h2>Create a new event</h2>
+            <form class="start-form" data-new-event>
+                <label>Event name <input name="name" required placeholder="OWA Sprint #3"></label>
+                <div class="row-2">
+                    <label>Date <input name="date" type="date" required></label>
+                    <label>First start <input name="first_start" type="time" step="1" value="10:00:00"></label>
+                </div>
+                <label>Competition type
+                    <select name="type">
+                        <option value="linear">Line (point-to-point)</option>
+                        <option value="score">Score</option>
+                        <option value="relay">Relay</option>
+                    </select>
+                </label>
+                <label>Import entries <span class="hint">optional — CSV or IOF XML</span>
+                    <input name="entries" type="file" accept=".csv,.xml,.txt">
+                </label>
+                <div class="form-error" data-form-error hidden></div>
+                <button class="btn" type="submit">Create &amp; open</button>
+            </form>
+        </section>
+    </div>
+</div>
+
+<script>
+(function () {
+    document.querySelector("[data-new-event]").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var form = e.target, err = form.querySelector("[data-form-error]");
+        err.hidden = true;
+        var fs = form.first_start.value;
+        if (fs && fs.length === 5) { fs += ":00"; }  // HH:MM -> HH:MM:SS
+        var fd = new FormData();
+        fd.append("name", form.name.value);
+        fd.append("date", form.date.value);
+        fd.append("first_start", fs);
+        fd.append("type", form.type.value);
+        if (form.entries.files[0]) { fd.append("entries", form.entries.files[0]); }
+        fetch("/api/events/new", { method: "POST", body: fd })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (!res.ok) { err.textContent = (res.d && res.d.error) || "Could not create event"; err.hidden = false; return; }
+                window.location.href = "/setup";
+            })
+            .catch(function () { err.textContent = "Could not create event"; err.hidden = false; });
+    });
+
+    function openEvent(path) {
+        fetch("/api/events/open", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: path }) })
+            .then(function (r) { if (r.ok) { window.location.href = "/setup"; } });
+    }
+    document.querySelectorAll(".event-item").forEach(function (li) {
+        li.addEventListener("click", function () { openEvent(li.dataset.path); });
+        li.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEvent(li.dataset.path); }
+        });
+    });
+})();
+</script>
+</body>
+</html>

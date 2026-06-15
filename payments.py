@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 import os
 
+import config
+
 log = logging.getLogger("payments")
 
 
@@ -30,30 +32,26 @@ def is_enabled() -> bool:
 # ---------------------------------------------------------------------------
 
 def paypal_config() -> dict:
-    """Public PayPal config for the entry page (safe to embed in the page)."""
+    """Public PayPal config for the entry page (safe to embed in the page).
+
+    Values come from the Settings dashboard (config.json) with env fallback."""
     return {
-        "clientId": os.environ.get("PAYPAL_CLIENT_ID", ""),
-        "currency": os.environ.get("BMEOS_CURRENCY", "AUD"),
+        "clientId": config.get_str("paypal_client_id"),
+        "currency": config.get_str("currency") or "AUD",
         # Sandbox unless explicitly turned off, so a missing/test config never
         # charges real money.
-        "sandbox": os.environ.get("PAYPAL_SANDBOX", "1") != "0",
+        "sandbox": bool(config.get("paypal_sandbox")),
     }
 
 
-def _money(name: str, default: float) -> float:
-    try:
-        return float(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return default
-
-
 def prices() -> dict:
-    """Entry fees by membership type + family cap (configurable via env)."""
+    """Entry fees by membership type + family cap (from the Settings dashboard /
+    env fallback)."""
     return {
-        "senior": _money("BMEOS_FEE_SENIOR", 10.0),
-        "junior": _money("BMEOS_FEE_JUNIOR", 5.0),
-        "concession": _money("BMEOS_FEE_CONCESSION", 5.0),
-        "familyCap": _money("BMEOS_FAMILY_CAP", 25.0),
+        "senior": float(config.get("fee_senior") or 0.0),
+        "junior": float(config.get("fee_junior") or 0.0),
+        "concession": float(config.get("fee_concession") or 0.0),
+        "familyCap": float(config.get("family_cap") or 0.0),
     }
 
 
@@ -81,7 +79,7 @@ def create_checkout(entry: dict, *, success_url: str, cancel_url: str) -> dict:
         mode="payment",
         line_items=[{
             "price_data": {
-                "currency": os.environ.get("BMEOS_CURRENCY", "aud"),
+                "currency": (config.get_str("currency") or "aud").lower(),
                 "unit_amount": fee_cents(),
                 "product_data": {"name": "Event entry"},
             },

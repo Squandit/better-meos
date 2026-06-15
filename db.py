@@ -45,7 +45,9 @@ CREATE TABLE IF NOT EXISTS events (
     reader_port TEXT,
     reader_enabled INTEGER NOT NULL DEFAULT 0,
     slug TEXT,
-    series_id INTEGER REFERENCES series(id) ON DELETE SET NULL
+    series_id INTEGER REFERENCES series(id) ON DELETE SET NULL,
+    first_start TEXT,               -- time of first start (HH:MM:SS)
+    type TEXT NOT NULL DEFAULT 'linear'  -- default class kind/type for the event
 );
 CREATE TABLE IF NOT EXISTS courses (
     id INTEGER PRIMARY KEY,
@@ -54,9 +56,11 @@ CREATE TABLE IF NOT EXISTS courses (
     type TEXT NOT NULL,
     time_limit_minutes INTEGER,
     penalty_per_minute INTEGER NOT NULL DEFAULT 0,
-    start_mode TEXT NOT NULL DEFAULT 'clock',   -- clock | punch (free start)
+    start_mode TEXT NOT NULL DEFAULT 'clock',   -- clock | punch | mass | chase
     start_control INTEGER,                       -- start-punch code in punch mode
-    length_m INTEGER                             -- course length (course geometry)
+    length_m INTEGER,                            -- course length (course geometry)
+    mass_start TEXT,                             -- HH:MM:SS, the shared time in mass mode
+    score_formula TEXT                           -- optional custom points expression (score)
 );
 CREATE TABLE IF NOT EXISTS controls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,9 +178,13 @@ def connect(path: str | None = None) -> sqlite3.Connection:
 # Columns added after the original schema; applied to pre-existing databases so
 # they upgrade in place (CREATE TABLE IF NOT EXISTS never alters an existing table).
 _MIGRATIONS = [
+    ("events", "first_start", "TEXT"),
+    ("events", "type", "TEXT NOT NULL DEFAULT 'linear'"),
     ("courses", "start_mode", "TEXT NOT NULL DEFAULT 'clock'"),
     ("courses", "start_control", "INTEGER"),
     ("courses", "length_m", "INTEGER"),
+    ("courses", "mass_start", "TEXT"),
+    ("courses", "score_formula", "TEXT"),
     ("controls", "leg_length_m", "INTEGER"),
     ("classes", "kind", "TEXT NOT NULL DEFAULT 'individual'"),
     ("classes", "legs", "INTEGER NOT NULL DEFAULT 1"),
@@ -288,16 +296,19 @@ def save_event(event: dict) -> None:
     with _lock:
         _c().execute(
             """INSERT INTO events
-               (id, name, date_iso, reader_port, reader_enabled, slug, series_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+               (id, name, date_iso, reader_port, reader_enabled, slug, series_id,
+                first_start, type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name, date_iso = excluded.date_iso,
                  reader_port = excluded.reader_port,
                  reader_enabled = excluded.reader_enabled,
-                 slug = excluded.slug, series_id = excluded.series_id""",
+                 slug = excluded.slug, series_id = excluded.series_id,
+                 first_start = excluded.first_start, type = excluded.type""",
             (event["id"], event["name"], event["date_iso"], event.get("reader_port"),
              1 if event.get("reader_enabled") else 0, event.get("slug"),
-             event.get("series_id")),
+             event.get("series_id"), event.get("first_start"),
+             event.get("type", "linear")),
         )
         _c().commit()
 
@@ -312,6 +323,25 @@ def get_event(event_id: int) -> dict | None:
     with _lock:
         row = _c().execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return dict(row) if row else None
+
+
+def read_event_meta(path: str) -> dict | None:
+    """
+    Read the event row from another event file without disturbing the open one.
+
+    Used by the start page to list events in a folder. Returns the event dict
+    (id 1) or None if the file isn't a readable better-meos event.
+    """
+    try:
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute("SELECT * FROM events ORDER BY id LIMIT 1").fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
 
 
 def next_event_id() -> int:
@@ -364,12 +394,13 @@ def save_course(event_id: int, course: dict) -> None:
         db.execute(
             """INSERT OR REPLACE INTO courses
                (id, event_id, name, type, time_limit_minutes, penalty_per_minute,
-                start_mode, start_control, length_m)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                start_mode, start_control, length_m, mass_start, score_formula)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (course["id"], event_id, course["name"], course["type"],
              course["time_limit_minutes"], course["penalty_per_minute"],
              course.get("start_mode", "clock"), course.get("start_control"),
-             course.get("length_m")),
+             course.get("length_m"), course.get("mass_start"),
+             course.get("score_formula")),
         )
         db.execute("DELETE FROM controls WHERE course_id = ?", (course["id"],))
         leg_lengths = course.get("leg_lengths") or []
@@ -615,8 +646,44 @@ def load_event(event_id: int) -> dict:
     so the store can resume its per-kind id sequences without collisions.
     """
     with _lock:
-        db = _c()
+        return _load_event_conn(_c(), event_id)
 
+
+def load_event_file(path: str) -> dict | None:
+    """
+    Load another event file's full model without touching the open connection.
+
+    Used by the multi-stage view to combine results across ``.bmeos`` files.
+    Returns the same shape as :func:`load_event`, plus ``meta`` (the event row),
+    or ``None`` if the file isn't a readable event. The throwaway connection is
+    schema-migrated first so files written by an older version still read.
+    """
+    try:
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.executescript(SCHEMA)
+        _migrate(conn)
+        conn.commit()
+        try:
+            meta = conn.execute(
+                "SELECT * FROM events ORDER BY id LIMIT 1").fetchone()
+            if meta is None:
+                return None
+            data = _load_event_conn(conn, meta["id"])
+            data["meta"] = dict(meta)
+            return data
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+
+def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
+    """Load one event's model from an arbitrary connection (shared by
+    :func:`load_event` and :func:`load_event_file`). The reentrant module lock is
+    harmless for the live connection and a throwaway one alike."""
+    with _lock:
         courses: dict[int, dict] = {}
         for row in db.execute("SELECT * FROM courses WHERE event_id = ?", (event_id,)):
             ctls = db.execute(
@@ -638,6 +705,8 @@ def load_event(event_id: int) -> dict:
                 "start_mode": row["start_mode"] or "clock",
                 "start_control": row["start_control"],
                 "length_m": row["length_m"],
+                "mass_start": row["mass_start"],
+                "score_formula": row["score_formula"],
                 "leg_lengths": [c["leg_length_m"] for c in ctls],
             }
 

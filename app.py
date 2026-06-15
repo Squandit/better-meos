@@ -7,20 +7,26 @@ from xml.etree.ElementTree import ParseError as ET_ERROR
 from xml.sax.saxutils import escape as xml_escape
 
 from flask import (Flask, render_template, request, jsonify, abort, Response,
-                   url_for, redirect)
+                   url_for, redirect, session)
 
 import auth
+import config
 import db
 import entries as entries_mod
 import eventor
 import events
 import iofxml
 import importers
-import members as members_mod
+import network
 import notify
 import payments
 import pdf
+import remote
+import runners
+import security
 import si_reader
+import simulator
+import stages
 import store
 from store import StoreError
 from results import build_splits_matrix, format_duration
@@ -46,14 +52,41 @@ app.secret_key = _secret
 # renders engine results directly rather than pre-formatted view rows).
 app.jinja_env.filters["format_secs"] = format_duration
 
-# Optional login gating (no-op unless BMEOS_AUTH is set).
+# Port-surface split (public vs admin) + admin unlock gate. Installed first so
+# its before_request guard runs before the login / open-event guards.
+security.install(app)
+
+# Optional login gating (no-op unless BMEOS_AUTH is set). ensure_admin runs
+# after an event opens (below) -- never at import, so it can't create a stray DB
+# before any event file is connected.
 auth.install(app)
-auth.ensure_admin()
 
 
 @app.context_processor
 def inject_user():
-    return {"current_user": auth.current_user(), "auth_enabled": auth.is_enabled()}
+    return {"current_user": auth.current_user(), "auth_enabled": auth.is_enabled(),
+            "admin_lock_enabled": config.admin_password_set()}
+
+
+# Paths reachable with no event open (the start page + its actions + assets +
+# the admin unlock + Settings, which are event-independent).
+_NO_EVENT_OK = ("/static/", "/api/events/", "/api/config")
+
+
+@app.before_request
+def _require_open_event():
+    """With no event open, every operator page redirects to the start screen
+    (and operator APIs answer 409), so the app always begins at event selection."""
+    if store.has_open_event():
+        return None
+    p = request.path
+    if (p in ("/start", "/favicon.ico", "/sw.js", "/manifest.json",
+              "/unlock", "/lock", "/config")
+            or p.startswith(_NO_EVENT_OK)):
+        return None
+    if p.startswith("/api/"):
+        return jsonify({"error": "No event open"}), 409
+    return redirect(url_for("start"))
 
 
 # A representative downloaded card, used as the default body for the reader
@@ -90,8 +123,8 @@ FLAGGED = ("mp", "dnf", "dns", "dsq")
 
 @app.context_processor
 def inject_event():
-    """Make event details + the event list available to every template."""
-    return {"event": store.EVENT, "all_events": store.list_events()}
+    """Make the open event's details available to every template."""
+    return {"event": store.EVENT}
 
 
 def _status_label(status):
@@ -334,7 +367,8 @@ def slip(comp_id):
     result = store.result_for(comp_id)
     if result is None:
         abort(404)
-    return render_template("slip.html", row=_view_row(result))
+    return render_template("slip.html", row=_view_row(result),
+                           auto_print=request.args.get("print") == "1")
 
 
 @app.route("/live")
@@ -369,6 +403,14 @@ def clubs():
 @app.route("/teams")
 def teams_page():
     return render_template("teams.html", active="teams", classes=store.team_results())
+
+
+@app.route("/api/teams")
+def api_list_teams():
+    """Teams in a class (for assigning competitors to relay legs in the editor)."""
+    class_id = request.args.get("class_id", type=int)
+    teams = store.teams_in_class(class_id) if class_id else []
+    return jsonify([{"id": t["id"], "name": t["name"]} for t in teams])
 
 
 @app.route("/api/teams", methods=["POST"])
@@ -486,10 +528,8 @@ def api_import_courses():
 
 @app.route("/api/import/members", methods=["POST"])
 def api_import_members():
-    """Import the members roster (powers the entry page) from CSV."""
-    mode = request.args.get("mode", "merge")
-    outcome = members_mod.import_csv(_uploaded_text(), mode=mode)
-    return jsonify(outcome)
+    """Seed the shared runner database (autofill) from a CSV roster."""
+    return jsonify(runners.import_csv(_uploaded_text()))
 
 
 @app.route("/api/import/eventor", methods=["POST"])
@@ -512,6 +552,22 @@ def api_radio_punch():
     comp = store.add_radio_punch(card, code, when, data.get("station_id"))
     events.publish("radio", station_id=data.get("station_id"))
     return jsonify({"ok": True, "competitor_id": comp["id"]})
+
+
+@app.route("/api/station/push", methods=["POST"])
+def api_station_push():
+    """
+    Receive a card forwarded by a secondary download station (see network.py).
+
+    The primary records it exactly as if read on its own reader -- same matching,
+    auto-create and live broadcast -- so a multi-PC setup needs only the primary
+    to hold the event file.
+    """
+    data = _payload()
+    card = store.coerce_card(data)
+    outcome = si_reader.simulate(card, station_id=card.get("station_id"),
+                                 auto_create=bool(data.get("auto")) or None)
+    return jsonify(outcome), (200 if outcome.get("ok") else 404)
 
 
 @app.route("/api/import/startlist", methods=["POST"])
@@ -565,15 +621,14 @@ def slip_pdf(comp_id):
 
 def _entry_config():
     """Public config embedded in the entry page (event, PayPal, prices, clubs)."""
-    clubs = sorted({(m.get("club") or "").strip() for m in members_mod.all_members()}
-                   | {(c.get("club") or "").strip() for c in store._competitors.values()})
-    clubs = [c for c in clubs if c]
-    env_clubs = os.environ.get("BMEOS_CLUBS")
-    if env_clubs:
-        clubs = [c.strip() for c in env_clubs.split(",") if c.strip()]
+    clubs = sorted({(c.get("club") or "").strip()
+                    for c in store._competitors.values()} - {""})
+    cfg_clubs = config.get_str("clubs")
+    if cfg_clubs:
+        clubs = [c.strip() for c in cfg_clubs.split(",") if c.strip()]
     return {
         "event": {"name": store.EVENT["name"],
-                  "closeTime": os.environ.get("BMEOS_ENTRY_CLOSE", "")},
+                  "closeTime": config.get_str("entry_close")},
         "paypal": payments.paypal_config(),
         "prices": payments.prices(),
         "clubs": clubs,
@@ -607,9 +662,11 @@ def _classes_xml():
     return "".join(parts)
 
 
-def _member_json(m):
-    return {"name": m["name"], "club": m.get("club") or "",
-            "card": m.get("card_number") or "", "type": m.get("type") or "senior"}
+def _runner_json(r):
+    """Shape a runners-DB row for the entry page (type defaults; class = usual)."""
+    return {"name": r["name"], "club": r.get("club") or "",
+            "card": r.get("card_number") or "", "type": "senior",
+            "class": r.get("usual_class") or ""}
 
 
 @app.route("/get-classes")
@@ -624,13 +681,26 @@ def entry_result_classes():
 
 @app.route("/search-competitors")
 def entry_search():
-    return jsonify([_member_json(m) for m in members_mod.search(request.args.get("q", ""))])
+    return jsonify([_runner_json(r) for r in runners.search(request.args.get("q", ""))])
 
 
 @app.route("/lookup-competitor")
 def entry_lookup():
-    m = members_mod.lookup(request.args.get("name", ""))
-    return jsonify(_member_json(m) if m else None)
+    r = runners.lookup_by_name(request.args.get("name", ""))
+    return jsonify(_runner_json(r) if r else None)
+
+
+@app.route("/api/runners/lookup")
+def api_runner_lookup():
+    """Operator autofill: a card number -> known name/club + usual class id."""
+    card = request.args.get("card", type=int)
+    r = runners.lookup(card) if card else None
+    if r is None:
+        return jsonify(None)
+    class_id = next((c["id"] for c in store.class_options()
+                     if c["name"] == r.get("usual_class")), None)
+    return jsonify({"name": r["name"], "club": r["club"],
+                    "card_number": r["card_number"], "class_id": class_id})
 
 
 @app.route("/check-entered")
@@ -646,12 +716,13 @@ def entry_submit():
     Returns MeOS-style <Status>OK</Status> XML the entry page expects."""
     card = (request.args.get("card") or "").strip()
     try:
-        store.create_competitor({
+        comp = store.create_competitor({
             "name": (request.args.get("name") or "").strip(),
             "club": (request.args.get("club") or "").strip(),
             "class_id": request.args.get("class", type=int),
             "card_number": card or None,
         })
+        runners.record_competitor(comp)  # learn this person + their class
         events.publish("competitor", action="entry")
         xml = "<Answer><Status>OK</Status></Answer>"
     except StoreError as err:
@@ -761,57 +832,75 @@ def api_draw_startlist():
 # Multi-event: events, series, competitor profiles
 # ---------------------------------------------------------------------------
 
-@app.route("/events")
-def events_page():
-    """Manage events and series; switch the active event."""
-    return render_template("events.html", active="events",
-                           events=store.list_events(), series=store.list_series())
+@app.route("/start")
+def start():
+    """Event selection: open an event file from the folder, or create a new one."""
+    return render_template("start.html", events=store.events_in_folder(),
+                           folder=store.events_dir())
 
 
-@app.route("/api/events", methods=["POST"])
-def api_create_event():
-    event = store.create_event(_payload())
-    events.publish("event", action="create")
-    return jsonify({"event": event}), 201
+@app.route("/setup")
+def setup():
+    """Per-event hub shown after opening/creating an event."""
+    rows = [r for c in _console_data() for r in c["rows"]]
+    counts = {
+        "competitors": len(rows),
+        "classes": len(store.class_options()),
+        "downloaded": sum(1 for r in rows if r["finish"]),
+        "out": sum(1 for r in rows if r["start"] and not r["finish"]),
+    }
+    return render_template("setup.html", active="setup", counts=counts,
+                           remote_url=remote.url(), remote_configured=remote.is_configured())
 
 
-@app.route("/api/events/active", methods=["POST"])
-def api_set_active_event():
-    event = store.set_active_event(store._as_int(_payload().get("event_id"), "Event"))
-    events.publish("event", action="switch")
-    return jsonify({"event": event})
+@app.route("/api/events/new", methods=["POST"])
+def api_new_event():
+    """Create + open a new event file. Optional entries file imported after."""
+    data = request.form.to_dict() if request.form else _payload()
+    event = store.new_event(data)
+    file = request.files.get("entries")
+    imported = None
+    if file is not None and file.filename:
+        text = file.read().decode("utf-8-sig")
+        if text.lstrip().startswith("<"):
+            rows = iofxml.parse_startlist(text)
+        else:
+            rows = importers.parse_startlist_csv(text)
+        imported = importers.import_competitors(rows)
+    auth.ensure_admin()  # seed the admin into the now-open event file (if auth on)
+    return jsonify({"event": event, "imported": imported}), 201
 
 
-@app.route("/api/events/<int:event_id>/series", methods=["POST"])
-def api_set_event_series(event_id):
-    series_id = store._as_int(_payload().get("series_id"), "Series", allow_blank=True)
-    event = store.set_event_series(event_id, series_id)
-    events.publish("event", action="series")
-    return jsonify({"event": event})
+@app.route("/api/events/open", methods=["POST"])
+def api_open_event():
+    store.open_event(_payload().get("path", ""))
+    auth.ensure_admin()
+    return jsonify({"ok": True})
 
 
-@app.route("/api/series", methods=["POST"])
-def api_create_series():
-    return jsonify({"series": store.create_series(_payload())}), 201
+@app.route("/api/events/close", methods=["POST"])
+def api_close_event():
+    store.close_event()
+    return jsonify({"ok": True})
 
 
-@app.route("/series/<int:series_id>")
-def series_page(series_id):
-    if store.db.get_series(series_id) is None:
-        abort(404)
-    return render_template("series.html", active="events",
-                           standings=store.series_standings(series_id))
+@app.route("/api/remote/start", methods=["POST"])
+def api_remote_start():
+    """Open an ngrok tunnel so the entry page is reachable on mobile data.
+
+    Tunnels the public port (where the entry form + results live), not the admin
+    console port."""
+    port = config.public_port()
+    try:
+        return jsonify({"url": remote.start(port)})
+    except Exception as err:
+        return jsonify({"error": f"Could not start remote hosting: {err}"}), 500
 
 
-@app.route("/profile")
-def profile_page():
-    """A person's results across all events (by ?card= or ?name=)."""
-    card = request.args.get("card", type=int)
-    name = request.args.get("name")
-    if card is None and not name:
-        abort(404)
-    profile = store.competitor_profile(card=card, name=name)
-    return render_template("profile.html", profile=profile)
+@app.route("/api/remote/stop", methods=["POST"])
+def api_remote_stop():
+    remote.stop()
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------
@@ -833,6 +922,7 @@ def _handle_store_error(err):
 @app.route("/api/competitors", methods=["POST"])
 def api_create_competitor():
     comp = store.create_competitor(_payload())
+    runners.record_competitor(comp)  # learn this person + their usual class
     result = store.result_for(comp["id"])
     events.publish("competitor", action="create", id=comp["id"])
     return jsonify({"competitor": comp, "result": _result_view(result) if result else None}), 201
@@ -955,16 +1045,29 @@ def api_stream():
 @app.route("/api/reader/simulate", methods=["POST"])
 def api_reader_simulate():
     """
-    Simulate a card download. With no body, replays a representative mock card;
-    otherwise reads the card described in the JSON body (validated by the store,
-    same rules as the editor). Drives the same path the real reader uses, so it
-    exercises card->competitor matching and live updates.
+    Simulate a card download. A different random person from the built-in pool
+    walks up and downloads each time (creating an on-the-day entry if needed),
+    so the whole flow works with no real data and no hardware. With an explicit
+    JSON card body it reads exactly that card instead (used by tests).
     """
     data = _payload()
-    card = store.coerce_card(data) if data else dict(MOCK_CARD_DATA)
-    outcome = si_reader.simulate(card, station_id=card.get("station_id"))
-    status = 200 if outcome.get("ok") else 404
-    return jsonify(outcome), status
+    if data:
+        card = store.coerce_card(data)
+        auto = bool(data.get("auto"))
+        # Secondary station: forward the read to the primary instead of applying
+        # it locally (this instance may not even have an event open).
+        if network.is_secondary():
+            try:
+                outcome = network.push_card(card)
+            except Exception as err:  # network/HTTP failure -> report, don't 500
+                return jsonify({"ok": False,
+                                "error": f"primary unreachable: {err}"}), 502
+            return jsonify(outcome), (200 if outcome.get("ok") else 404)
+        outcome = si_reader.simulate(card, station_id=card.get("station_id"),
+                                     auto_create=auto or None)
+        return jsonify(outcome), (200 if outcome.get("ok") else 404)
+    outcome = simulator.simulate_one()
+    return jsonify(outcome)
 
 
 # ---------------------------------------------------------------------------
@@ -1034,6 +1137,52 @@ def logout():
 
 
 # ---------------------------------------------------------------------------
+# Admin unlock (single shared password) + the Settings dashboard
+# ---------------------------------------------------------------------------
+
+@app.route("/unlock", methods=["GET", "POST"])
+def unlock():
+    """Password prompt for the operator console (active only when an admin
+    password is set in Settings). The unlock lives in a day-long session."""
+    if not config.admin_password_set():
+        return redirect(url_for("index"))
+    nxt = request.args.get("next") or url_for("index")
+    if request.method == "POST":
+        if config.check_admin_password(request.form.get("password", "")):
+            session.permanent = True
+            session["admin_ok"] = True
+            return redirect(request.form.get("next") or nxt)
+        return render_template("unlock.html", error="Incorrect password", next=nxt), 401
+    return render_template("unlock.html", error=None, next=nxt)
+
+
+@app.route("/lock")
+def lock():
+    session.pop("admin_ok", None)
+    return redirect(url_for("unlock"))
+
+
+@app.route("/config")
+def config_page():
+    """Settings dashboard: edit the interchangeable values (PayPal, ngrok, SMTP,
+    fees, ports, admin password) -> config.json."""
+    return render_template("config.html", active="config",
+                           groups=config.dashboard_values())
+
+
+@app.route("/api/config", methods=["GET"])
+def api_get_config():
+    return jsonify({"groups": config.dashboard_values()})
+
+
+@app.route("/api/config", methods=["POST"])
+def api_save_config():
+    config.save(_payload())
+    return jsonify({"ok": True,
+                    "note": "Port changes take effect after a restart."})
+
+
+# ---------------------------------------------------------------------------
 # Offline sync (scaffold: export/import of the whole database)
 # ---------------------------------------------------------------------------
 # Full multi-node sync (conflict resolution, change logs) is out of scope; the
@@ -1061,5 +1210,7 @@ if __name__ == "__main__":
     # twice. (No-op anyway unless the event has the reader enabled.)
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         si_reader.start_all()
+    # The dev server is single-port (the full admin surface); the port split is
+    # a launcher/production concern -- run launcher.py to serve both ports.
     # threaded=True so a long-lived SSE stream doesn't block other requests.
-    app.run(debug=True, threaded=True)
+    app.run(host="0.0.0.0", port=config.admin_port(), debug=True, threaded=True)

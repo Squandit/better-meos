@@ -13,10 +13,11 @@ Config (all optional; absence of ``BMEOS_SMTP_HOST`` disables sending):
 from __future__ import annotations
 
 import logging
-import os
 import re
 import smtplib
 from email.message import EmailMessage
+
+import config
 
 log = logging.getLogger("notify")
 
@@ -36,7 +37,7 @@ def _num(value, default: float = 0.0) -> float:
 
 
 def is_enabled() -> bool:
-    return bool(os.environ.get("BMEOS_SMTP_HOST"))
+    return bool(config.get_str("smtp_host"))
 
 
 def send_entry_confirmation(entry: dict, event: dict) -> bool:
@@ -90,11 +91,11 @@ def send_entry_receipt(data: dict, event: dict) -> bool:
 
 
 def _send(to: str, subject: str, body: str) -> bool:
-    host = os.environ["BMEOS_SMTP_HOST"]
-    port = int(os.environ.get("BMEOS_SMTP_PORT", "587"))
-    user = os.environ.get("BMEOS_SMTP_USER")
-    password = os.environ.get("BMEOS_SMTP_PASS")
-    sender = os.environ.get("BMEOS_SMTP_FROM", user or "no-reply@better-meos.local")
+    host = config.get_str("smtp_host")
+    port = int(config.get("smtp_port") or 587)
+    user = config.get_str("smtp_user") or None
+    password = config.get_str("smtp_pass") or None
+    sender = config.get_str("smtp_from") or user or "no-reply@better-meos.local"
 
     msg = EmailMessage()
     msg["Subject"] = subject

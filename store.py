@@ -21,6 +21,7 @@ import threading
 from datetime import date, datetime
 
 import db
+import rules
 from results import (
     build_result,
     mock_classes,
@@ -32,30 +33,41 @@ from results import (
 # Event configuration
 # ---------------------------------------------------------------------------
 
-# The single calendar day the event runs on. Operators type wall-clock times
-# (HH:MM:SS); they are pinned to this date to make real datetimes for the engine.
-EVENT_DATE = date(2026, 5, 17)
+# The calendar day the OPEN event runs on. Operators type wall-clock times
+# (HH:MM:SS) which are pinned to this date for the engine. Defaults to today
+# until an event file is opened (each event file carries its own date).
+EVENT_DATE = date.today()
 
-# The active event. ``id`` ties every record to its event row in the database;
-# ``reader_enabled`` gates the real SI hardware loop (off unless BMEOS_READER is
-# set, so the app runs on mock/simulated data by default).
+# The open event's display info (mirrors its row in the open event file). Each
+# event is its own SQLite file (MeOS-style); within a file the event row is id 1.
+# ``open`` is False until :func:`open_event` / :func:`new_event` loads a file.
 EVENT = {
     "id": 1,
-    "name": "Jarrahdale Middle Distance",
-    "date": EVENT_DATE.strftime("%d %B %Y").lstrip("0"),
-    "date_iso": EVENT_DATE.isoformat(),
+    "name": "",
+    "date": "",
+    "date_iso": "",
     "reader_port": os.environ.get("BMEOS_READER_PORT", "COM5"),
     "reader_enabled": bool(os.environ.get("BMEOS_READER")),
-    "slug": "jarrahdale-middle",
+    "slug": "",
+    "first_start": "",
+    "type": "linear",
+    "open": False,
 }
 
-# The event currently held in memory. Single-event today; the multi-event work
-# (order.txt) flips this to switch which event the store is editing.
-_active_event_id = EVENT["id"]
+_active_event_id = 1            # the event row id within the open file
+_current_path: str | None = None  # path of the open event file (None = none open)
 
 
 def active_event_id() -> int:
     return _active_event_id
+
+
+def has_open_event() -> bool:
+    return _current_path is not None
+
+
+def current_event_path() -> str | None:
+    return _current_path
 
 # Statuses an operator may force on a competitor. "" / None means "automatic":
 # let the engine decide. These mirror results.STATUS_* values.
@@ -208,12 +220,16 @@ def engine_course(course: dict) -> dict:
             "controls": {c["code"]: c["points"] for c in course["controls"]},
             "time_limit_minutes": course["time_limit_minutes"],
             "penalty_per_minute": course["penalty_per_minute"],
+            "score_formula": course.get("score_formula") or None,
         }
     return {
         "type": "linear",
         "controls": list(course["controls"]),
         "start_mode": course.get("start_mode", "clock"),
         "start_control": course.get("start_control"),
+        # Mass start is stored as a wall-clock string; pin it to the event date
+        # here so the pure engine receives a ready datetime like every other time.
+        "mass_start": parse_clock(course.get("mass_start"), "Mass start"),
         "leg_lengths": course.get("leg_lengths") or [],
     }
 
@@ -243,8 +259,11 @@ def _engine_card(comp: dict, classes: dict | None = None) -> dict:
 # Seeding
 # ---------------------------------------------------------------------------
 
-def _seed() -> None:
-    """Populate the store from the mock roster (idempotent: clears first)."""
+def seed_demo() -> None:
+    """Populate the OPEN event with the mock roster (idempotent: clears first).
+
+    Used by tests and demos only -- the app never seeds; new events start empty.
+    """
     _courses.clear()
     _classes.clear()
     _competitors.clear()
@@ -303,7 +322,8 @@ def _seed() -> None:
 
 def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
                    penalty_per_minute=0, start_mode="clock", start_control=None,
-                   length_m=None, leg_lengths=None) -> int:
+                   length_m=None, leg_lengths=None, mass_start=None,
+                   score_formula=None) -> int:
     cid = _next_id("course")
     _courses[cid] = {
         "id": cid,
@@ -315,6 +335,8 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
         "start_mode": start_mode,
         "start_control": start_control,
         "length_m": length_m,
+        "mass_start": mass_start,
+        "score_formula": score_formula if ctype == "score" else None,
         "leg_lengths": leg_lengths or [],
     }
     db.save_course(_active_event_id, _courses[cid])
@@ -488,8 +510,8 @@ def create_team(data: dict) -> dict:
         cls = _classes.get(class_id)
         if cls is None:
             raise StoreError("That class no longer exists")
-        if cls.get("kind") != "relay":
-            raise StoreError("Teams can only be added to a relay class")
+        if cls.get("kind") not in ("relay", "patrol"):
+            raise StoreError("Teams can only be added to a relay or patrol class")
         tid = _next_id("team")
         _teams[tid] = {
             "id": tid, "class_id": class_id, "name": name,
@@ -515,41 +537,78 @@ def delete_team(team_id: int) -> None:
         db.delete_team(team_id)
 
 
+def _relay_team(team: dict, members: list[dict], by_id: dict) -> dict:
+    """A relay team's result: legs run in sequence, time is their sum, valid only
+    when every leg is OK."""
+    legs = []
+    total = 0
+    ok = bool(members)
+    for m in members:
+        res = by_id.get(m["id"])
+        leg_ok = res is not None and res["status"] == "ok" \
+            and res["total_seconds"] is not None
+        legs.append({"name": m["name"], "leg": m.get("leg"),
+                     "seconds": res["total_seconds"] if res else None,
+                     "status": res["status"] if res else "dns"})
+        if leg_ok:
+            total += res["total_seconds"]
+        else:
+            ok = False
+    return {"team": team, "legs": legs,
+            "total_seconds": total if ok else None, "ok": ok}
+
+
+def _patrol_team(team: dict, members: list[dict], course: dict) -> dict:
+    """A patrol team's result: the group runs one course *together*, so combine
+    every member's punches into one run (earliest start to latest finish) and
+    evaluate it against the course as a single entry."""
+    starts = [m["start"] for m in members if m["start"] is not None]
+    finishes = [m["finish"] for m in members if m["finish"] is not None]
+    merged = sorted(
+        ((p["code"], p["time"]) for m in members for p in m["punches"]),
+        key=lambda cp: cp[1])
+    card = {
+        "id": team["id"], "name": team["name"], "class": "",
+        "club": team.get("club"), "card_number": None,
+        "start": min(starts) if starts else (team.get("start")),
+        "finish": max(finishes) if finishes else None,
+        "punches": merged, "manual_status": None,
+    }
+    res = build_result(card, engine_course(course))
+    legs = [{"name": m["name"], "leg": m.get("leg"),
+             "seconds": None, "status": ""} for m in members]
+    ok = res["status"] == "ok" and res["total_seconds"] is not None
+    return {"team": team, "legs": legs,
+            "total_seconds": res["total_seconds"] if ok else None,
+            "ok": ok, "status": res["status"]}
+
+
 def team_results() -> list[dict]:
     """
-    Relay standings: for each relay class, rank teams by total time.
+    Team standings for relay and patrol classes, ranked by total time.
 
-    A team's members are the competitors carrying its ``team_id`` (ordered by
-    ``leg``); the team time is the sum of its members' run times, valid only when
-    every leg is OK. Teams with any non-OK leg are unranked.
+    Relay: a team's members run in ``leg`` order and the team time is the sum of
+    their runs (valid only when every leg is OK). Patrol: the members run one
+    course together, so their punches are combined into a single run. Teams that
+    aren't complete/OK are listed unranked after the ranked ones.
     """
     with _lock:
         _, by_id = evaluate()
         out = []
         for cls in _classes_sorted():
-            if cls.get("kind") != "relay":
+            kind = cls.get("kind")
+            if kind not in ("relay", "patrol"):
                 continue
+            course = _courses.get(cls["course_id"])
             teams = []
             for team in teams_in_class(cls["id"]):
                 members = sorted(
                     (c for c in _competitors.values() if c.get("team_id") == team["id"]),
                     key=lambda c: (c.get("leg") or 0))
-                legs = []
-                total = 0
-                ok = bool(members)
-                for m in members:
-                    res = by_id.get(m["id"])
-                    leg_ok = res is not None and res["status"] == "ok" \
-                        and res["total_seconds"] is not None
-                    legs.append({"name": m["name"], "leg": m.get("leg"),
-                                 "seconds": res["total_seconds"] if res else None,
-                                 "status": res["status"] if res else "dns"})
-                    if leg_ok:
-                        total += res["total_seconds"]
-                    else:
-                        ok = False
-                teams.append({"team": team, "legs": legs,
-                              "total_seconds": total if ok else None, "ok": ok})
+                if kind == "patrol" and course is not None:
+                    teams.append(_patrol_team(team, members, course))
+                else:
+                    teams.append(_relay_team(team, members, by_id))
             ranked = sorted((t for t in teams if t["ok"]),
                             key=lambda t: t["total_seconds"])
             for i, t in enumerate(ranked):
@@ -640,6 +699,8 @@ def course_json(course: dict) -> dict:
         "penalty_per_minute": course["penalty_per_minute"],
         "start_mode": course.get("start_mode", "clock"),
         "start_control": course.get("start_control"),
+        "mass_start": course.get("mass_start") or "",
+        "score_formula": course.get("score_formula") or "",
         "length_m": course.get("length_m"),
     }
 
@@ -769,8 +830,8 @@ def _check_unique_class_name(name: str, *, ignore: int | None = None) -> None:
 
 def _class_kind(value) -> str:
     kind = _clean_str(value, "Class kind").lower() or "individual"
-    if kind not in ("individual", "relay"):
-        raise StoreError("Class kind must be 'individual' or 'relay'")
+    if kind not in ("individual", "relay", "patrol"):
+        raise StoreError("Class kind must be 'individual', 'relay' or 'patrol'")
     return kind
 
 
@@ -845,24 +906,39 @@ def _validated_course_fields(data: dict) -> dict:
         penalty = _as_int(
             data.get("penalty_per_minute"), "Penalty", minimum=0, allow_blank=True
         ) or 0
+        formula = _clean_str(data.get("score_formula"), "Scoring formula")
+        if formula:
+            try:
+                formula = rules.validate_formula(formula)
+            except rules.RuleError as err:
+                raise StoreError(f"Scoring formula: {err}")
         return {
             "name": name, "type": "score", "controls": controls,
             "time_limit_minutes": limit, "penalty_per_minute": penalty,
+            "score_formula": formula or None,
         }
 
     controls = _coerce_linear_controls(data.get("controls"))
     start_mode = _clean_str(data.get("start_mode"), "Start mode").lower() or "clock"
-    if start_mode not in ("clock", "punch"):
-        raise StoreError("Start mode must be 'clock' or 'punch'")
+    if start_mode not in ("clock", "punch", "mass", "chase"):
+        raise StoreError("Start mode must be 'clock', 'punch', 'mass' or 'chase'")
     start_control = _as_int(data.get("start_control"), "Start control",
                             minimum=1, allow_blank=True)
     if start_mode == "punch" and start_control is None:
         raise StoreError("A punch-start course needs a start control code")
+    mass_start = _clean_str(data.get("mass_start"), "Mass start")
+    if start_mode == "mass":
+        if not mass_start:
+            raise StoreError("A mass-start course needs a mass-start time")
+        parse_clock(mass_start, "Mass start")  # validate HH:MM:SS; raises on bad
+    else:
+        mass_start = ""
     length_m = _as_int(data.get("length_m"), "Course length", minimum=0, allow_blank=True)
     out = {
         "name": name, "type": "linear", "controls": controls,
         "time_limit_minutes": None, "penalty_per_minute": 0,
         "start_mode": start_mode, "start_control": start_control,
+        "mass_start": mass_start or None,
         "length_m": length_m,
     }
     # Only carry leg_lengths when explicitly supplied (the IOF importer sends
@@ -883,6 +959,8 @@ def create_course(data: dict) -> dict:
             start_mode=fields.get("start_mode", "clock"),
             start_control=fields.get("start_control"),
             length_m=fields.get("length_m"),
+            mass_start=fields.get("mass_start"),
+            score_formula=fields.get("score_formula"),
             leg_lengths=fields.get("leg_lengths") or [],
         )
         return course_json(_courses[cid])
@@ -1035,20 +1113,68 @@ def apply_card_read(card: dict) -> dict:
         return competitor_json(comp)
 
 
-# ---------------------------------------------------------------------------
-# Boot: connect the database, then either seed a fresh DB or load existing data
-# ---------------------------------------------------------------------------
+def auto_create_from_card(card: dict) -> dict:
+    """
+    Register an unknown card by building a course + class from its punches.
+
+    This is MeOS's interactive setup: read a card the system has never seen and
+    it creates the course (from the punched control sequence), a class on that
+    course, and the competitor -- then records the run. An existing linear course
+    with the same control order is reused, as is any class already on it, so a
+    whole field reading out the same loop lands in one auto class. The runner DB
+    supplies the name/club when the card is known, else it's "Card <n>".
+
+    If the card is already registered this is just :func:`apply_card_read`.
+    """
+    with _lock:
+        number = card.get("card_number")
+        if number is None:
+            raise StoreError("A card needs a number to auto-create an entry")
+        if find_by_card(number) is not None:
+            return apply_card_read(card)
+
+        codes = [code for code, _ in card.get("punches", [])]
+        if not codes:
+            raise StoreError("Card has no punches to build a course from")
+
+        course_id = next(
+            (c["id"] for c in _courses.values()
+             if c["type"] == "linear" and list(c["controls"]) == codes), None)
+        if course_id is None:
+            course_id = _insert_course(
+                name=f"Auto course {len(_courses) + 1}", ctype="linear",
+                controls=codes)
+
+        class_id = next(
+            (cl["id"] for cl in _classes.values() if cl["course_id"] == course_id),
+            None)
+        if class_id is None:
+            class_id = _insert_class(
+                name=f"Auto {len(_classes) + 1}", course_id=course_id)
+
+        name, club = f"Card {number}", ""
+        import runners  # local import: runners owns a separate DB; avoid any cycle
+        known = runners.lookup(number)
+        if known:
+            name = known.get("name") or name
+            club = known.get("club") or ""
+
+        station = card.get("station_id")
+        _insert_competitor(
+            name=name, club=club, class_id=class_id, card_number=number,
+            start=card.get("start"), finish=card.get("finish"),
+            punches=[{"code": c, "time": t, "station_id": station}
+                     for c, t in card.get("punches", [])],
+            manual_status="")
+        return competitor_json(find_by_card(number))
+
 
 # ---------------------------------------------------------------------------
-# Events & series (multi-event support)
+# Events: one SQLite file per event (MeOS-style), opened from the start page
 # ---------------------------------------------------------------------------
 
 def _apply_event(row: dict) -> None:
-    """Point the store's display + time handling at an event row.
-
-    Updates the ``EVENT`` dict the templates read, and the module-level
-    ``EVENT_DATE`` that :func:`parse_clock` pins wall-clock times to (each event
-    runs on its own day)."""
+    """Point EVENT (templates) + EVENT_DATE (parse_clock) at an open event row."""
     global EVENT_DATE
     EVENT_DATE = date.fromisoformat(row["date_iso"])
     EVENT.update({
@@ -1056,10 +1182,12 @@ def _apply_event(row: dict) -> None:
         "name": row["name"],
         "date_iso": row["date_iso"],
         "date": EVENT_DATE.strftime("%d %B %Y").lstrip("0"),
-        "reader_port": row.get("reader_port") or "",
-        "reader_enabled": bool(row.get("reader_enabled")),
-        "slug": row.get("slug") or "",
-        "series_id": row.get("series_id"),
+        "reader_port": row["reader_port"] or os.environ.get("BMEOS_READER_PORT", "COM5"),
+        "reader_enabled": bool(row["reader_enabled"]),
+        "slug": row["slug"] or "",
+        "first_start": row["first_start"] or "",
+        "type": row["type"] or "linear",
+        "open": True,
     })
 
 
@@ -1069,152 +1197,35 @@ def _slugify(name: str) -> str:
     return slug or "event"
 
 
-def _unique_slug(base: str) -> str:
-    existing = {e["slug"] for e in db.all_events()}
-    slug, i = base, 2
-    while slug in existing:
-        slug, i = f"{base}-{i}", i + 1
-    return slug
+def events_dir() -> str:
+    """Folder the event files live in (env BMEOS_EVENTS_DIR, default ./events)."""
+    folder = os.environ.get("BMEOS_EVENTS_DIR", "events")
+    os.makedirs(folder, exist_ok=True)
+    return folder
 
 
-def list_events() -> list[dict]:
-    """All events, each flagged whether it's the active one."""
-    return [{**e, "active": e["id"] == _active_event_id} for e in db.all_events()]
-
-
-def create_event(data: dict) -> dict:
-    """Create a new (empty) event. Does not switch to it."""
-    with _lock:
-        name = _clean_str(data.get("name"), "Event name", required=True)
-        date_iso = _clean_str(data.get("date"), "Event date", required=True)
-        try:
-            date.fromisoformat(date_iso)
-        except ValueError:
-            raise StoreError("Event date must be YYYY-MM-DD")
-        row = {
-            "id": db.next_event_id(),
-            "name": name,
-            "date_iso": date_iso,
-            "reader_port": _clean_str(data.get("reader_port"), "Reader port") or "COM5",
-            "reader_enabled": False,
-            "slug": _unique_slug(_slugify(name)),
-            "series_id": _as_int(data.get("series_id"), "Series", allow_blank=True),
-        }
-        db.save_event(row)
-        return row
-
-
-def set_active_event(event_id: int) -> dict:
-    """Switch the in-memory model to another event and return its row."""
-    global _active_event_id
-    with _lock:
-        row = db.get_event(event_id)
-        if row is None:
-            raise StoreError("That event no longer exists")
-        # Load into locals first; only swap live state once it can't fail, so a
-        # bad load never leaves the store pointing at a half-cleared model.
-        data = db.load_event(event_id)
-        _active_event_id = event_id
-        _courses.clear(); _courses.update(data["courses"])
-        _classes.clear(); _classes.update(data["classes"])
-        _competitors.clear(); _competitors.update(data["competitors"])
-        _teams.clear(); _teams.update(data.get("teams", {}))
-        _counters.update(data["counters"])
-        _apply_event(row)
-        return row
-
-
-def list_series() -> list[dict]:
-    return db.all_series()
-
-
-def create_series(data: dict) -> dict:
-    with _lock:
-        name = _clean_str(data.get("name"), "Series name", required=True)
-        series = {"id": db.next_series_id(), "name": name}
-        db.save_series(series)
-        return series
-
-
-def set_event_series(event_id: int, series_id) -> dict:
-    """Assign an event to a series (or None to remove it from one)."""
-    with _lock:
-        row = db.get_event(event_id)
-        if row is None:
-            raise StoreError("That event no longer exists")
-        if series_id is not None and db.get_series(series_id) is None:
-            raise StoreError("That series no longer exists")
-        row = dict(row)
-        row["series_id"] = series_id
-        db.save_event(row)
-        if event_id == _active_event_id:
-            EVENT["series_id"] = series_id
-        return row
-
-
-def _series_points(position) -> int:
-    """Series points for a finishing position: 100, 95, 90, ... floored at 0."""
-    if position is None:
-        return 0
-    return max(0, 100 - (position - 1) * 5)
-
-
-def series_standings(series_id: int) -> dict:
-    """
-    Cumulative series standings across every event in the series.
-
-    People are identified by SI card number when present, else by name, and earn
-    :func:`_series_points` per event by position. Returns the series, its events,
-    and standings sorted by total points.
-    """
-    with _lock:
-        events_in = [e for e in db.all_events() if e["series_id"] == series_id]
-        people: dict = {}
-        for ev in events_in:
-            classes, _ = evaluate_event(ev["id"])
-            for entry in classes:
-                for r in entry["results"]:
-                    # Identify a person by name + club, not SI card: cards are
-                    # per-event (hire cards, replacements), so a card key would
-                    # split one person across rounds. Same-name-same-club
-                    # different people is rare and accepted.
-                    key = (r["name"].strip().lower(), (r.get("club") or "").strip().lower())
-                    person = people.setdefault(key, {
-                        "name": r["name"], "club": r.get("club") or "",
-                        "points": 0, "events": 0})
-                    person["points"] += _series_points(r.get("position"))
-                    if r.get("position"):
-                        person["events"] += 1
-                    person["name"] = r["name"]  # keep most recent display name
-        standings = sorted(people.values(),
-                           key=lambda p: (-p["points"], p["name"].lower()))
-        for i, row in enumerate(standings):
-            row["rank"] = i + 1
-        return {"series": db.get_series(series_id), "events": events_in,
-                "standings": standings}
-
-
-def competitor_profile(*, card: int | None = None, name: str | None = None) -> dict:
-    """A person's results across all events, matched by card number or name."""
-    with _lock:
-        out = []
-        display = name
-        for ev in db.all_events():
-            classes, _ = evaluate_event(ev["id"])
-            for entry in classes:
-                for r in entry["results"]:
-                    matched = (
-                        (card is not None and r.get("card_number") == card)
-                        or (name is not None and r["name"].lower() == name.lower()))
-                    if matched:
-                        display = r["name"]
-                        out.append({"event": ev, "class": entry["class"]["name"],
-                                    "result": r})
-        return {"name": display, "card": card, "results": out}
+def events_in_folder(folder: str | None = None) -> list[dict]:
+    """List openable event files (``*.bmeos``) in the folder, newest first."""
+    folder = folder or events_dir()
+    out = []
+    if os.path.isdir(folder):
+        for fn in os.listdir(folder):
+            if not fn.endswith(".bmeos"):
+                continue
+            path = os.path.join(folder, fn)
+            meta = db.read_event_meta(path)
+            if meta:
+                out.append({
+                    "path": path, "filename": fn, "name": meta["name"],
+                    "date_iso": meta["date_iso"], "type": meta.get("type", "linear"),
+                    "open": path == _current_path,
+                })
+    out.sort(key=lambda e: (e["date_iso"], e["name"]), reverse=True)
+    return out
 
 
 def _load_active() -> None:
-    """Replace the in-memory model with the active event's persisted data."""
+    """Replace the in-memory model with the open event file's data."""
     data = db.load_event(_active_event_id)
     _courses.clear(); _courses.update(data["courses"])
     _classes.clear(); _classes.update(data["classes"])
@@ -1223,19 +1234,86 @@ def _load_active() -> None:
     _counters.update(data["counters"])
 
 
+def open_event(path: str) -> dict:
+    """Open an existing event file as the current event."""
+    global _current_path
+    with _lock:
+        if not os.path.exists(path):
+            raise StoreError("That event file no longer exists")
+        # Validate on a throwaway connection FIRST, so a foreign/corrupt file
+        # never swaps the live connection (which would route saves to it).
+        if db.read_event_meta(path) is None:
+            raise StoreError("That file isn't a better-meos event")
+        db.connect(path)
+        _load_active()
+        row = db.get_event(_active_event_id)
+        _apply_event(row)
+        _current_path = path
+        return dict(row)
+
+
+def new_event(meta: dict, folder: str | None = None) -> dict:
+    """
+    Create a new empty event file from ``meta`` (name, date, first_start, type)
+    and open it. Filename derives from the name; never overwrites an existing one.
+    """
+    global _current_path
+    with _lock:
+        name = _clean_str(meta.get("name"), "Event name", required=True)
+        date_iso = _clean_str(meta.get("date"), "Event date", required=True)
+        try:
+            date.fromisoformat(date_iso)
+        except ValueError:
+            raise StoreError("Event date must be YYYY-MM-DD")
+        etype = _clean_str(meta.get("type"), "Type").lower() or "linear"
+        if etype not in ("linear", "score", "relay"):
+            raise StoreError("Type must be linear, score or relay")
+        first_start = meta.get("first_start") or ""
+        if first_start:
+            parse_clock(first_start, "First start")  # validate; raises on bad
+
+        slug = _slugify(name)
+        folder = folder or events_dir()
+        path = os.path.join(folder, f"{slug}.bmeos")
+        i = 2
+        while os.path.exists(path):
+            path = os.path.join(folder, f"{slug}-{i}.bmeos")
+            i += 1
+
+        db.connect(path)  # creates the file + schema
+        _courses.clear(); _classes.clear(); _competitors.clear(); _teams.clear()
+        _counters.update(course=0, **{"class": 0}, competitor=0, team=0)
+        row = {
+            "id": _active_event_id, "name": name, "date_iso": date_iso,
+            "reader_port": os.environ.get("BMEOS_READER_PORT", "COM5"),
+            "reader_enabled": bool(os.environ.get("BMEOS_READER")),
+            "slug": slug, "first_start": first_start or None, "type": etype,
+        }
+        db.save_event(row)
+        _apply_event(row)
+        _current_path = path
+        return {**row, "path": path}
+
+
+def close_event() -> None:
+    """Close the current event (back to the start page)."""
+    global _current_path
+    with _lock:
+        if _current_path is not None:
+            db.close()
+        _courses.clear(); _classes.clear(); _competitors.clear(); _teams.clear()
+        EVENT.update({"name": "", "date": "", "date_iso": "", "slug": "", "open": False})
+        _current_path = None
+
+
 def reload() -> None:
-    """Reload the active event from disk (used after a restore)."""
+    """Reload the open event from disk (used after a restore)."""
     with _lock:
         _load_active()
 
 
 def restore(backup_path: str) -> None:
-    """
-    Replace the database from a backup file, then reload memory -- atomically
-    from the operator's point of view (no mutation can interleave the swap).
-
-    Raises StoreError if the file isn't a valid better-meos backup.
-    """
+    """Replace the open event file's data from a backup, then reload memory."""
     import sqlite3
     with _lock:
         try:
@@ -1245,24 +1323,5 @@ def restore(backup_path: str) -> None:
         _load_active()
 
 
-def _init() -> None:
-    """
-    Prepare the store on import.
-
-    On a brand-new database, seed it from the mock roster (preserving the old
-    behaviour of having data to show immediately) and persist that seed. On an
-    existing database, load the active event back into memory so edits survive
-    restarts.
-    """
-    db.connect()
-    fresh = db.is_empty()
-    db.save_event(EVENT)
-    if fresh:
-        _seed()  # _insert_* write through to the database
-    else:
-        _load_active()
-    # Sync EVENT / EVENT_DATE from the persisted active-event row.
-    _apply_event(db.get_event(_active_event_id))
-
-
-_init()
+# No event is opened on import: the app starts at the event-selection page and
+# opens/creates an event file from there (see app.py / start.html).

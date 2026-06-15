@@ -60,7 +60,14 @@ def recent_reads() -> list[dict]:
 # Shared processing path
 # ---------------------------------------------------------------------------
 
-def process_card(card: dict, *, station_id: str | None = None) -> dict:
+# Auto-create courses/classes/competitors from unknown cards (MeOS interactive
+# setup). Off by default; enable with BMEOS_AUTO_CREATE. The API can also request
+# it per-read.
+AUTO_CREATE = bool(os.environ.get("BMEOS_AUTO_CREATE"))
+
+
+def process_card(card: dict, *, station_id: str | None = None,
+                 auto_create: bool | None = None) -> dict:
     """
     Record one downloaded card and broadcast the result.
 
@@ -68,13 +75,27 @@ def process_card(card: dict, *, station_id: str | None = None) -> dict:
     ``{"ok": False, "error": msg, "card_number": n}`` when no competitor is
     registered for the card -- the caller (API or reader loop) decides what to do,
     but either way a live event is published so the operator sees the read.
+
+    When ``auto_create`` is set (defaults to the ``BMEOS_AUTO_CREATE`` env flag),
+    an unknown card builds its own course/class/competitor instead of failing.
     """
     if station_id is not None:
         card = {**card, "station_id": station_id}
+    if auto_create is None:
+        auto_create = AUTO_CREATE
     when = datetime.now().strftime("%H:%M:%S")
     try:
         comp = store.apply_card_read(card)
     except StoreError as err:
+        if auto_create:
+            try:
+                comp = store.auto_create_from_card(card)
+            except StoreError as err2:
+                err = err2
+            else:
+                _remember(when, comp["name"], comp["card_number"], station_id, ok=True)
+                events.publish("card_read", station_id=station_id)
+                return {"ok": True, "competitor": comp, "auto_created": True}
         log.warning("unmatched card %s: %s", card.get("card_number"), err)
         _remember(when, None, card.get("card_number"), station_id, ok=False)
         # The SSE feed is public (live/projector screens), so publish only the
@@ -93,9 +114,10 @@ def _remember(when, name, card_number, station_id, *, ok):
                         "station": station_id or "main", "ok": ok})
 
 
-def simulate(card: dict, *, station_id: str | None = None) -> dict:
+def simulate(card: dict, *, station_id: str | None = None,
+             auto_create: bool | None = None) -> dict:
     """Synchronously push a card through the pipeline (used by the API/tests)."""
-    return process_card(card, station_id=station_id)
+    return process_card(card, station_id=station_id, auto_create=auto_create)
 
 
 # ---------------------------------------------------------------------------

@@ -208,8 +208,36 @@
                 manual_status: field("manual_status").value,
                 bib: field("bib") ? field("bib").value : "",
                 hired: field("hired") ? field("hired").checked : false,
+                team_id: field("team_id") ? field("team_id").value : "",
+                leg: field("leg") ? field("leg").value : "",
                 punches: readPunches()
             };
+        }
+
+        // Relay team picker: shown only when the chosen class has teams.
+        var teamField = $("[data-team-field]", drawer);
+        var legField = $("[data-leg-field]", drawer);
+        function refreshTeams(classId, selectedTeamId) {
+            var sel = field("team_id");
+            if (!sel || !classId) {
+                if (teamField) { teamField.hidden = true; }
+                if (legField) { legField.hidden = true; }
+                return;
+            }
+            api("GET", "/api/teams?class_id=" + encodeURIComponent(classId)).then(function (teams) {
+                if (!teams || !teams.length) {
+                    teamField.hidden = true; legField.hidden = true; return;
+                }
+                sel.innerHTML = '<option value="">— none —</option>' + teams.map(function (t) {
+                    return '<option value="' + t.id + '">' + t.name + '</option>';
+                }).join("");
+                if (selectedTeamId) { sel.value = selectedTeamId; }
+                teamField.hidden = false; legField.hidden = false;
+            }).catch(function () {});
+        }
+        var classSel = field("class_id");
+        if (classSel) {
+            classSel.addEventListener("change", function () { refreshTeams(classSel.value); });
         }
 
         function schedulePreview() {
@@ -294,6 +322,25 @@
         form.addEventListener("input", schedulePreview);
         form.addEventListener("change", schedulePreview);
 
+        // SI-read autofill: typing/reading a known card fills name, club and the
+        // person's usual class from the shared runner database.
+        var cardField = field("card_number");
+        if (cardField) {
+            cardField.addEventListener("change", function () {
+                var card = cardField.value.trim();
+                if (!card) { return; }
+                api("GET", "/api/runners/lookup?card=" + encodeURIComponent(card))
+                    .then(function (d) {
+                        if (!d) { return; }
+                        if (!field("name").value) { field("name").value = d.name || ""; }
+                        if (!field("club").value) { field("club").value = d.club || ""; }
+                        if (d.class_id && !field("class_id").value) { field("class_id").value = d.class_id; }
+                        schedulePreview();
+                    })
+                    .catch(function () {});
+            });
+        }
+
         // --- open / populate ---
         function openNew() {
             editId = null;
@@ -304,6 +351,7 @@
             titleEl.textContent = "New competitor";
             subEl.textContent = "Enter a competitor and their punches";
             if (deleteCurrentBtn) { deleteCurrentBtn.hidden = true; }
+            refreshTeams(null);
             renderPreview(null);
             openOverlay(drawer);
             refreshPreview();
@@ -323,6 +371,8 @@
                 field("manual_status").value = c.manual_status || "";
                 if (field("bib")) { field("bib").value = c.bib == null ? "" : c.bib; }
                 if (field("hired")) { field("hired").checked = !!c.hired; }
+                if (field("leg")) { field("leg").value = c.leg == null ? "" : c.leg; }
+                refreshTeams(c.class_id, c.team_id);
                 punchBody.innerHTML = "";
                 (c.punches || []).forEach(function (p) { addPunchRow(p.code, p.time); });
                 updatePunchEmpty();
@@ -464,6 +514,12 @@
                 api("DELETE", "/api/classes/" + row.dataset.id)
                     .then(function () { reloadWith("Deleted class " + row.dataset.name); })
                     .catch(function (err) { toast(err.message, "error"); });
+                return;
+            }
+            // Click anywhere on the row (not a button/link) opens the editor.
+            var clsRow = e.target.closest("[data-class-row]");
+            if (clsRow && !e.target.closest("button, a, input, select, label")) {
+                openEdit(clsRow);
             }
         });
 
@@ -650,6 +706,12 @@
                 api("DELETE", "/api/courses/" + row.dataset.id)
                     .then(function () { reloadWith("Deleted course " + delBtn.dataset.name); })
                     .catch(function (err) { toast(err.message, "error"); });
+                return;
+            }
+            // Click anywhere on the course card (not a button/link) opens the editor.
+            var courseRow = e.target.closest("[data-course-row]");
+            if (courseRow && !e.target.closest("button, a, input, select, label")) {
+                openEdit(courseRow.dataset.id);
             }
         });
 
