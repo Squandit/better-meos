@@ -904,6 +904,40 @@ def api_remote_stop():
 
 
 # ---------------------------------------------------------------------------
+# Multi-day / multi-stage: combine several event files into overall standings
+# ---------------------------------------------------------------------------
+
+@app.route("/stages")
+def stages_page():
+    """Pick stage files from the events folder and combine them into overall
+    (multi-day) standings, or set chase starts on the open event."""
+    return render_template("stages.html", active="stages",
+                           events=store.events_in_folder(),
+                           folder=store.events_dir(),
+                           first_start=store.EVENT.get("first_start") or "")
+
+
+@app.route("/api/stages/combined", methods=["POST"])
+def api_stages_combined():
+    paths = _payload().get("paths") or []
+    if not isinstance(paths, list) or not paths:
+        raise StoreError("Pick at least one stage file")
+    return jsonify({"classes": stages.combined_results(paths)})
+
+
+@app.route("/api/stages/chase", methods=["POST"])
+def api_stages_chase():
+    """Set chase/handicap start times on the OPEN event from earlier stages."""
+    data = _payload()
+    paths = data.get("paths") or []
+    if not isinstance(paths, list) or not paths:
+        raise StoreError("Pick the earlier stage file(s) first")
+    assigned = stages.apply_chase_starts(paths, data.get("first_start") or "")
+    events.publish("competitor", action="chase")
+    return jsonify({"ok": True, "assigned": assigned})
+
+
+# ---------------------------------------------------------------------------
 # Operator API (JSON)
 # ---------------------------------------------------------------------------
 

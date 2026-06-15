@@ -97,6 +97,10 @@
                     <span class="field-label">Penalty <span class="hint">pts / min over</span></span>
                     <input type="number" name="penalty_per_minute" inputmode="numeric" min="0" placeholder="10">
                 </label>
+                <label class="field field-wide">
+                    <span class="field-label">Scoring formula <span class="hint">optional · e.g. controls*10 - over_minutes*penalty</span></span>
+                    <input type="text" name="score_formula" autocomplete="off" placeholder="controls and points by default">
+                </label>
             </div>
 
             <div class="field-grid">
@@ -105,11 +109,17 @@
                     <select name="start_mode">
                         <option value="clock">Clock (timed start)</option>
                         <option value="punch">Punch (free start)</option>
+                        <option value="mass">Mass start</option>
+                        <option value="chase">Chase / handicap</option>
                     </select>
                 </label>
                 <label class="field">
                     <span class="field-label">Start control <span class="hint">punch start</span></span>
                     <input type="number" name="start_control" inputmode="numeric" min="1" placeholder="1">
+                </label>
+                <label class="field">
+                    <span class="field-label">Mass start <span class="hint">HH:MM:SS</span></span>
+                    <input type="text" name="mass_start" autocomplete="off" placeholder="10:30:00">
                 </label>
                 <label class="field">
                     <span class="field-label">Length <span class="hint">metres</span></span>

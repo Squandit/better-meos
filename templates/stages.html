@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Stages{% endblock %}
+{% block heading %}Multi-day / stages{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Combined standings</h3>
+    <p>Pick the stage files (each event is one <code>.bmeos</code> file) to add up
+       per-competitor times across days. Runners are matched by SI card, then name + club.</p>
+</div>
+
+<section class="panel"><div class="panel-body">
+    <div class="section-title">Stage files <span class="hint">folder: <code>{{ folder }}</code></span></div>
+    {% if events %}
+    <div class="stage-pick">
+        {% for e in events %}
+        <label class="config-field" style="margin-bottom:8px">
+            <input type="checkbox" data-stage value="{{ e.path }}" {% if e.open %}checked{% endif %}>
+            {{ e.name }} <span class="hint">{{ e.date_iso }} · {{ e.type }}{% if e.open %} · open{% endif %}</span>
+        </label>
+        {% endfor %}
+    </div>
+    <div class="ops-bar" style="margin-top:10px">
+        <button class="btn btn-primary" data-combine>Combine selected</button>
+        <span class="toolbar-spacer"></span>
+        <span data-stage-status class="tool-note"></span>
+    </div>
+    {% else %}
+    <p class="mini-empty">No event files in the folder yet.</p>
+    {% endif %}
+</div></section>
+
+<div data-combined></div>
+
+<section class="panel"><div class="panel-body">
+    <div class="section-title">Chase / handicap start (Gundersson)</div>
+    <p class="tool-note">Set start times on the <strong>open</strong> event so each runner starts behind the
+       leader by their accumulated deficit from the selected earlier stages.</p>
+    <div class="ops-bar">
+        <label class="field" style="max-width:160px">
+            <span class="field-label">First start <span class="hint">HH:MM:SS</span></span>
+            <input type="text" data-chase-first value="{{ first_start }}" placeholder="10:30:00">
+        </label>
+        <button class="btn" data-chase>Set chase starts on open event</button>
+        <span class="toolbar-spacer"></span>
+        <span data-chase-status class="tool-note"></span>
+    </div>
+</div></section>
+
+<script>
+(function () {
+    function selected() {
+        return Array.prototype.slice.call(document.querySelectorAll("[data-stage]:checked"))
+            .map(function (c) { return c.value; });
+    }
+    function post(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); });
+    }
+    function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+
+    var status = document.querySelector("[data-stage-status]");
+    var out = document.querySelector("[data-combined]");
+    var combineBtn = document.querySelector("[data-combine]");
+    if (combineBtn) combineBtn.addEventListener("click", function () {
+        var paths = selected();
+        if (!paths.length) { status.textContent = "Pick at least one file."; return; }
+        status.textContent = "Combining…";
+        post("/api/stages/combined", { paths: paths }).then(function (res) {
+            if (!res.ok) { status.textContent = (res.d && res.d.error) || "Failed"; return; }
+            status.textContent = "";
+            renderCombined(res.d.classes);
+        });
+    });
+
+    function renderCombined(classes) {
+        if (!classes || !classes.length) { out.innerHTML = '<section class="panel"><div class="empty">No combined results.</div></section>'; return; }
+        out.innerHTML = classes.map(function (cls) {
+            var heads = cls.stages.map(function (s) { return "<th class='num'>" + esc(s) + "</th>"; }).join("");
+            var rows = cls.rows.map(function (r) {
+                var times = r.stage_times.map(function (t) { return "<td class='num mono'>" + esc(t || "—") + "</td>"; }).join("");
+                return "<tr><td class='num'>" + (r.position || "") + "</td><td>" + esc(r.name) +
+                    "</td><td class='dim'>" + esc(r.club) + "</td>" + times +
+                    "<td class='num mono'><strong>" + esc(r.total || "") + "</strong></td></tr>";
+            }).join("");
+            return "<section class='panel'><div class='panel-head'><div class='panel-head-main'><h4>" + esc(cls.class) +
+                "</h4></div></div><div class='panel-body'><table class='table'><thead><tr><th style='width:48px'>#</th><th>Name</th><th>Club</th>" +
+                heads + "<th class='num'>Total</th></tr></thead><tbody>" + rows + "</tbody></table></div></section>";
+        }).join("");
+    }
+
+    var chaseStatus = document.querySelector("[data-chase-status]");
+    var chaseBtn = document.querySelector("[data-chase]");
+    if (chaseBtn) chaseBtn.addEventListener("click", function () {
+        var paths = selected();
+        if (!paths.length) { chaseStatus.textContent = "Pick the earlier stage file(s) above."; return; }
+        var first = document.querySelector("[data-chase-first]").value;
+        chaseStatus.textContent = "Setting…";
+        post("/api/stages/chase", { paths: paths, first_start: first }).then(function (res) {
+            if (!res.ok) { chaseStatus.textContent = (res.d && res.d.error) || "Failed"; return; }
+            chaseStatus.textContent = "Set chase starts for " + res.d.assigned + " competitor(s).";
+        });
+    });
+})();
+</script>
+{% endblock %}

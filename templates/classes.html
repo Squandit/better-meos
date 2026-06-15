@@ -33,7 +33,7 @@
             {% for c in classes %}
             <tr data-class-row data-id="{{ c.id }}" data-name="{{ c.name }}" data-course-id="{{ c.course_id }}"
                 data-kind="{{ c.kind }}" data-legs="{{ c.legs }}" data-fee="{{ c.fee }}">
-                <td class="cell-name">{{ c.name }}{% if c.kind == 'relay' %} <span class="chip grey">relay</span>{% endif %}</td>
+                <td class="cell-name">{{ c.name }}{% if c.kind in ('relay', 'patrol') %} <span class="chip grey">{{ c.kind }}</span>{% endif %}</td>
                 <td>{{ c.type }}</td>
                 <td class="dim">{{ c.course_name }} &middot; {{ c.meta }}</td>
                 <td class="num">{{ c.entries }}</td>
@@ -83,6 +83,7 @@
                     <select name="kind">
                         <option value="individual">Individual</option>
                         <option value="relay">Relay</option>
+                        <option value="patrol">Patrol</option>
                     </select>
                 </label>
                 <label class="field">
