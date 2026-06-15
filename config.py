@@ -76,6 +76,11 @@ SCHEMA: list[_Setting] = [
     _Setting("prize_season", "BMEOS_PRIZE_SEASON", "str", "Prizes",
              "Season label", "e.g. 2026. Blank = the open event's year. "
              "Change it to start a new prize season (resets eligibility)."),
+    _Setting("series_points_base", "BMEOS_SERIES_BASE", "int", "Series",
+             "Series points (1st place)", "Points the winner gets each event.",
+             default=100),
+    _Setting("series_points_step", "BMEOS_SERIES_STEP", "int", "Series",
+             "Series points step", "Points lost per place below 1st.", default=2),
     _Setting("admin_port", "BMEOS_PORT", "int", "Network (ports)",
              "Admin port", "Operator console port. Restart to apply.", default=8799),
     _Setting("public_port", "BMEOS_PUBLIC_PORT", "int", "Network (ports)",

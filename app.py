@@ -25,6 +25,7 @@ import prizes
 import remote
 import runners
 import security
+import series
 import si_reader
 import simulator
 import stages
@@ -82,7 +83,7 @@ def _require_open_event():
         return None
     p = request.path
     if (p in ("/start", "/favicon.ico", "/sw.js", "/manifest.json",
-              "/unlock", "/lock", "/config")
+              "/unlock", "/lock", "/config", "/series", "/profile")
             or p.startswith(_NO_EVENT_OK)):
         return None
     if p.startswith("/api/"):
@@ -1014,6 +1015,30 @@ def api_prize_season():
 def api_prize_clear():
     removed = prizes.clear(prizes.current_season())
     return jsonify({"ok": True, "removed": removed})
+
+
+# ---------------------------------------------------------------------------
+# Series (cross-event season points) + competitor profiles, scanned from the
+# events folder (no event need be open).
+# ---------------------------------------------------------------------------
+
+@app.route("/series")
+def series_page():
+    return render_template("series.html", active="series",
+                           standings=series.standings(),
+                           folder=store.events_dir())
+
+
+@app.route("/profile")
+def profile_page():
+    key = _clean(request.args.get("key"))
+    if not key:
+        abort(404)
+    data = series.profile(key)
+    if data["person"] is None:
+        abort(404)
+    return render_template("profile.html", active="series",
+                           person=data["person"], results=data["results"])
 
 
 # ---------------------------------------------------------------------------

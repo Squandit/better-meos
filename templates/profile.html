@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ person.name }}{% endblock %}
+{% block heading %}{{ person.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>{{ person.name }}{% if person.club %} <span class="dim">· {{ person.club }}</span>{% endif %}</h3>
+    <p>Results across every event in the folder. <a href="{{ url_for('series_page') }}">Back to series</a></p>
+</div>
+
+<section class="panel"><div class="panel-body">
+    <table class="table">
+        <thead><tr><th>Date</th><th>Event</th><th>Class</th><th class="num">Place</th><th>Status</th><th class="num">Time</th><th class="num">Pts</th></tr></thead>
+        <tbody>
+            {% for r in results %}
+            <tr>
+                <td class="dim">{{ r.date }}</td>
+                <td>{{ r.event }}</td>
+                <td class="dim">{{ r.class }}</td>
+                <td class="num">{{ r.position if r.position is not none else '—' }}</td>
+                <td>{{ r.status | upper }}</td>
+                <td class="num mono">{{ r.time }}</td>
+                <td class="num">{{ r.points if r.points is not none else '' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty">No results found.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div></section>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Series{% endblock %}
+{% block heading %}Season series{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Series standings</h3>
+    <p>Cumulative points across every event in the folder
+       (<code>{{ folder }}</code>). Click a name for their full history.</p>
+</div>
+
+{% for cls in standings %}
+<section class="panel">
+    <div class="panel-head"><div class="panel-head-main"><h4>{{ cls.class }}</h4></div></div>
+    <div class="panel-body">
+        <table class="table">
+            <thead><tr><th style="width:48px">#</th><th>Name</th><th>Club</th><th class="num">Events</th><th class="num">Points</th></tr></thead>
+            <tbody>
+                {% for p in cls.people %}
+                <tr>
+                    <td class="num">{{ p.rank }}</td>
+                    <td><a href="{{ url_for('profile_page', key=p.key) }}">{{ p.name }}</a></td>
+                    <td class="dim">{{ p.club }}</td>
+                    <td class="num">{{ p.events | length }}</td>
+                    <td class="num mono"><strong>{{ p.total }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% else %}
+<section class="panel"><div class="empty">No events in the folder yet, or none with results.</div></section>
+{% endfor %}
+{% endblock %}
