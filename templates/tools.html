@@ -12,8 +12,11 @@
     <div class="tool-links">
         <a class="btn" href="{{ url_for('export_results_xml') }}">Results — IOF XML</a>
         <a class="btn" href="{{ url_for('export_results_pdf') }}">Results — PDF</a>
+        <a class="btn" href="{{ url_for('export_podium_pdf') }}">Prize giving — PDF</a>
+        <a class="btn" href="{{ url_for('export_stillout_pdf') }}">Still out — PDF</a>
         <a class="btn" href="{{ url_for('export_startlist_pdf') }}">Start list — PDF</a>
         <a class="btn" href="{{ url_for('export_bibs_pdf') }}">Bib labels — PDF</a>
+        <a class="btn" href="{{ url_for('export_splits_csv') }}">Splits — CSV</a>
         <a class="btn" href="{{ url_for('api_backup') }}">Backup database</a>
         <a class="btn ghost" href="{{ url_for('public_results', slug=event.slug) }}" target="_blank" rel="noopener">Open public results</a>
     </div>

@@ -170,6 +170,66 @@ def bib_labels_pdf(labels: list[dict], event: dict) -> bytes:
     return buf.getvalue()
 
 
+def podium_pdf(classes: list[dict], event: dict) -> bytes:
+    """Prize-giving / podium list: the top three in each class.
+
+    ``classes`` are view rows as built by ``app._console_data`` (each with
+    ``name``, ``is_score`` and ranked ``rows``)."""
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    styles = _styles()
+    story = [
+        Paragraph(f"<b>{escape(event.get('name', ''))}</b> — Prize giving", styles["Title"]),
+        Paragraph(escape(event.get("date", "")), styles["Normal"]),
+        Spacer(1, 6 * mm),
+    ]
+    for cls in classes:
+        winners = [r for r in cls["rows"] if r.get("position") in (1, 2, 3)]
+        if not winners:
+            continue
+        story.append(Paragraph(escape(cls["name"]), styles["Heading2"]))
+        is_score = cls.get("is_score")
+        header = ["Place", "Athlete", "Club"] + (["Points"] if is_score else ["Time"])
+        data = [header]
+        for r in winners:
+            line = [str(r["position"]), r["name"], r.get("club") or ""]
+            line.append(("" if r.get("points") is None else str(r["points"]))
+                        if is_score else (r.get("time") or "-"))
+            data.append(line)
+        widths = [16 * mm, 60 * mm, 44 * mm, 30 * mm]
+        tbl = Table(data, colWidths=widths)
+        tbl.setStyle(_table_style())
+        story.append(tbl)
+        story.append(Spacer(1, 7 * mm))
+    if len(story) == 3:
+        story.append(Paragraph("No placed competitors yet.", styles["Normal"]))
+    doc.build(story)
+    return buf.getvalue()
+
+
+def still_out_pdf(rows: list[dict], event: dict) -> bytes:
+    """Competitors who have started but not yet downloaded a finish -- the
+    "still out on course" safety check. ``rows`` = [{start, name, club, class}]."""
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    styles = _styles()
+    story = [
+        Paragraph(f"<b>{escape(event.get('name', ''))}</b> — Still out on course", styles["Title"]),
+        Paragraph(escape(event.get("date", "")), styles["Normal"]),
+        Spacer(1, 4 * mm),
+        Paragraph(f"{len(rows)} competitor(s) started, not yet finished.", styles["Normal"]),
+        Spacer(1, 4 * mm),
+    ]
+    data = [["Start", "Name", "Club", "Class"]]
+    for r in rows:
+        data.append([r.get("start") or "-", r["name"], r.get("club") or "", r.get("class") or ""])
+    tbl = Table(data, colWidths=[24 * mm, 56 * mm, 44 * mm, 36 * mm])
+    tbl.setStyle(_table_style())
+    story.append(tbl)
+    doc.build(story)
+    return buf.getvalue()
+
+
 def class_results_pdf(classes: list[dict], event: dict) -> bytes:
     """Whole-event results (one block per class) as PDF bytes.
 

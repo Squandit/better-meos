@@ -607,6 +607,42 @@ def export_results_pdf():
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-results.pdf"})
 
 
+@app.route("/export/podium.pdf")
+def export_podium_pdf():
+    data = pdf.podium_pdf(_console_data(), store.EVENT)
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-podium.pdf"})
+
+
+@app.route("/export/stillout.pdf")
+def export_stillout_pdf():
+    rows = [r for c in _console_data() for r in c["rows"] if r["start"] and not r["finish"]]
+    rows.sort(key=lambda r: r["start"])
+    data = pdf.still_out_pdf(rows, store.EVENT)
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-stillout.pdf"})
+
+
+@app.route("/export/splits.csv")
+def export_splits_csv():
+    """Long-format splits CSV for analysis (one row per leg). The IOF results XML
+    (/export/results.xml) carries SplitTimes too, for SplitsBrowser/WinSplits."""
+    import csv
+    import io as _io
+    buf = _io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Class", "Position", "Name", "Club", "Status", "Total", "Control", "Leg", "Cumulative"])
+    for c in _console_data():
+        for r in c["rows"]:
+            pos = r["position"] if r["position"] is not None else ""
+            for s in r["splits"]:
+                w.writerow([c["name"], pos, r["name"], r["club"] or "",
+                            r["status_label"], r["time"] or "", s["control"],
+                            s["leg"], s["cumulative"]])
+    return Response(buf.getvalue(), mimetype="text/csv", headers={
+        "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-splits.csv"})
+
+
 @app.route("/slip/<int:comp_id>.pdf")
 def slip_pdf(comp_id):
     result = store.result_for(comp_id)

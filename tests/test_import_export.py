@@ -100,6 +100,25 @@ def test_pdf_handles_special_characters():
     assert data[:4] == b"%PDF"
 
 
+def test_podium_and_stillout_pdfs_build():
+    import app as appmod
+    classes = appmod._console_data()
+    assert pdf.podium_pdf(classes, store.EVENT)[:4] == b"%PDF"
+    assert pdf.still_out_pdf([{"name": "Out Olly", "club": "OC", "class": "M21A",
+                               "start": "10:00:00"}], store.EVENT)[:4] == b"%PDF"
+
+
+def test_export_routes_serve():
+    import app as appmod
+    c = appmod.app.test_client()
+    assert c.get("/export/podium.pdf").status_code == 200
+    assert c.get("/export/stillout.pdf").status_code == 200
+    csv_resp = c.get("/export/splits.csv")
+    assert csv_resp.status_code == 200
+    assert "text/csv" in csv_resp.headers["Content-Type"]
+    assert "Control" in csv_resp.get_data(as_text=True)  # header row present
+
+
 def test_csv_import_creates_and_skips():
     csv_text = (
         "name,club,class,card,start\n"
