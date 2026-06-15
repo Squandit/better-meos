@@ -73,6 +73,9 @@ SCHEMA: list[_Setting] = [
              "SMTP password", "e.g. a Gmail app password."),
     _Setting("smtp_from", "BMEOS_SMTP_FROM", "str", "Email (receipts)",
              "From address", "Defaults to the SMTP user."),
+    _Setting("prize_season", "BMEOS_PRIZE_SEASON", "str", "Prizes",
+             "Season label", "e.g. 2026. Blank = the open event's year. "
+             "Change it to start a new prize season (resets eligibility)."),
     _Setting("admin_port", "BMEOS_PORT", "int", "Network (ports)",
              "Admin port", "Operator console port. Restart to apply.", default=8799),
     _Setting("public_port", "BMEOS_PUBLIC_PORT", "int", "Network (ports)",

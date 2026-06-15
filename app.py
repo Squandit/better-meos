@@ -21,6 +21,7 @@ import network
 import notify
 import payments
 import pdf
+import prizes
 import remote
 import runners
 import security
@@ -938,12 +939,95 @@ def api_stages_chase():
 
 
 # ---------------------------------------------------------------------------
+# Season prizes: one prize per course for the top placement, one prize per
+# person per season (cascades to the next eligible finisher).
+# ---------------------------------------------------------------------------
+
+def _course_standings():
+    """OK finishers grouped by course and ranked, for prize recommendations.
+    Classes that share a course compete together for the one course prize."""
+    classes, _ = store.evaluate()
+    by_course: dict = {}
+    for entry in classes:
+        course = entry["course"]
+        cs = by_course.setdefault(course["id"], {
+            "course_id": course["id"], "course_name": course["name"],
+            "is_score": course["type"] == "score", "rows": []})
+        for r in entry["results"]:
+            if r["status"] == "ok" and r["total_seconds"] is not None:
+                cs["rows"].append({
+                    "name": r["name"], "club": r.get("club") or "",
+                    "card": r.get("card_number"), "points": r.get("points"),
+                    "total_seconds": r["total_seconds"],
+                    "time": format_duration(r["total_seconds"]),
+                })
+    out = []
+    for cs in by_course.values():
+        if cs["is_score"]:
+            cs["rows"].sort(key=lambda r: (-(r["points"] or 0), r["total_seconds"]))
+        else:
+            cs["rows"].sort(key=lambda r: r["total_seconds"])
+        for i, r in enumerate(cs["rows"]):
+            r["position"] = i + 1
+        out.append(cs)
+    out.sort(key=lambda c: c["course_name"].lower())
+    return out
+
+
+@app.route("/prizes")
+def prizes_page():
+    season = prizes.current_season()
+    standings = _course_standings()
+    return render_template(
+        "prizes.html", active="prizes", season=season,
+        recommendations=prizes.recommend(standings, season),
+        ledger=prizes.ledger(season))
+
+
+@app.route("/api/prizes/award", methods=["POST"])
+def api_prize_award():
+    data = _payload()
+    course = _clean(data.get("course_name"))
+    if not course:
+        raise StoreError("Which course is this prize for?")
+    person = {"name": _clean(data.get("name")), "club": _clean(data.get("club")),
+              "card_number": data.get("card_number")}
+    awarded = prizes.award(prizes.current_season(), person, course)
+    return jsonify({"ok": True, "awarded": awarded})
+
+
+@app.route("/api/prizes/unaward", methods=["POST"])
+def api_prize_unaward():
+    key = _clean(_payload().get("person_key"))
+    if key:
+        prizes.unaward(prizes.current_season(), key)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/prizes/season", methods=["POST"])
+def api_prize_season():
+    prizes.set_season(_clean(_payload().get("season")))
+    return jsonify({"ok": True, "season": prizes.current_season()})
+
+
+@app.route("/api/prizes/clear", methods=["POST"])
+def api_prize_clear():
+    removed = prizes.clear(prizes.current_season())
+    return jsonify({"ok": True, "removed": removed})
+
+
+# ---------------------------------------------------------------------------
 # Operator API (JSON)
 # ---------------------------------------------------------------------------
 
 def _payload():
     """Parsed JSON body, or {} for an empty/non-JSON request."""
     return request.get_json(silent=True) or {}
+
+
+def _clean(value) -> str:
+    """Trim a value to a string ('' for None) for light request-field handling."""
+    return "" if value is None else str(value).strip()
 
 
 @app.errorhandler(StoreError)

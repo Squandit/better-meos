@@ -22,6 +22,10 @@ _config_fd, _config_path = tempfile.mkstemp(prefix="bmeos_config_", suffix=".jso
 os.close(_config_fd)
 os.remove(_config_path)  # config.py treats a missing file as empty
 os.environ["BMEOS_CONFIG"] = _config_path
+# Season prize ledger in a throwaway DB (never the repo's prizes.db).
+_prizes_fd, _prizes_path = tempfile.mkstemp(prefix="bmeos_prizes_", suffix=".db")
+os.close(_prizes_fd)
+os.environ["BMEOS_PRIZES_DB"] = _prizes_path
 
 import store  # noqa: E402
 
@@ -36,7 +40,7 @@ def pytest_sessionfinish(session, exitstatus):
     except Exception:
         pass
     shutil.rmtree(_events_dir, ignore_errors=True)
-    for path in (_runners_path, _config_path):
+    for path in (_runners_path, _config_path, _prizes_path):
         try:
             os.remove(path)
         except OSError:

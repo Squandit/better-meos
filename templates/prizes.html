@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Prizes{% endblock %}
+{% block heading %}Season prizes{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Prize giving</h3>
+    <p>One prize per course for the top placement &mdash; but each person can win
+       only <strong>one prize per season</strong>, so a winner who's already taken
+       a prize is skipped and it passes to the next eligible finisher.</p>
+</div>
+
+<section class="panel"><div class="panel-body">
+    <div class="ops-bar">
+        <label class="field" style="max-width:200px">
+            <span class="field-label">Season</span>
+            <input type="text" data-season value="{{ season }}" placeholder="2026">
+        </label>
+        <button class="btn btn-soft" data-set-season>Use season</button>
+        <span class="toolbar-spacer"></span>
+        <button class="btn btn-danger-ghost" data-clear-season>Reset this season's prizes</button>
+    </div>
+    <p class="tool-note">Change the season label to start fresh (the old season's
+       ledger is kept). "Reset" wipes <strong>{{ season }}</strong>'s ledger.</p>
+</div></section>
+
+<div class="section-title">Recommended prize winners &middot; season {{ season }}</div>
+{% for rec in recommendations %}
+<section class="panel" data-course="{{ rec.course_name }}">
+    <div class="panel-head">
+        <div class="panel-head-main"><h4>{{ rec.course_name }}</h4></div>
+        <div class="row-actions">
+            {% if rec.recommended %}
+            <span class="chip grey">{{ rec.recommended.name }}{% if rec.recommended.club %} · {{ rec.recommended.club }}{% endif %}</span>
+            <button class="btn btn-primary btn-sm" data-award
+                data-course="{{ rec.course_name }}"
+                data-name="{{ rec.recommended.name }}"
+                data-club="{{ rec.recommended.club }}"
+                data-card="{{ rec.recommended.card if rec.recommended.card is not none else '' }}">Award</button>
+            {% else %}
+            <span class="chip grey">No eligible finisher</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="panel-body">
+        {% if rec.skipped %}
+        <p class="tool-note">Skipped (already won this season): {{ rec.skipped | join(', ') }}</p>
+        {% endif %}
+        <table class="table">
+            <thead><tr><th style="width:48px">#</th><th>Name</th><th>Club</th><th class="num">Time/Pts</th><th></th></tr></thead>
+            <tbody>
+                {% for r in rec.rows %}
+                <tr{% if r.ineligible %} class="dim"{% endif %}>
+                    <td class="num">{{ r.position }}</td>
+                    <td>{{ r.name }}{% if rec.recommended and r.person_key == rec.recommended.person_key %} <span class="chip">prize</span>{% endif %}</td>
+                    <td class="dim">{{ r.club }}</td>
+                    <td class="num mono">{% if r.points is not none %}{{ r.points }} pts{% else %}{{ r.time }}{% endif %}</td>
+                    <td class="dim">{% if r.already_won %}already won{% endif %}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="empty">No OK finishers on this course yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% else %}
+<section class="panel"><div class="empty">No courses with finishers yet.</div></section>
+{% endfor %}
+
+<div class="section-title">Season ledger &middot; {{ ledger | length }} prize{{ '' if ledger|length == 1 else 's' }} awarded</div>
+<section class="panel"><div class="panel-body">
+    <table class="table">
+        <thead><tr><th>Winner</th><th>Club</th><th>Course</th><th>Event</th><th></th></tr></thead>
+        <tbody data-ledger>
+            {% for w in ledger %}
+            <tr>
+                <td>{{ w.name }}</td><td class="dim">{{ w.club }}</td>
+                <td>{{ w.course_name }}</td><td class="dim">{{ w.event_name }} · {{ w.event_date }}</td>
+                <td style="text-align:right"><button class="btn btn-danger-ghost btn-sm" data-unaward data-key="{{ w.person_key }}">Remove</button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty">No prizes awarded this season yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div></section>
+
+<script>
+(function () {
+    function post(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body || {}) }).then(function (r) {
+            return r.json().then(function (d) { return { ok: r.ok, d: d }; }); });
+    }
+    document.addEventListener("click", function (e) {
+        var aw = e.target.closest("[data-award]");
+        if (aw) {
+            post("/api/prizes/award", { course_name: aw.dataset.course, name: aw.dataset.name,
+                club: aw.dataset.club, card_number: aw.dataset.card ? +aw.dataset.card : null })
+                .then(function () { window.location.reload(); });
+            return;
+        }
+        var un = e.target.closest("[data-unaward]");
+        if (un) {
+            post("/api/prizes/unaward", { person_key: un.dataset.key })
+                .then(function () { window.location.reload(); });
+            return;
+        }
+        if (e.target.closest("[data-set-season]")) {
+            post("/api/prizes/season", { season: document.querySelector("[data-season]").value })
+                .then(function () { window.location.reload(); });
+            return;
+        }
+        if (e.target.closest("[data-clear-season]")) {
+            if (!window.confirm("Wipe this season's prize ledger?")) { return; }
+            post("/api/prizes/clear").then(function () { window.location.reload(); });
+        }
+    });
+})();
+</script>
+{% endblock %}
