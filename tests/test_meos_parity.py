@@ -85,6 +85,55 @@ def test_auto_create_from_unknown_card(temp_event):
     assert any(c["controls"] == [41, 42] for c in store._courses.values())
 
 
+def test_time_adjustment_and_credit_persist(temp_event):
+    course = store.create_course({"name": "Adj", "type": "linear", "controls": [31]})
+    cls = store.create_class({"name": "AdjC", "course_id": course["id"]})
+    comp = store.create_competitor({
+        "name": "Adj Andy", "class_id": cls["id"], "card_number": 7000030,
+        "start": "10:00:00", "finish": "10:30:00", "time_adjustment": 60, "credit": 20,
+        "punches": [{"code": 31, "time": "10:10:00"}]})
+    assert store.result_for(comp["id"])["total_seconds"] == 1800 + 60 - 20
+    # Survives a reload from disk (new DB columns round-trip).
+    store.reload()
+    assert store.result_for(comp["id"])["total_seconds"] == 1840
+
+
+def test_not_competing_is_excluded_from_ranking(temp_event):
+    course = store.create_course({"name": "NC", "type": "linear", "controls": [31]})
+    cls = store.create_class({"name": "NCc", "course_id": course["id"]})
+    a = store.create_competitor({
+        "name": "Guest Gus", "class_id": cls["id"], "card_number": 7000031,
+        "start": "10:00:00", "finish": "10:20:00", "not_competing": True,
+        "punches": [{"code": 31, "time": "10:10:00"}]})
+    b = store.create_competitor({
+        "name": "Real Rita", "class_id": cls["id"], "card_number": 7000032,
+        "start": "10:00:00", "finish": "10:30:00",
+        "punches": [{"code": 31, "time": "10:10:00"}]})
+    ra, rb = store.result_for(a["id"]), store.result_for(b["id"])
+    assert ra["status"] == "nc" and ra["position"] is None     # faster, but not ranked
+    assert rb["position"] == 1                                  # wins despite slower time
+
+
+def test_forked_course_accepts_any_variant(temp_event):
+    course = store.create_course({
+        "name": "Fork", "type": "linear", "controls": [31, 32, 33],
+        "variants": [[31, 33, 32]]})
+    cls = store.create_class({"name": "ForkC", "course_id": course["id"]})
+    # Punched in the variant order -> OK (would be MP against the main order).
+    ok = store.create_competitor({
+        "name": "Fork Fay", "class_id": cls["id"], "card_number": 7000033,
+        "start": "10:00:00", "finish": "10:30:00",
+        "punches": [{"code": 31, "time": "10:05:00"}, {"code": 33, "time": "10:10:00"},
+                    {"code": 32, "time": "10:15:00"}]})
+    assert store.result_for(ok["id"])["status"] == "ok"
+    # An order matching neither sequence is still a mispunch.
+    bad = store.create_competitor({
+        "name": "Bad Bob", "class_id": cls["id"], "card_number": 7000034,
+        "start": "10:00:00", "finish": "10:30:00",
+        "punches": [{"code": 32, "time": "10:05:00"}, {"code": 31, "time": "10:10:00"}]})
+    assert store.result_for(bad["id"])["status"] == "mp"
+
+
 def _seed_stage(path_info, *, finish_b):
     """Helper: fill the OPEN event with a leader (A, 30 min) and B (finish_b)."""
     course = store.create_course({"name": "S", "type": "linear", "controls": [31]})

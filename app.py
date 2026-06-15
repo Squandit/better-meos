@@ -118,8 +118,9 @@ STATUS_LABELS = {
     "dnf": "DNF",
     "dsq": "DSQ",
     "oot": "OOT",
+    "nc": "NC",
 }
-STATUS_ORDER = ["ok", "oot", "mp", "dnf", "dns", "dsq"]
+STATUS_ORDER = ["ok", "oot", "mp", "dnf", "dns", "dsq", "nc"]
 FLAGGED = ("mp", "dnf", "dns", "dsq")
 
 

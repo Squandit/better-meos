@@ -141,6 +141,38 @@ Added on top of the above (tests now **110 passing**):
 - **New files:** `config.py`, `security.py`, `templates/{config,unlock}.html`,
   `tests/test_security.py`. **conftest** points `BMEOS_CONFIG` at a temp file.
 
+### 1.2 DONE — MeOS-parity completion, season prizes, MeOS gaps (2026-06-15, PC)
+Built in 7 committed/pushed phases on top of 1.1 (tests now **133 passing**):
+- **Stages UI** (`/stages`): combine `.bmeos` files into multi-day standings +
+  set chase/handicap starts (over the existing `stages.py`).
+- **Editor fields** for already-built engine features: course start modes
+  mass/chase + mass-start time + score formula + forked **variants**; **patrol**
+  class kind.
+- **Season prizes** (`prizes.py` + `prizes.db`, `/prizes`): one prize per course
+  for the top placement, one prize per person per season, **cascades** to the
+  next eligible; operator confirms via Award; season label in config; ledger
+  reset. Identity = card else name+club.
+- **Series + profiles** (`series.py`, `/series`, `/profile`): cross-event season
+  points (config `series_points_base/step`) + per-person history, scanned from
+  the events folder. Re-delivers the retired multi-event block.
+- **Richer draw**: `entries.draw_startlist` gains `method`
+  (alpha/random/club_spread) + `vacancy_every` reserve slots.
+- **Reports/exports**: `pdf.podium_pdf` (prize giving), `pdf.still_out_pdf`,
+  `/export/{podium,stillout}.pdf`, `/export/splits.csv` (results.xml already
+  carries SplitTimes for SplitsBrowser).
+- **Eventor upload** (`eventor.upload_results`, `/api/eventor/upload`): POSTs IOF
+  ResultList, gated by `eventor_api_key`/`eventor_base_url` (untestable live).
+- **Time edits**: competitor `time_adjustment`/`credit`/`not_competing`/`vacant`
+  (engine + DB columns + editor). **Forked/variant courses**: a linear course may
+  list alternative accepted control orders (`variants`), OK if punches match any
+  — validation-level forking, not full MeOS leg-forking. **SIAC** (SI-Air+):
+  scaffold in `si_reader._run` (`BMEOS_PUNCH_SYSTEM=siac`), reads via the SI
+  protocol; no live test.
+- **New files:** `prizes.py`, `series.py`, `templates/{stages,prizes,series,
+  profile}.html`, `tests/test_{meos_parity,prizes,series,eventor}.py`. New config
+  settings: `prize_season`, `series_points_*`, `eventor_*`. New DB columns
+  (competitors time edits, courses `variants`) with migrations.
+
 ---
 
 ## 2. Continue on another computer (setup)

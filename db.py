@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS courses (
     start_control INTEGER,                       -- start-punch code in punch mode
     length_m INTEGER,                            -- course length (course geometry)
     mass_start TEXT,                             -- HH:MM:SS, the shared time in mass mode
-    score_formula TEXT                           -- optional custom points expression (score)
+    score_formula TEXT,                          -- optional custom points expression (score)
+    variants TEXT                                -- JSON list of alternative control sequences (forking)
 );
 CREATE TABLE IF NOT EXISTS controls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +103,10 @@ CREATE TABLE IF NOT EXISTS competitors (
     hired INTEGER NOT NULL DEFAULT 0,            -- hire/rental card flag
     team_id INTEGER,                             -- relay team membership
     leg INTEGER,                                 -- relay leg number
+    time_adjustment INTEGER NOT NULL DEFAULT 0,  -- +/- seconds applied to total
+    credit INTEGER NOT NULL DEFAULT 0,           -- seconds subtracted from total
+    not_competing INTEGER NOT NULL DEFAULT 0,    -- runs but never ranked
+    vacant INTEGER NOT NULL DEFAULT 0,           -- reserved start slot, not a runner
     -- Backs store._check_card_unique at the DB level (NULLs are unconstrained,
     -- so hire-card competitors with no number are allowed).
     UNIQUE (event_id, card_number)
@@ -193,6 +198,11 @@ _MIGRATIONS = [
     ("competitors", "hired", "INTEGER NOT NULL DEFAULT 0"),
     ("competitors", "team_id", "INTEGER"),
     ("competitors", "leg", "INTEGER"),
+    ("competitors", "time_adjustment", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "credit", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "not_competing", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "vacant", "INTEGER NOT NULL DEFAULT 0"),
+    ("courses", "variants", "TEXT"),
 ]
 
 
@@ -276,6 +286,18 @@ def _dt(value: str | None) -> datetime | None:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _json_list(value: str | None) -> list:
+    """Parse a JSON list column (course variants); [] for null/garbage."""
+    if not value:
+        return []
+    import json
+    try:
+        out = json.loads(value)
+        return out if isinstance(out, list) else []
+    except ValueError:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -391,16 +413,19 @@ def save_course(event_id: int, course: dict) -> None:
     """Upsert a course and rewrite its control rows from the in-memory record."""
     with _lock:
         db = _c()
+        import json
+        variants = course.get("variants") or []
         db.execute(
             """INSERT OR REPLACE INTO courses
                (id, event_id, name, type, time_limit_minutes, penalty_per_minute,
-                start_mode, start_control, length_m, mass_start, score_formula)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                start_mode, start_control, length_m, mass_start, score_formula, variants)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (course["id"], event_id, course["name"], course["type"],
              course["time_limit_minutes"], course["penalty_per_minute"],
              course.get("start_mode", "clock"), course.get("start_control"),
              course.get("length_m"), course.get("mass_start"),
-             course.get("score_formula")),
+             course.get("score_formula"),
+             json.dumps(variants) if variants else None),
         )
         db.execute("DELETE FROM controls WHERE course_id = ?", (course["id"],))
         leg_lengths = course.get("leg_lengths") or []
@@ -480,12 +505,15 @@ def save_competitor(event_id: int, comp: dict) -> None:
         db.execute(
             """INSERT OR REPLACE INTO competitors
                (id, event_id, name, club, class_id, card_number, start, finish,
-                manual_status, bib, hired, team_id, leg)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                manual_status, bib, hired, team_id, leg,
+                time_adjustment, credit, not_competing, vacant)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
              comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
-             comp.get("team_id"), comp.get("leg")),
+             comp.get("team_id"), comp.get("leg"),
+             int(comp.get("time_adjustment") or 0), int(comp.get("credit") or 0),
+             1 if comp.get("not_competing") else 0, 1 if comp.get("vacant") else 0),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -707,6 +735,7 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "length_m": row["length_m"],
                 "mass_start": row["mass_start"],
                 "score_formula": row["score_formula"],
+                "variants": _json_list(row["variants"]),
                 "leg_lengths": [c["leg_length_m"] for c in ctls],
             }
 
@@ -749,6 +778,10 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "hired": bool(row["hired"]),
                 "team_id": row["team_id"],
                 "leg": row["leg"],
+                "time_adjustment": row["time_adjustment"] or 0,
+                "credit": row["credit"] or 0,
+                "not_competing": bool(row["not_competing"]),
+                "vacant": bool(row["vacant"]),
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),

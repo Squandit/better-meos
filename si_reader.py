@@ -33,10 +33,11 @@ from store import StoreError
 
 log = logging.getLogger("si_reader")
 
-# Which punching system the real reader speaks. SportIdent is fully wired; Emit
-# is scaffolded behind this flag (BMEOS_PUNCH_SYSTEM=emit) -- the read loop maps
-# its card structure through the same process_card path. The simulator is
-# system-agnostic, so it works regardless.
+# Which punching system the real reader speaks. SportIdent is fully wired;
+# 'siac' (SI-Air+) reads out over the same protocol (scaffolded in _run); 'emit'
+# is scaffolded behind this flag -- the read loop maps its card structure through
+# the same process_card path. The simulator is system-agnostic, so it works
+# regardless. Set via BMEOS_PUNCH_SYSTEM=sportident|siac|emit.
 PUNCH_SYSTEM = os.environ.get("BMEOS_PUNCH_SYSTEM", "sportident").lower()
 
 # Running reader threads + their stop signals, keyed by station id (supports
@@ -181,7 +182,12 @@ def _run(port: str, station_id: str, stop_event: threading.Event) -> None:
     # a physical reader present.
     from sportident import SIReaderReadout
 
-    log.info("opening SI reader on %s (station %s)", port, station_id)
+    # SIAC (SI-Air+) scaffold: contactless punches are delivered by the SAME
+    # readout protocol and produce the identical card shape, so the standard SI
+    # download loop below handles them unchanged. A fuller SIAC integration
+    # (beacon/AIR+ mode toggling, battery/health checks) would extend this branch.
+    mode = "SIAC (SI-Air+)" if PUNCH_SYSTEM == "siac" else "SportIdent"
+    log.info("opening %s reader on %s (station %s)", mode, port, station_id)
     si = SIReaderReadout(port)
     try:
         while not stop_event.is_set():

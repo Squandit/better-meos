@@ -231,6 +231,8 @@ def engine_course(course: dict) -> dict:
         # here so the pure engine receives a ready datetime like every other time.
         "mass_start": parse_clock(course.get("mass_start"), "Mass start"),
         "leg_lengths": course.get("leg_lengths") or [],
+        # Forked/butterfly courses: any of these alternative control orders is OK.
+        "variants": [list(v) for v in (course.get("variants") or [])],
     }
 
 
@@ -252,6 +254,10 @@ def _engine_card(comp: dict, classes: dict | None = None) -> dict:
         "finish": comp["finish"],
         "punches": [(p["code"], p["time"]) for p in comp["punches"]],
         "manual_status": comp["manual_status"] or None,
+        "time_adjustment": comp.get("time_adjustment") or 0,
+        "credit": comp.get("credit") or 0,
+        "not_competing": comp.get("not_competing", False),
+        "vacant": comp.get("vacant", False),
     }
 
 
@@ -323,7 +329,7 @@ def seed_demo() -> None:
 def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
                    penalty_per_minute=0, start_mode="clock", start_control=None,
                    length_m=None, leg_lengths=None, mass_start=None,
-                   score_formula=None) -> int:
+                   score_formula=None, variants=None) -> int:
     cid = _next_id("course")
     _courses[cid] = {
         "id": cid,
@@ -337,6 +343,7 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
         "length_m": length_m,
         "mass_start": mass_start,
         "score_formula": score_formula if ctype == "score" else None,
+        "variants": variants or [] if ctype == "linear" else [],
         "leg_lengths": leg_lengths or [],
     }
     db.save_course(_active_event_id, _courses[cid])
@@ -353,7 +360,8 @@ def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0) -> int:
 
 def _insert_competitor(*, name, club, class_id, card_number, start, finish,
                        punches, manual_status, bib=None, hired=False,
-                       team_id=None, leg=None) -> int:
+                       team_id=None, leg=None, time_adjustment=0, credit=0,
+                       not_competing=False, vacant=False) -> int:
     cid = _next_id("competitor")
     _competitors[cid] = {
         "id": cid,
@@ -369,6 +377,10 @@ def _insert_competitor(*, name, club, class_id, card_number, start, finish,
         "hired": hired,
         "team_id": team_id,
         "leg": leg,
+        "time_adjustment": time_adjustment,
+        "credit": credit,
+        "not_competing": not_competing,
+        "vacant": vacant,
     }
     db.save_competitor(_active_event_id, _competitors[cid])
     return cid
@@ -678,6 +690,10 @@ def competitor_json(comp: dict) -> dict:
         "hired": bool(comp.get("hired")),
         "team_id": comp.get("team_id"),
         "leg": comp.get("leg"),
+        "time_adjustment": comp.get("time_adjustment") or 0,
+        "credit": comp.get("credit") or 0,
+        "not_competing": bool(comp.get("not_competing")),
+        "vacant": bool(comp.get("vacant")),
         "punches": [
             {"code": p["code"], "time": format_clock(p["time"])}
             for p in comp["punches"]
@@ -701,6 +717,7 @@ def course_json(course: dict) -> dict:
         "start_control": course.get("start_control"),
         "mass_start": course.get("mass_start") or "",
         "score_formula": course.get("score_formula") or "",
+        "variants": [list(v) for v in (course.get("variants") or [])],
         "length_m": course.get("length_m"),
     }
 
@@ -755,6 +772,16 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         out["team_id"] = team_id
     if has("leg"):
         out["leg"] = _as_int(data.get("leg"), "Leg", minimum=1, allow_blank=True)
+    if has("time_adjustment"):
+        out["time_adjustment"] = _as_int(
+            data.get("time_adjustment"), "Time adjustment", allow_blank=True) or 0
+    if has("credit"):
+        out["credit"] = _as_int(
+            data.get("credit"), "Credit", minimum=0, allow_blank=True) or 0
+    if has("not_competing"):
+        out["not_competing"] = bool(data.get("not_competing"))
+    if has("vacant"):
+        out["vacant"] = bool(data.get("vacant"))
 
     # Cross-field: finish must not precede start.
     start = out.get("start", current["start"] if current else None)
@@ -793,6 +820,10 @@ def create_competitor(data: dict) -> dict:
             hired=fields.get("hired", False),
             team_id=fields.get("team_id"),
             leg=fields.get("leg"),
+            time_adjustment=fields.get("time_adjustment", 0),
+            credit=fields.get("credit", 0),
+            not_competing=fields.get("not_competing", False),
+            vacant=fields.get("vacant", False),
         )
         return competitor_json(_competitors[cid])
 
@@ -946,6 +977,14 @@ def _validated_course_fields(data: dict) -> dict:
     # value when absent, so editing a course can't wipe imported leg lengths.
     if isinstance(data.get("leg_lengths"), list):
         out["leg_lengths"] = data["leg_lengths"]
+    # Forked/butterfly variants: each is an alternative control sequence. A
+    # punched card is OK if it matches the main order OR any variant.
+    if isinstance(data.get("variants"), list):
+        variants = []
+        for v in data["variants"]:
+            if isinstance(v, list) and v:
+                variants.append(_coerce_linear_controls(v))
+        out["variants"] = variants
     return out
 
 
@@ -961,6 +1000,7 @@ def create_course(data: dict) -> dict:
             length_m=fields.get("length_m"),
             mass_start=fields.get("mass_start"),
             score_formula=fields.get("score_formula"),
+            variants=fields.get("variants") or [],
             leg_lengths=fields.get("leg_lengths") or [],
         )
         return course_json(_courses[cid])
@@ -1022,6 +1062,10 @@ def preview(data: dict) -> dict:
             "finish": parse_clock(data.get("finish"), "Finish time"),
             "punches": [(p["code"], p["time"]) for p in _coerce_punches(data.get("punches"))],
             "manual_status": (_clean_str(data.get("manual_status"), "Status").lower() or None),
+            "time_adjustment": _as_int(data.get("time_adjustment"), "Time adjustment", allow_blank=True) or 0,
+            "credit": _as_int(data.get("credit"), "Credit", minimum=0, allow_blank=True) or 0,
+            "not_competing": bool(data.get("not_competing")),
+            "vacant": bool(data.get("vacant")),
         }
         return build_result(card, ecourse)
 

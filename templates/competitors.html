@@ -119,6 +119,19 @@
                     <span class="field-label">Hire card</span>
                     <label class="check"><input type="checkbox" name="hired"> Rented on the day</label>
                 </label>
+                <label class="field">
+                    <span class="field-label">Adjust <span class="hint">+/- seconds on total</span></span>
+                    <input type="number" name="time_adjustment" inputmode="numeric" autocomplete="off" placeholder="0">
+                </label>
+                <label class="field">
+                    <span class="field-label">Credit <span class="hint">seconds off total</span></span>
+                    <input type="number" name="credit" inputmode="numeric" min="0" autocomplete="off" placeholder="0">
+                </label>
+                <label class="field check-field">
+                    <span class="field-label">Out of competition</span>
+                    <label class="check"><input type="checkbox" name="not_competing"> Not competing</label>
+                    <label class="check"><input type="checkbox" name="vacant"> Vacant / reserved slot</label>
+                </label>
                 <label class="field" data-team-field hidden>
                     <span class="field-label">Relay team</span>
                     <select name="team_id"><option value="">— none —</option></select>

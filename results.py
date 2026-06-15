@@ -217,6 +217,7 @@ STATUS_DNS = "dns"
 STATUS_DNF = "dnf"
 STATUS_DSQ = "dsq"
 STATUS_OOT = "oot"
+STATUS_NC = "nc"      # not competing / vacant: timed + shown, but never ranked
 
 
 def validate_linear(
@@ -325,12 +326,24 @@ def build_result(card: dict, course: dict) -> dict:
     elif finish is None:
         auto_status = STATUS_DNF
     else:
+        # Operator time edits: a positive adjustment adds time (a penalty), credit
+        # subtracts it (e.g. for a blocked control). Splits stay on real punch
+        # times; only the ranked total is shifted.
         total_seconds = int((finish - start).total_seconds())
+        total_seconds += int(card.get("time_adjustment") or 0)
+        total_seconds -= int(card.get("credit") or 0)
         result["total_seconds"] = total_seconds
         result["splits"] = calculate_splits(start, punches, finish)
 
         if course["type"] == "linear":
             auto_status, missed = validate_linear(course["controls"], punched_codes)
+            # Forked/butterfly course: accept any alternative sequence too.
+            if auto_status != STATUS_OK:
+                for variant in course.get("variants", []):
+                    v_status, _ = validate_linear(variant, punched_codes)
+                    if v_status == STATUS_OK:
+                        auto_status, missed = STATUS_OK, None
+                        break
             result["missed_control"] = missed
 
         elif course["type"] == "score":
@@ -366,6 +379,11 @@ def build_result(card: dict, course: dict) -> dict:
 
         else:
             raise ValueError(f"Unknown course type: {course['type']!r}")
+
+    # Not-competing / vacant runners keep their computed time + splits but are
+    # never ranked (a reserve slot, a guest, or someone running out of competition).
+    if card.get("not_competing") or card.get("vacant"):
+        auto_status = STATUS_NC
 
     result["auto_status"] = auto_status
     result["status"] = auto_status

@@ -210,6 +210,10 @@
                 hired: field("hired") ? field("hired").checked : false,
                 team_id: field("team_id") ? field("team_id").value : "",
                 leg: field("leg") ? field("leg").value : "",
+                time_adjustment: field("time_adjustment") ? field("time_adjustment").value : "",
+                credit: field("credit") ? field("credit").value : "",
+                not_competing: field("not_competing") ? field("not_competing").checked : false,
+                vacant: field("vacant") ? field("vacant").checked : false,
                 punches: readPunches()
             };
         }
@@ -372,6 +376,10 @@
                 if (field("bib")) { field("bib").value = c.bib == null ? "" : c.bib; }
                 if (field("hired")) { field("hired").checked = !!c.hired; }
                 if (field("leg")) { field("leg").value = c.leg == null ? "" : c.leg; }
+                if (field("time_adjustment")) { field("time_adjustment").value = c.time_adjustment || ""; }
+                if (field("credit")) { field("credit").value = c.credit || ""; }
+                if (field("not_competing")) { field("not_competing").checked = !!c.not_competing; }
+                if (field("vacant")) { field("vacant").checked = !!c.vacant; }
                 refreshTeams(c.class_id, c.team_id);
                 punchBody.innerHTML = "";
                 (c.punches || []).forEach(function (p) { addPunchRow(p.code, p.time); });
@@ -597,9 +605,17 @@
             });
         }
 
+        function parseVariants(text) {
+            return (text || "").split(/\r?\n/).map(function (line) {
+                return line.split(",").map(function (s) { return s.trim(); })
+                    .filter(function (s) { return s !== ""; }).map(Number);
+            }).filter(function (seq) { return seq.length > 0; });
+        }
+
         function applyTypeUI(type) {
             currentType = type;
             scoreOnly.hidden = type !== "score";
+            $$("[data-linear-only]", modal).forEach(function (el) { el.hidden = type === "score"; });
             linearHead.hidden = type === "score";
             scoreHead.hidden = type !== "score";
             heading.textContent = type === "score" ? "Controls & points" : "Controls (in order)";
@@ -647,6 +663,7 @@
                 payload.start_control = form.elements.start_control ? form.elements.start_control.value : "";
                 payload.mass_start = form.elements.mass_start ? form.elements.mass_start.value : "";
                 payload.length_m = form.elements.length_m ? form.elements.length_m.value : "";
+                payload.variants = parseVariants(form.elements.variants ? form.elements.variants.value : "");
             }
             return payload;
         }
@@ -680,6 +697,10 @@
                     rebuild("score", c.controls.map(function (ctl) { return { code: ctl.code, points: ctl.points }; }));
                 } else {
                     rebuild("linear", c.controls.map(function (code) { return { code: code }; }));
+                }
+                if (form.elements.variants) {
+                    form.elements.variants.value = (c.variants || []).map(function (v) {
+                        return v.join(","); }).join("\n");
                 }
                 titleEl.textContent = "Edit course";
                 openOverlay(modal);
