@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Operator{% endblock %} · better-meos</title>
+    <title>{% block title %}Operator{% endblock %} · Punchcard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body data-page="{{ active }}">
@@ -12,7 +12,7 @@
         <div class="brand">
             <span class="mark">bm</span>
             <div>
-                <h1>better-meos</h1>
+                <h1>Punchcard</h1>
                 <small>Operator</small>
             </div>
         </div>
@@ -106,6 +106,7 @@
                 <p>{{ event.name }} &middot; {{ event.date }}</p>
             </div>
             <div class="topbar-right">
+                <button type="button" class="btn btn-soft btn-sm" data-guide-toggle title="Show the run-an-event steps">Guide</button>
                 <a class="topbar-user" href="{{ url_for('start') }}">Change event</a>
                 <span class="reader-pill{% if event.reader_enabled %} live{% endif %}" title="SI reader on {{ event.reader_port }}; the console runs on mock/simulated data unless the reader is enabled.">
                     <span class="dot"></span>SI reader {{ event.reader_port }} &middot; {{ 'live' if event.reader_enabled else 'simulated' }}
@@ -127,10 +128,36 @@
 <div class="overlay-backdrop" data-backdrop hidden></div>
 <div class="toast-host" data-toasts aria-live="polite" aria-atomic="false"></div>
 
+{# Run-an-event guide: a non-modal side panel (stays open while you work). #}
+<aside class="guide-panel" data-guide-panel aria-hidden="true" aria-label="Run an event guide">
+    <header class="guide-head">
+        <h3>Run an event</h3>
+        <a class="guide-full" href="{{ url_for('guide_page') }}">Full guide</a>
+        <button type="button" class="icon-btn" data-guide-close aria-label="Close guide">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+    </header>
+    <ol class="guide-steps">
+        {% for s in guide_steps %}
+        <li class="guide-step" data-step="{{ s.key }}">
+            <label class="guide-check"><input type="checkbox" data-step-check></label>
+            <div class="guide-step-body">
+                <div class="guide-step-title"><span class="guide-num">{{ s.number }}</span>{{ s.title }}</div>
+                <p class="guide-step-detail">{{ s.detail }}</p>
+                <div class="guide-links">
+                    {% for l in s.links %}<a class="chip" href="{{ l.href }}">{{ l.label }}</a>{% endfor %}
+                </div>
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+</aside>
+
 {% block editor %}{% endblock %}
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 <script src="{{ url_for('static', filename='editor.js') }}"></script>
 <script src="{{ url_for('static', filename='live.js') }}"></script>
+<script src="{{ url_for('static', filename='guide.js') }}"></script>
 </body>
 </html>

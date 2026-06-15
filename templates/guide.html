@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Guide{% endblock %}
+{% block heading %}Running an event{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Step-by-step guide</h3>
+    <p>The order to run an event in Punchcard. Use the <strong>Guide</strong> button
+       (top right) to keep these steps in a sidebar while you work.</p>
+</div>
+
+<ol class="guide-page">
+    {% for s in steps %}
+    <li class="panel guide-page-step">
+        <div class="panel-body">
+            <div class="guide-step-title"><span class="guide-num">{{ s.number }}</span>{{ s.title }}</div>
+            <p class="guide-step-detail">{{ s.detail }}</p>
+            <div class="guide-links">
+                {% for l in s.links %}<a class="btn btn-soft btn-sm" href="{{ l.href }}">{{ l.label }}</a>{% endfor %}
+            </div>
+        </div>
+    </li>
+    {% endfor %}
+</ol>
+{% endblock %}

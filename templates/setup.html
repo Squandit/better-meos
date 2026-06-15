@@ -14,6 +14,24 @@
     <div class="stat"><div class="label">Still out</div><div class="value">{{ counts.out }}</div><div class="sub">entered, not downloaded</div></div>
 </div>
 
+<div class="section-title">Run an event <a class="guide-full" href="{{ url_for('guide_page') }}">Open full guide →</a></div>
+<section class="panel"><div class="panel-body">
+    <ol class="setup-checklist">
+        {% for s in guide_steps %}
+        <li>
+            <span class="guide-num">{{ s.number }}</span>
+            <div>
+                <div class="setup-step-title">{{ s.title }}</div>
+                <div class="guide-links">
+                    {% for l in s.links %}<a class="chip" href="{{ l.href }}">{{ l.label }}</a>{% endfor %}
+                </div>
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+    <p class="tool-note">Tip: the <strong>Guide</strong> button (top right) keeps these steps in a sidebar while you work.</p>
+</div></section>
+
 <div class="section-title">Set up the event</div>
 <div class="setup-grid">
     <a class="setup-tile" href="{{ url_for('courses') }}"><h4>Courses</h4><p>Control sequences &amp; geometry</p></a>

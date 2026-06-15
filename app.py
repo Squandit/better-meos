@@ -15,6 +15,7 @@ import db
 import entries as entries_mod
 import eventor
 import events
+import guide
 import iofxml
 import importers
 import network
@@ -83,7 +84,7 @@ def _require_open_event():
         return None
     p = request.path
     if (p in ("/start", "/favicon.ico", "/sw.js", "/manifest.json",
-              "/unlock", "/lock", "/config", "/series", "/profile")
+              "/unlock", "/lock", "/config", "/series", "/profile", "/guide")
             or p.startswith(_NO_EVENT_OK)):
         return None
     if p.startswith("/api/"):
@@ -128,6 +129,12 @@ FLAGGED = ("mp", "dnf", "dns", "dsq")
 def inject_event():
     """Make the open event's details available to every template."""
     return {"event": store.EVENT}
+
+
+@app.context_processor
+def inject_guide():
+    """The run-an-event steps, for the guide sidebar on every operator page."""
+    return {"guide_steps": guide.steps()}
 
 
 def _status_label(status):
@@ -897,6 +904,12 @@ def start():
     """Event selection: open an event file from the folder, or create a new one."""
     return render_template("start.html", events=store.events_in_folder(),
                            folder=store.events_dir())
+
+
+@app.route("/guide")
+def guide_page():
+    """Full 'how to run an event' guide (also available as a sidebar everywhere)."""
+    return render_template("guide.html", active="guide", steps=guide.steps())
 
 
 @app.route("/setup")

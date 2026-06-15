@@ -34,7 +34,7 @@ def _doc(buffer):
         buffer, pagesize=A4,
         leftMargin=18 * mm, rightMargin=18 * mm,
         topMargin=16 * mm, bottomMargin=16 * mm,
-        title="better-meos",
+        title="Punchcard",
     )
 
 

@@ -665,3 +665,35 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .config-field input[type="text"], .config-field input[type="number"], .config-field input[type="password"] { width: 100%; }
 .config-field input[type="checkbox"] { width: auto; }
 .config-field .hint { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* ---- Run-an-event guide sidebar --------------------------------------- */
+.guide-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 88vw;
+    background: var(--card, #fff); border-left: 1px solid var(--line);
+    box-shadow: -8px 0 24px rgba(20, 40, 30, .12);
+    transform: translateX(100%); transition: transform .22s ease;
+    z-index: 60; display: flex; flex-direction: column; overflow: hidden;
+}
+.guide-panel.open { transform: translateX(0); }
+.guide-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.guide-head h3 { margin: 0; font-size: 15px; flex: 1; }
+.guide-full { font-size: 12.5px; color: var(--green); text-decoration: none; }
+.guide-full:hover { text-decoration: underline; }
+.guide-steps { list-style: none; margin: 0; padding: 8px 0; overflow-y: auto; flex: 1; }
+.guide-step { display: flex; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.guide-step.done { opacity: .55; }
+.guide-step.done .guide-step-title { text-decoration: line-through; }
+.guide-check { padding-top: 2px; }
+.guide-step-body { flex: 1; }
+.guide-step-title { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
+.guide-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--green); color: #fff; font-size: 11px; font-weight: 700; flex: none; }
+.guide-step-detail { margin: 5px 0 8px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.guide-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.guide-page { list-style: none; margin: 0; padding: 0; }
+.guide-page-step { margin-bottom: 12px; }
+.guide-page-step .guide-step-title { font-size: 15px; }
+.guide-page-step .guide-step-detail { font-size: 13.5px; max-width: 70ch; }
+.setup-checklist { list-style: none; margin: 0; padding: 0; }
+.setup-checklist li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.setup-checklist li:last-child { border-bottom: 0; }
+.setup-step-title { font-weight: 600; font-size: 13.5px; margin-bottom: 5px; }
