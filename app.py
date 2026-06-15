@@ -544,6 +544,19 @@ def api_import_eventor():
     return jsonify(importers.import_competitors(rows))
 
 
+@app.route("/api/eventor/upload", methods=["POST"])
+def api_eventor_upload():
+    """Push this event's results to Eventor as an IOF XML ResultList (gated by
+    the Eventor API key + base URL in Settings)."""
+    classes, _ = store.evaluate()
+    xml = iofxml.export_results(classes, store.EVENT)
+    try:
+        result = eventor.upload_results(xml)
+    except Exception as err:
+        return jsonify({"error": str(err)}), 400
+    return jsonify({"ok": True, "result": result})
+
+
 @app.route("/api/radio/punch", methods=["POST"])
 def api_radio_punch():
     """Live radio / online-control punch -> intermediate split, broadcast live."""

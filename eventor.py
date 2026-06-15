@@ -9,20 +9,35 @@ Two ways entries arrive from Eventor:
   That path needs the federation's API host + key, which can't be exercised here,
   so :func:`fetch_entries` is a documented stub that activates once configured.
 
-Config:
-    EVENTOR_API_KEY     enables the live API pull
-    EVENTOR_BASE_URL    federation API host (e.g. https://eventor.orienteering.asn.au)
+Config (Settings dashboard / config.json, env as fallback):
+    eventor_api_key     enables the live API (EVENTOR_API_KEY)
+    eventor_base_url    federation API host (EVENTOR_BASE_URL),
+                        e.g. https://eventor.orienteering.asn.au
+
+Uploading results is fully implemented (a real POST), but can only run against a
+live Eventor with valid credentials, so it isn't exercised by the test suite.
 """
 
 from __future__ import annotations
 
-import os
+import urllib.request
 
+import config
 import iofxml
 
 
 def is_enabled() -> bool:
-    return bool(os.environ.get("EVENTOR_API_KEY"))
+    return bool(config.get_str("eventor_api_key"))
+
+
+def _credentials() -> tuple[str, str]:
+    key = config.get_str("eventor_api_key")
+    base = config.get_str("eventor_base_url").rstrip("/")
+    if not key or not base:
+        raise RuntimeError(
+            "Eventor isn't configured -- set the Eventor API key and base URL in "
+            "Settings before uploading.")
+    return key, base
 
 
 def parse_entrylist(xml) -> list[dict]:
@@ -30,19 +45,31 @@ def parse_entrylist(xml) -> list[dict]:
     return iofxml.parse_entrylist(xml)
 
 
+def upload_results(results_xml: str, *, timeout: float = 15.0) -> dict:
+    """
+    POST an IOF XML ResultList to Eventor's results endpoint.
+
+    Gated behind the Eventor API key + base URL (Settings). Returns
+    ``{"status", "body"}`` from the response, or raises ``RuntimeError`` when not
+    configured / ``urllib`` errors on a network or HTTP failure.
+    """
+    key, base = _credentials()
+    req = urllib.request.Request(
+        base + "/api/results", data=results_xml.encode("utf-8"),
+        headers={"ApiKey": key, "Content-Type": "application/xml"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return {"status": resp.getcode(),
+                "body": resp.read().decode("utf-8", "replace")[:500]}
+
+
 def fetch_entries(event_id: str) -> list[dict]:  # pragma: no cover - needs API key
     """
     Pull entries for an Eventor event via the REST API (scaffold).
 
-    Activates when ``EVENTOR_API_KEY`` is set; until then, export the EntryList
+    Activates when an Eventor API key is set; until then, export the EntryList
     XML from Eventor and import that instead.
     """
-    if not is_enabled():
-        raise RuntimeError(
-            "Eventor API not configured (set EVENTOR_API_KEY); "
-            "export the EntryList XML from Eventor and import the file instead")
-    # A real implementation would:
-    #   GET {EVENTOR_BASE_URL}/api/entries?eventId={event_id}
-    #   headers {"ApiKey": EVENTOR_API_KEY}
-    # then return parse_entrylist(response_body).
+    _credentials()  # raises a clear message when unconfigured
+    # A real implementation would GET {base}/api/entries?eventId={event_id}
+    # with the ApiKey header, then return parse_entrylist(response_body).
     raise NotImplementedError("Eventor live API fetch is scaffolded")

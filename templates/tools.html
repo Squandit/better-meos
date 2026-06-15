@@ -24,12 +24,27 @@
         <button class="btn btn-soft" data-assign-bibs>Assign bib numbers</button>
         <span class="tool-result" data-bib-result></span>
     </div>
+    <div class="tool-form" style="margin-top:12px">
+        <button class="btn btn-soft" data-eventor-upload>Upload results to Eventor</button>
+        <span class="tool-result" data-eventor-result></span>
+    </div>
     <script>
     document.querySelector("[data-assign-bibs]").addEventListener("click", function () {
         var out = document.querySelector("[data-bib-result]");
         fetch("/api/bibs/assign", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
             .then(function (r) { return r.json(); })
             .then(function (d) { out.className = "tool-result ok"; out.textContent = "Numbered " + d.assigned + " competitors"; })
+            .catch(function () { out.className = "tool-result err"; out.textContent = "Failed"; });
+    });
+    document.querySelector("[data-eventor-upload]").addEventListener("click", function () {
+        var out = document.querySelector("[data-eventor-result]");
+        out.className = "tool-result"; out.textContent = "Uploading…";
+        fetch("/api/eventor/upload", { method: "POST" })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (!res.ok) { out.className = "tool-result err"; out.textContent = (res.d && res.d.error) || "Failed"; return; }
+                out.className = "tool-result ok"; out.textContent = "Uploaded to Eventor.";
+            })
             .catch(function () { out.className = "tool-result err"; out.textContent = "Failed"; });
     });
     </script>
