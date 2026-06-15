@@ -10,9 +10,11 @@ def client():
 
 
 def test_pages_render(client):
-    for p in ["/", "/competitors", "/classes", "/courses", "/download",
+    for p in ["/overview", "/competitors", "/classes", "/courses", "/download",
               "/results", "/splits", "/live"]:
         assert client.get(p).status_code == 200
+    # The bare address always redirects to event selection (the start page).
+    assert client.get("/").status_code == 302
 
 
 def test_slip_renders_for_known_competitor(client):

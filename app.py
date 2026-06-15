@@ -218,7 +218,13 @@ def _console_data():
 # ---------------------------------------------------------------------------
 
 @app.route("/")
-def index():
+def home():
+    """The bare address always lands on event selection (the start page)."""
+    return redirect(url_for("start"))
+
+
+@app.route("/overview")
+def overview():
     classes = _console_data()
     all_rows = [r for c in classes for r in c["rows"]]
     finished = [r for r in all_rows if r["time"] is not None]
@@ -1320,7 +1326,7 @@ def login():
         user = auth.verify(request.form.get("username"), request.form.get("password"))
         if user:
             auth.login_user(user)
-            return redirect(request.args.get("next") or url_for("index"))
+            return redirect(request.args.get("next") or url_for("overview"))
         return render_template("login.html", error="Invalid username or password"), 401
     return render_template("login.html", error=None)
 
@@ -1340,8 +1346,8 @@ def unlock():
     """Password prompt for the operator console (active only when an admin
     password is set in Settings). The unlock lives in a day-long session."""
     if not config.admin_password_set():
-        return redirect(url_for("index"))
-    nxt = request.args.get("next") or url_for("index")
+        return redirect(url_for("overview"))
+    nxt = request.args.get("next") or url_for("overview")
     if request.method == "POST":
         if config.check_admin_password(request.form.get("password", "")):
             session.permanent = True
