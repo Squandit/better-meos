@@ -558,6 +558,19 @@ def api_import_eventor():
     return jsonify(importers.import_competitors(rows))
 
 
+@app.route("/api/eventor/fetch", methods=["POST"])
+def api_eventor_fetch():
+    """Pull this event's entries straight from Eventor (MeOS-style) and create
+    competitors, auto-creating any classes named in the entry list."""
+    try:
+        rows = eventor.fetch_entries(config.get_str("eventor_event_id"))
+    except Exception as err:
+        return jsonify({"error": str(err)}), 400
+    outcome = importers.import_competitors(rows, auto_create_classes=True)
+    events.publish("competitor", action="eventor")
+    return jsonify(outcome)
+
+
 @app.route("/api/eventor/upload", methods=["POST"])
 def api_eventor_upload():
     """Push this event's results to Eventor as an IOF XML ResultList (gated by

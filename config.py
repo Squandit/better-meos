@@ -85,6 +85,8 @@ SCHEMA: list[_Setting] = [
              "Eventor API key", "Enables results upload to Eventor."),
     _Setting("eventor_base_url", "EVENTOR_BASE_URL", "str", "Eventor",
              "Eventor base URL", "e.g. https://eventor.orienteering.asn.au"),
+    _Setting("eventor_event_id", "EVENTOR_EVENT_ID", "str", "Eventor",
+             "Eventor event ID", "The event's id on Eventor (for fetching entries)."),
     _Setting("admin_port", "BMEOS_PORT", "int", "Network (ports)",
              "Admin port", "Operator console port. Restart to apply.", default=8799),
     _Setting("public_port", "BMEOS_PUBLIC_PORT", "int", "Network (ports)",

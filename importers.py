@@ -54,15 +54,33 @@ def _to_clock(value) -> str:
     return str(value)
 
 
-def import_competitors(rows: list[dict]) -> dict:
+# A linear course auto-created classes are parked on until the operator sets
+# their real controls (Eventor knows the classes, not the course geometry).
+PLACEHOLDER_COURSE = "Unassigned — set course"
+
+
+def _placeholder_course_id() -> int:
+    for c in store.course_options():
+        if c["name"] == PLACEHOLDER_COURSE:
+            return c["id"]
+    return store.create_course(
+        {"name": PLACEHOLDER_COURSE, "type": "linear", "controls": [1]})["id"]
+
+
+def import_competitors(rows: list[dict], *, auto_create_classes: bool = False) -> dict:
     """
     Create competitors from normalised rows, matching ``class_name`` to a class.
 
-    Returns ``{"created": int, "skipped": [{"row": n, "name": str,
-    "reason": str}, ...]}``. Never raises for per-row problems.
+    With ``auto_create_classes`` (the Eventor path), a class named in the import
+    that doesn't exist yet is created automatically on a shared placeholder
+    course -- the operator then assigns the real course on the Classes page. This
+    mirrors MeOS, which pulls the classes from Eventor and lets you set courses
+    after. Returns ``{"created", "classes_created", "skipped"}``; never raises for
+    per-row problems.
     """
     class_by_name = {c["name"].lower(): c["id"] for c in store.class_options()}
     created = 0
+    classes_created = 0
     skipped = []
     for i, row in enumerate(rows, start=1):
         name = (row.get("name") or "").strip()
@@ -71,6 +89,16 @@ def import_competitors(rows: list[dict]) -> dict:
             skipped.append({"row": i, "name": "", "reason": "missing name"})
             continue
         class_id = class_by_name.get(class_name.lower())
+        if class_id is None and auto_create_classes and class_name:
+            try:
+                cls = store.create_class(
+                    {"name": class_name, "course_id": _placeholder_course_id()})
+                class_id = cls["id"]
+                class_by_name[class_name.lower()] = class_id
+                classes_created += 1
+            except store.StoreError as err:
+                skipped.append({"row": i, "name": name, "reason": str(err)})
+                continue
         if class_id is None:
             skipped.append({"row": i, "name": name,
                             "reason": f"unknown class {class_name!r}"})
@@ -86,4 +114,4 @@ def import_competitors(rows: list[dict]) -> dict:
             created += 1
         except store.StoreError as err:
             skipped.append({"row": i, "name": name, "reason": str(err)})
-    return {"created": created, "skipped": skipped}
+    return {"created": created, "classes_created": classes_created, "skipped": skipped}

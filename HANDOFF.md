@@ -160,8 +160,12 @@ Built in 7 committed/pushed phases on top of 1.1 (tests now **133 passing**):
 - **Reports/exports**: `pdf.podium_pdf` (prize giving), `pdf.still_out_pdf`,
   `/export/{podium,stillout}.pdf`, `/export/splits.csv` (results.xml already
   carries SplitTimes for SplitsBrowser).
-- **Eventor upload** (`eventor.upload_results`, `/api/eventor/upload`): POSTs IOF
-  ResultList, gated by `eventor_api_key`/`eventor_base_url` (untestable live).
+- **Eventor API** (MeOS-style, gated by `eventor_api_key`/`eventor_base_url`/
+  `eventor_event_id`): `eventor.fetch_entries` GETs `/api/entries?eventId=` with
+  the `ApiKey` header and imports competitors, **auto-creating any new classes**
+  on a placeholder course (`/api/eventor/fetch`); `eventor.upload_results` POSTs
+  the IOF ResultList to `/api/results` (`/api/eventor/upload`). Real code; live
+  calls need a valid org API key + event id, so tests mock the HTTP.
 - **Time edits**: competitor `time_adjustment`/`credit`/`not_competing`/`vacant`
   (engine + DB columns + editor). **Forked/variant courses**: a linear course may
   list alternative accepted control orders (`variants`), OK if punches match any

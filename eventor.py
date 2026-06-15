@@ -20,6 +20,7 @@ live Eventor with valid credentials, so it isn't exercised by the test suite.
 
 from __future__ import annotations
 
+import urllib.parse
 import urllib.request
 
 import config
@@ -43,6 +44,30 @@ def _credentials() -> tuple[str, str]:
 def parse_entrylist(xml) -> list[dict]:
     """Parse an IOF XML EntryList (Eventor's export) into competitor rows."""
     return iofxml.parse_entrylist(xml)
+
+
+def _get(path: str, params: dict, timeout: float) -> str:
+    key, base = _credentials()
+    url = base + path + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"ApiKey": key})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8")
+
+
+def fetch_entries(event_id, *, timeout: float = 20.0) -> list[dict]:
+    """
+    Pull an event's entries straight from the Eventor API (the way MeOS does it).
+
+    Calls ``GET {base}/api/entries?eventId={event_id}`` with the ApiKey header and
+    returns the same normalised rows as :func:`parse_entrylist`, so the importer
+    can create competitors (and, on the Eventor path, auto-create their classes).
+    Gated behind the Eventor API key + base URL; raises ``RuntimeError`` when not
+    configured or no event id is given.
+    """
+    if not event_id:
+        raise RuntimeError("No Eventor event id set -- add it in Settings.")
+    xml = _get("/api/entries", {"eventId": str(event_id)}, timeout)
+    return parse_entrylist(xml)
 
 
 def upload_results(results_xml: str, *, timeout: float = 15.0) -> dict:
