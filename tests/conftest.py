@@ -23,11 +23,35 @@ os.close(_config_fd)
 os.remove(_config_path)  # config.py treats a missing file as empty
 os.environ["BMEOS_CONFIG"] = _config_path
 
+import pytest  # noqa: E402
+
+import config  # noqa: E402
+import online_entry  # noqa: E402
 import store  # noqa: E402
 
 store.new_event({"name": "Test Event", "date": "2026-05-17",
                  "first_start": "09:00:00", "type": "linear"})
 store.seed_demo()
+
+
+@pytest.fixture
+def cfg(tmp_path):
+    """Point config.json at a throwaway file for one test, isolated from the
+    rest of the suite (env restored + cache cleared on teardown so a password
+    or fee set here can't leak into other tests)."""
+    prev = os.environ.get("BMEOS_CONFIG")
+    os.environ["BMEOS_CONFIG"] = str(tmp_path / "config.json")
+    config.reload()
+    online_entry.reset_rate_limits()
+    try:
+        yield config
+    finally:
+        if prev is None:
+            os.environ.pop("BMEOS_CONFIG", None)
+        else:
+            os.environ["BMEOS_CONFIG"] = prev
+        config.reload()
+        online_entry.reset_rate_limits()
 
 
 def pytest_sessionfinish(session, exitstatus):

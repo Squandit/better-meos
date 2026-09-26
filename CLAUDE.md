@@ -7,10 +7,10 @@ uncommitted changes, and next steps) and is the source of truth where it
 disagrees with this file.
 
 Stack:
-- Python / FastAPI backend
-- SQLite database
+- Python / Flask backend (served by waitress in the launcher/exe)
+- SQLite database (one .bmeos file per event)
 - HTML/CSS/JS frontend (vanilla, no framework)
-- WebSockets for live updates
+- Server-Sent Events for live updates
 - sportident PyPI library for SI card reader on COM5
 
 Key conventions:

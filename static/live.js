@@ -17,7 +17,6 @@
     var LIVE_PAGES = { overview: 1, results: 1, splits: 1, download: 1, live: 1, speaker: 1 };
     var page = document.body.getAttribute("data-page");
     if (!page || !LIVE_PAGES[page]) { return; }
-    if (typeof EventSource === "undefined") { return; }
 
     var reloadTimer = null;
     function scheduleReload() {
@@ -25,14 +24,38 @@
         reloadTimer = setTimeout(function () { window.location.reload(); }, 600);
     }
 
+    // Fallback when the server refuses a stream (too many open) or the browser
+    // gives up on it: poll a cheap change counter and reload when it moves.
+    var polling = false;
+    function startPolling() {
+        if (polling) { return; }
+        polling = true;
+        var seen = null;
+        function poll() {
+            fetch("/api/version", { cache: "no-store" })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (seen !== null && d.version !== seen) { scheduleReload(); }
+                    seen = d.version;
+                })
+                .catch(function () { /* offline for a moment; try again */ })
+                .then(function () { setTimeout(poll, 15000); });
+        }
+        poll();
+    }
+
+    if (typeof EventSource === "undefined") { startPolling(); return; }
+
     var source = new EventSource("/api/stream");
     source.onmessage = function (e) {
         var data = {};
         try { data = JSON.parse(e.data); } catch (err) { return; }
-        // Ignore our own keep-alive comment lines (they don't reach onmessage).
         if (data.kind) { scheduleReload(); }
     };
 
-    // A dropped connection auto-retries (EventSource default); nothing to do.
-    source.onerror = function () { /* browser will reconnect */ };
+    // A dropped connection auto-retries (EventSource default). A refused one
+    // (503 over the cap) closes for good, so switch to polling.
+    source.onerror = function () {
+        if (source.readyState === EventSource.CLOSED) { startPolling(); }
+    };
 })();

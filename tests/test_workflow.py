@@ -77,8 +77,11 @@ def test_team_list_endpoint_and_assignment():
     assert store.get_competitor(comp["id"])["team_id"] == team["id"]
 
 
-def test_entry_submit_records_runner():
+def test_online_entry_records_runner(cfg):
+    cfg.save({"fee_senior": 0})  # free event: entered straight away
     c = appmod.app.test_client()
     cid = store.class_options()[0]["id"]
-    c.get(f"/submit-entry?class={cid}&name=Entry Eddie&club=EOC&card=8800099")
+    r = c.post("/api/online-entry/order", json={
+        "entries": [{"name": "Entry Eddie", "club": "EOC", "card": "8800099", "classId": cid}]})
+    assert r.status_code == 200 and r.get_json()["free"] is True
     assert runners.lookup(8800099)["name"] == "Entry Eddie"

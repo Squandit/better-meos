@@ -26,6 +26,72 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
+### 1.2 DONE — security + payments hardening (2026-09-26, cloud session)
+Branch `claude/project-review-roadmap-gi2jih`, on top of `main` (PR #1 merged, so
+the 1.0/1.1 work below IS committed now; the "uncommitted" notes there are stale).
+Tests: **151 passing** (`tests/test_payments.py` + `tests/test_hardening.py` new).
+Also driven end to end in Chromium under waitress (free entry, duplicate card,
+paid-mode "not set up" message, unmatched-card assign, stream cap fallback).
+
+- **Session key:** no more hard-coded `"dev-insecure-key"` (it let anyone forge an
+  unlocked admin session). `config.secret_key()` = `BMEOS_SECRET`, else a random
+  key generated once and stored in `config.json`.
+- **Secrets write-only:** password-type settings (`smtp_pass`, `ngrok_authtoken`,
+  new `paypal_client_secret`, new `station_token`) are never returned by
+  `GET /api/config`; blank on save = keep.
+- **Console off the LAN by default:** launcher binds admin to 127.0.0.1 unless
+  Settings "Allow the console from other computers" (`admin_lan`) is on, and
+  `security.py` refuses non-loopback admin requests when no admin password is
+  set. Dev server binds 127.0.0.1.
+- **CSRF:** `security.py` refuses POST/PUT/PATCH/DELETE whose `Sec-Fetch-Site`
+  isn't same-origin (or whose `Origin` host differs). Session cookie SameSite=Lax.
+- **Open redirects:** `security.safe_next` on `/login` and `/unlock`.
+- **Public port:** `/slip/`, `/api/entries`, `/submit-entry`, `/log-entries` gone
+  from the allowlist (the last two are deleted). New public paths:
+  `/api/online-entry/{order,capture}`, `/api/version`.
+- **Station token:** `/api/station/push` + `/api/radio/punch` accept header
+  `X-Station-Token` (Settings → Network) instead of a session; `network.py`
+  sends it. A secondary's REAL reader now forwards too (only simulate did), and
+  a failed push doesn't ack the card so the runner can read out again.
+- **PayPal rebuilt server-side** (`online_entry.py` + `payments.py`): server
+  validates + prices the cart (Decimal, family cap, everyone at the senior fee;
+  client type ignored), freezes it in the new `online_orders` table, creates
+  the PayPal order (Orders v2 REST) for that amount, then on approve captures
+  it and verifies order id / COMPLETED / amount / currency / reference before
+  creating competitors from the frozen cart. Idempotent capture (PayPal-Request-Id,
+  new key per attempt after a decline), stale cart re-checked before capture
+  (buyer not charged), "Pay again" supersedes the unpaid order, cards held
+  while money is moving, entry-close enforced, per-client rate limit, receipt
+  email built from server data only. Needs the PayPal **client secret** in
+  Settings; without it paid entry is refused ("enter on the day"). Free events
+  (fee 0) enter directly. Operator view on `/entries` ("Online payments"):
+  statuses, "Check with PayPal" (`POST /api/orders/<id>/reconcile`), "Mark
+  refunded" (`POST /api/orders/<id>/refunded`). Refunds are done in PayPal.
+  **Not yet tested against the real PayPal sandbox** (no creds here) — do a
+  sandbox run before going live.
+- **Formulas:** `rules.py` caps powers (≤10), length, magnitude; every error is a
+  `RuleError` (runtime falls back to base points), validation runs 3 sample runs.
+- **SSE:** streams capped per port (`events.MAX_STREAMS`=12), 10 s keep-alive
+  frees closed tabs, `live.js` falls back to polling `/api/version`. Waitress
+  pools: public 32, admin 24 threads.
+- **Punch window:** engine ignores punches before start / after finish.
+- **Unmatched cards kept:** new `card_reads` table; download page lists them with
+  Assign/Discard (`/api/card-reads/<id>/assign`, `DELETE /api/card-reads/<id>`);
+  creating/editing a competitor with that card applies the read automatically.
+- **Reader:** enable + ports now in Settings ("SI reader"; env fallback), started
+  on event open/create and on Settings save; supervised thread reopens after a
+  failure with backoff; per-station status on the download page. Hardware times
+  re-pinned to the event date.
+- **Relays:** legs with no start are timed from the previous leg's finish (leg 1
+  from team start / mass start).
+- `open_event` only accepts `.bmeos`; restore re-applies schema for old backups;
+  editor team dropdown + entry page `escHtml` escape properly.
+
+**Still open (not done this session):** events crossing midnight; relay mass
+restart time; membership types for junior/concession pricing (everyone pays
+senior); OneDrive-synced live SQLite files; automatic backups; Stripe path is
+still a scaffold (operator-only now).
+
 ### 1.0 IN PROGRESS — MeOS-parity build + rename to "Punchcard" (2026-06-15, on the laptop)
 Mid-task, paused to switch back to the PC. **Nothing here is committed and the
 new code has NOT been run through pytest yet** — treat it as a work-in-progress
@@ -360,8 +426,12 @@ padding as `.panel-body`.
 - **Live + remote:** `GET /api/stream` (SSE), `POST /api/remote/{start,stop}`.
 - **Public (no login even when auth on):** `GET /enter` (the PWA), `/get-classes`,
   `/get-result-classes`, `/get-results`, `/search-competitors`,
-  `/lookup-competitor`, `/check-entered`, `/submit-entry`, `/log-entries`,
-  `/manifest.json`, `/sw.js`, `/public/<slug>`, `/api/stream`, `/login`, `/logout`.
+  `/lookup-competitor`, `/check-entered`, `/api/online-entry/{order,capture}`,
+  `/manifest.json`, `/sw.js`, `/public/<slug>`, `/api/stream`, `/api/version`,
+  `/login`, `/logout`.
+- **Online payments (operator):** `POST /api/orders/<id>/reconcile`,
+  `POST /api/orders/<id>/refunded`. **Unmatched reads:**
+  `POST /api/card-reads/<id>/assign`, `DELETE /api/card-reads/<id>`.
 - **Auth:** `GET/POST /login`, `GET /logout`.
 - **Admin unlock + Settings:** `GET/POST /unlock`, `GET /lock`, `GET /config`,
   `GET/POST /api/config`. (Admin surface; `/unlock` is exempt from the gate.)
@@ -377,15 +447,20 @@ padding as `.panel-body`.
   Values saved there override the matching env vars below (env stays a fallback).
 - `BMEOS_DB` — legacy single-DB path (only `db.DEFAULT_PATH` fallback; unused in
   the file-per-event flow).
-- **SI reader:** `BMEOS_READER` (truthy = enable real reader),
-  `BMEOS_READER_PORT` (default COM5), `BMEOS_READER_PORTS`
+- **SI reader:** `BMEOS_READER` (truthy = enable real reader; now a Settings
+  field), `BMEOS_READER_PORT` (default COM5), `BMEOS_READER_PORTS` (Settings field)
   (`COM5:finish,COM6:start` multi-station), `BMEOS_PUNCH_SYSTEM` (`sportident`|
   `emit`).
 - **Remote:** `NGROK_AUTHTOKEN` (your ngrok token), `NGROK_DOMAIN` (reserved
   static domain for a stable URL).
-- **Auth:** `BMEOS_AUTH` (enable login), `BMEOS_SECRET` (session key — set it when
-  auth is on), `BMEOS_ADMIN_USER` / `BMEOS_ADMIN_PASS` (seed first operator).
-- **Payments (entry page):** `PAYPAL_CLIENT_ID`, `PAYPAL_SANDBOX` (default
+- **Auth:** `BMEOS_AUTH` (enable login), `BMEOS_SECRET` (session key; if unset a
+  random one is generated and kept in config.json), `BMEOS_ADMIN_USER` /
+  `BMEOS_ADMIN_PASS` (seed first operator).
+- **Network:** `BMEOS_ADMIN_LAN` (console on the LAN; needs an admin password),
+  `BMEOS_STATION_TOKEN` (secondary stations / radio controls), `BMEOS_PRIMARY`
+  (on a secondary: the primary's URL).
+- **Payments (entry page):** `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` (required
+  for paid online entry), `PAYPAL_SANDBOX` (default
   sandbox), `BMEOS_CURRENCY`, `BMEOS_FEE_SENIOR/JUNIOR/CONCESSION`,
   `BMEOS_FAMILY_CAP`, `STRIPE_SECRET_KEY` (generic flow), `BMEOS_ENTRY_FEE_CENTS`.
 - **Email:** `BMEOS_SMTP_HOST/PORT/USER/PASS/FROM`.
@@ -396,7 +471,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 99 passing)
+## 7. Test suite (`tests/`, 151 passing)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:

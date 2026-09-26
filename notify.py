@@ -29,13 +29,6 @@ def _valid_email(addr: str) -> bool:
     return bool(addr) and "\n" not in addr and "\r" not in addr and bool(_EMAIL_RE.match(addr))
 
 
-def _num(value, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def is_enabled() -> bool:
     return bool(config.get_str("smtp_host"))
 
@@ -60,30 +53,29 @@ def send_entry_confirmation(entry: dict, event: dict) -> bool:
     return _send(to, subject, body)
 
 
-def send_entry_receipt(data: dict, event: dict) -> bool:
-    """Send a paid-entry receipt from the entry page (entries list + total +
-    PayPal reference). Returns True if actually sent; logs a no-op when SMTP
-    isn't configured."""
-    to = (data.get("email") or "").strip()
+def send_order_receipt(order: dict, results: list[dict], event: dict) -> bool:
+    """
+    Email the receipt for a verified online payment. Built only from what the
+    server recorded (the order row + who actually got entered), so it can't be
+    used to send arbitrary text. Returns True if actually sent.
+    """
+    to = (order.get("email") or "").strip()
     if not _valid_email(to):
         return False
     lines = []
-    for e in data.get("entries", []):
-        if not isinstance(e, dict):
-            continue
-        status = "Confirmed" if e.get("ok") else f"Error: {e.get('detail', '')}"
-        lines.append(f"  {e.get('name', '')} — {e.get('className', '')} "
-                     f"(${_num(e.get('price')):.2f}) — {status}")
-    total = _num(data.get("total"))
+    for r in results:
+        status = "Entered" if r.get("ok") else \
+            f"NOT entered ({r.get('detail', '')}); the organiser will refund this entry"
+        lines.append(f"  {r.get('name', '')} ({r.get('className', '')}): {status}")
     body = (
-        f"Your entries for {event.get('name', '')} have been received:\n\n"
+        f"Your entries for {event.get('name', '')} ({event.get('date', '')}):\n\n"
         + "\n".join(lines)
-        + f"\n\nTotal paid: ${total:.2f}\n"
-        f"PayPal reference: {data.get('paypalId', '')}\n\n"
-        "If you have any issues, contact the organiser and quote the PayPal "
-        "reference above as proof of payment.\n"
+        + f"\n\nTotal paid: {order.get('amount')} {order.get('currency')}\n"
+        f"PayPal reference: {order.get('capture_id') or order.get('paypal_order_id')}\n\n"
+        "If anything looks wrong, contact the organiser and quote the PayPal "
+        "reference above.\n"
     )
-    subject = f"Entry confirmation — {event.get('name', '')}"
+    subject = f"Entry receipt: {event.get('name', '')}"
     if not is_enabled():
         log.info("[email disabled] would send receipt %r to %s", subject, to)
         return False

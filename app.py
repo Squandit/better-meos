@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import tempfile
 from datetime import datetime
@@ -17,8 +16,7 @@ import eventor
 import events
 import iofxml
 import importers
-import network
-import notify
+import online_entry
 import payments
 import pdf
 import remote
@@ -33,20 +31,10 @@ from results import build_splits_matrix, format_duration
 
 app = Flask(__name__)
 
-# Session signing key. A known default is fine with auth OFF (sessions carry
-# nothing sensitive), but with auth ON it would let anyone forge an operator
-# cookie -- so fail closed: use a strong per-process random key when BMEOS_SECRET
-# isn't supplied (sessions won't survive a restart; set BMEOS_SECRET to persist).
-_secret = os.environ.get("BMEOS_SECRET")
-if not _secret:
-    if auth.is_enabled():
-        _secret = os.urandom(32).hex()
-        logging.getLogger("app").warning(
-            "BMEOS_AUTH is on without BMEOS_SECRET; using an ephemeral session "
-            "key (logins won't survive a restart). Set BMEOS_SECRET to persist.")
-    else:
-        _secret = "dev-insecure-key"
-app.secret_key = _secret
+# Session signing key: BMEOS_SECRET, else a random key generated once and kept
+# in config.json. Never a fixed default -- the admin lock and logins live in the
+# session cookie, so a key anyone can read would let them forge an unlocked one.
+app.secret_key = config.secret_key()
 
 # Format a raw seconds duration in templates (used by the profile page, which
 # renders engine results directly rather than pre-formatted view rows).
@@ -124,7 +112,8 @@ FLAGGED = ("mp", "dnf", "dns", "dsq")
 @app.context_processor
 def inject_event():
     """Make the open event's details available to every template."""
-    return {"event": store.EVENT}
+    # The real reader is switched on in Settings, not per event file.
+    return {"event": {**store.EVENT, "reader_enabled": si_reader.reader_enabled()}}
 
 
 def _status_label(status):
@@ -246,7 +235,7 @@ def index():
     return render_template(
         "overview.html", active="overview", stats=stats,
         status_breakdown=status_breakdown, latest=latest, leaders=leaders,
-        reader_enabled=store.EVENT.get("reader_enabled"),
+        reader_enabled=si_reader.reader_enabled(),
         recent_reads=si_reader.recent_reads(),
     )
 
@@ -318,9 +307,28 @@ def courses():
 
 @app.route("/download")
 def download():
-    rows = [r for c in _console_data() for r in c["rows"] if r["finish"] is not None]
+    all_rows = [r for c in _console_data() for r in c["rows"]]
+    rows = [r for r in all_rows if r["finish"] is not None]
     rows.sort(key=lambda r: r["finish"], reverse=True)
-    return render_template("download.html", active="download", rows=rows, count=len(rows))
+    assignable = sorted(all_rows, key=lambda r: r["name"].lower())
+    return render_template("download.html", active="download", rows=rows, count=len(rows),
+                           unmatched=store.unmatched_reads(), assignable=assignable,
+                           readers=si_reader.reader_status())
+
+
+@app.route("/api/card-reads/<int:read_id>/assign", methods=["POST"])
+def api_assign_card_read(read_id):
+    """Attach a kept (unmatched) card read to a competitor."""
+    comp_id = store._as_int(_payload().get("competitor_id"), "Competitor", minimum=1)
+    comp = store.assign_card_read(read_id, comp_id)
+    events.publish("card_read", action="assign")
+    return jsonify({"ok": True, "competitor": comp})
+
+
+@app.route("/api/card-reads/<int:read_id>", methods=["DELETE"])
+def api_delete_card_read(read_id):
+    store.delete_card_read(read_id)
+    return jsonify({"ok": True})
 
 
 @app.route("/results")
@@ -631,6 +639,7 @@ def _entry_config():
                   "closeTime": config.get_str("entry_close")},
         "paypal": payments.paypal_config(),
         "prices": payments.prices(),
+        "paymentRequired": online_entry.payment_required(),
         "clubs": clubs,
         "networkAddress": None,
     }
@@ -710,36 +719,30 @@ def entry_check():
     return jsonify({"entered": entered})
 
 
-@app.route("/submit-entry")
-def entry_submit():
-    """On-the-day entry: create the competitor directly in the chosen class.
-    Returns MeOS-style <Status>OK</Status> XML the entry page expects."""
-    card = (request.args.get("card") or "").strip()
-    try:
-        comp = store.create_competitor({
-            "name": (request.args.get("name") or "").strip(),
-            "club": (request.args.get("club") or "").strip(),
-            "class_id": request.args.get("class", type=int),
-            "card_number": card or None,
-        })
-        runners.record_competitor(comp)  # learn this person + their class
-        events.publish("competitor", action="entry")
-        xml = "<Answer><Status>OK</Status></Answer>"
-    except StoreError as err:
-        xml = f"<Answer><Status>Fail</Status><Info>{xml_escape(str(err))}</Info></Answer>"
-    return Response(xml, mimetype="application/xml")
+# Online entry (public): the entry page sends its cart here. The server checks
+# every entry, prices the cart itself and, when a fee is due, creates the PayPal
+# order; entries only become competitors once the payment is captured and
+# verified server-side (see online_entry.py). Never trust the browser's total.
+
+def _client_key():
+    """Who is asking, for rate limiting. Behind ngrok every request arrives from
+    loopback, so use the address ngrok appended (the last X-Forwarded-For hop)."""
+    addr = request.remote_addr or ""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded and (addr.startswith("127.") or addr == "::1"):
+        return forwarded.split(",")[-1].strip()
+    return addr
 
 
-@app.route("/log-entries", methods=["POST"])
-def entry_log():
-    data = _payload()
-    # Public endpoint: keep the receipt path from being a spam/DoS amplifier --
-    # validate the recipient and cap the (attacker-supplied) entries list. notify
-    # itself re-validates and parses numbers safely.
-    entries = data.get("entries")
-    data["entries"] = entries[:50] if isinstance(entries, list) else []
-    sent = notify.send_entry_receipt(data, store.EVENT)
-    return jsonify({"ok": True, "emailSent": bool(sent)})
+@app.route("/api/online-entry/order", methods=["POST"])
+def api_online_entry_order():
+    return jsonify(online_entry.start_order(_payload(), client_key=_client_key()))
+
+
+@app.route("/api/online-entry/capture", methods=["POST"])
+def api_online_entry_capture():
+    return jsonify(online_entry.capture_order(_payload().get("orderID"),
+                                              client_key=_client_key()))
 
 
 _STATUS_TO_ENTRY = {"dsq": "dq"}  # entry page uses 'dq'; others map 1:1
@@ -802,7 +805,21 @@ def api_create_entry():
 def entries_page():
     """Operator view of entries with the start-list draw."""
     return render_template("entries.html", active="entries",
-                           entries=entries_mod.list_entries())
+                           entries=entries_mod.list_entries(),
+                           orders=online_entry.list_orders())
+
+
+@app.route("/api/orders/<int:order_id>/reconcile", methods=["POST"])
+def api_reconcile_order(order_id):
+    """Ask PayPal what happened to an open order and finish it if it was paid."""
+    order = online_entry.reconcile_order(order_id)
+    return jsonify({"ok": True, "status": order["status"]})
+
+
+@app.route("/api/orders/<int:order_id>/refunded", methods=["POST"])
+def api_order_refunded(order_id):
+    online_entry.mark_refunded(order_id)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/entries/<int:entry_id>", methods=["DELETE"])
@@ -868,6 +885,7 @@ def api_new_event():
             rows = importers.parse_startlist_csv(text)
         imported = importers.import_competitors(rows)
     auth.ensure_admin()  # seed the admin into the now-open event file (if auth on)
+    si_reader.start_all()  # no-op unless a real reader is configured
     return jsonify({"event": event, "imported": imported}), 201
 
 
@@ -875,6 +893,7 @@ def api_new_event():
 def api_open_event():
     store.open_event(_payload().get("path", ""))
     auth.ensure_admin()
+    si_reader.start_all()  # no-op unless a real reader is configured
     return jsonify({"ok": True})
 
 
@@ -915,6 +934,11 @@ def _payload():
 @app.errorhandler(StoreError)
 def _handle_store_error(err):
     return jsonify({"error": str(err)}), 400
+
+
+@app.errorhandler(online_entry.EntryError)
+def _handle_entry_error(err):
+    return jsonify({"error": str(err), "code": err.code}), 400
 
 
 # --- Competitors -----------------------------------------------------------
@@ -1022,20 +1046,39 @@ def api_delete_course(course_id):
 
 @app.route("/api/stream")
 def api_stream():
-    """SSE feed: pushes a line whenever the event data changes."""
+    """
+    SSE feed: pushes a line whenever the event data changes.
+
+    Each open stream holds one server worker thread, so streams are capped per
+    port (``events.MAX_STREAMS``); a browser over the cap gets 503 and live.js
+    falls back to polling ``/api/version``. A keep-alive comment every
+    ``events.KEEPALIVE`` seconds makes a closed tab fail its write, which frees
+    the thread instead of holding it until the next publish.
+    """
+    port = request.environ.get("SERVER_PORT", "")
+    q = events.subscribe(port)
+    if q is None:
+        return jsonify({"error": "Too many live connections; polling instead"}), 503
+
     def gen():
-        q = events.subscribe()
         try:
             # An initial comment opens the stream immediately for the browser.
             yield ": connected\n\n"
             while True:
-                payload = q.get()
-                yield f"data: {payload}\n\n"
+                payload = events.next_message(q)
+                yield f"data: {payload}\n\n" if payload else ": ping\n\n"
         finally:
-            events.unsubscribe(q)
+            events.unsubscribe(q, port)
 
     return Response(gen(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/version")
+def api_version():
+    """A counter that bumps on every change (live.js polls it when it can't
+    hold a stream open)."""
+    return jsonify({"version": events.version()})
 
 
 # ---------------------------------------------------------------------------
@@ -1054,17 +1097,12 @@ def api_reader_simulate():
     if data:
         card = store.coerce_card(data)
         auto = bool(data.get("auto"))
-        # Secondary station: forward the read to the primary instead of applying
-        # it locally (this instance may not even have an event open).
-        if network.is_secondary():
-            try:
-                outcome = network.push_card(card)
-            except Exception as err:  # network/HTTP failure -> report, don't 500
-                return jsonify({"ok": False,
-                                "error": f"primary unreachable: {err}"}), 502
-            return jsonify(outcome), (200 if outcome.get("ok") else 404)
+        # On a secondary station process_card forwards the read to the primary
+        # (this instance may not even have an event open).
         outcome = si_reader.simulate(card, station_id=card.get("station_id"),
                                      auto_create=auto or None)
+        if outcome.get("push_failed"):
+            return jsonify(outcome), 502
         return jsonify(outcome), (200 if outcome.get("ok") else 404)
     outcome = simulator.simulate_one()
     return jsonify(outcome)
@@ -1125,7 +1163,7 @@ def login():
         user = auth.verify(request.form.get("username"), request.form.get("password"))
         if user:
             auth.login_user(user)
-            return redirect(request.args.get("next") or url_for("index"))
+            return redirect(security.safe_next(request.args.get("next"), url_for("index")))
         return render_template("login.html", error="Invalid username or password"), 401
     return render_template("login.html", error=None)
 
@@ -1146,12 +1184,13 @@ def unlock():
     password is set in Settings). The unlock lives in a day-long session."""
     if not config.admin_password_set():
         return redirect(url_for("index"))
-    nxt = request.args.get("next") or url_for("index")
+    nxt = security.safe_next(request.args.get("next"), url_for("index"))
     if request.method == "POST":
         if config.check_admin_password(request.form.get("password", "")):
+            session.clear()  # fresh session on privilege change
             session.permanent = True
             session["admin_ok"] = True
-            return redirect(request.form.get("next") or nxt)
+            return redirect(security.safe_next(request.form.get("next"), nxt))
         return render_template("unlock.html", error="Incorrect password", next=nxt), 401
     return render_template("unlock.html", error=None, next=nxt)
 
@@ -1178,8 +1217,14 @@ def api_get_config():
 @app.route("/api/config", methods=["POST"])
 def api_save_config():
     config.save(_payload())
+    # Reader on/off applies straight away (ports and LAN access need a restart).
+    if si_reader.reader_enabled():
+        if store.has_open_event():
+            si_reader.start_all()
+    else:
+        si_reader.stop()
     return jsonify({"ok": True,
-                    "note": "Port changes take effect after a restart."})
+                    "note": "Port and network changes take effect after a restart."})
 
 
 # ---------------------------------------------------------------------------
@@ -1202,7 +1247,7 @@ def api_sync_import():
 
 if __name__ == "__main__":
     # Card data is persisted in SQLite by the ``store`` module (loaded on import).
-    # The real SI reader only starts if the event has it enabled (BMEOS_READER);
+    # The real SI reader only starts if it's enabled in Settings (BMEOS_READER);
     # otherwise reads come from POST /api/reader/simulate. The reloader would
     # start the thread twice, so only start it in the main process.
     # With the debug reloader on, the serving process is the one where Werkzeug
@@ -1213,4 +1258,5 @@ if __name__ == "__main__":
     # The dev server is single-port (the full admin surface); the port split is
     # a launcher/production concern -- run launcher.py to serve both ports.
     # threaded=True so a long-lived SSE stream doesn't block other requests.
-    app.run(host="0.0.0.0", port=config.admin_port(), debug=True, threaded=True)
+    # Loopback only: the dev server has the debugger on and no port split.
+    app.run(host="127.0.0.1", port=config.admin_port(), debug=True, threaded=True)

@@ -22,6 +22,7 @@ server threads and the SI-reader thread, guarded by ``_lock``.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
@@ -147,6 +148,38 @@ CREATE TABLE IF NOT EXISTS entries (
     -- read-then-insert dedupe race under threaded requests.
     UNIQUE (event_id, card_number)
 );
+-- Online (paid) entries from the entry page. One row per checkout; the cart is
+-- frozen here when the order is created, so what gets entered is what was paid
+-- for, never what the browser sends later. Amounts are exact decimal strings.
+CREATE TABLE IF NOT EXISTS online_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL,          -- created|capturing|paid|completed|needs_refund|
+                                   -- pending|rejected|superseded|failed|free|refunded
+    amount TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    email TEXT,
+    entries_json TEXT NOT NULL,    -- the validated cart
+    paypal_order_id TEXT UNIQUE,
+    capture_id TEXT,
+    captured_at TEXT,
+    capture_attempt INTEGER NOT NULL DEFAULT 0,  -- bumps after a decline
+    result_json TEXT,              -- per-entry outcome once entered
+    note TEXT
+);
+-- SI cards read at the download station that matched no competitor. Kept so
+-- the operator can attach the run to the right person later instead of making
+-- the runner read out again.
+CREATE TABLE IF NOT EXISTS card_reads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_number INTEGER NOT NULL,
+    read_at TEXT NOT NULL,
+    station_id TEXT,
+    start TEXT,
+    finish TEXT,
+    punches_json TEXT NOT NULL,
+    competitor_id INTEGER          -- set once assigned
+);
 CREATE INDEX IF NOT EXISTS idx_courses_event ON courses(event_id);
 CREATE INDEX IF NOT EXISTS idx_entries_event ON entries(event_id);
 CREATE INDEX IF NOT EXISTS idx_classes_event ON classes(event_id);
@@ -266,6 +299,10 @@ def restore_from(src_path: str) -> None:
             if not {"events", "competitors"} <= tables:
                 raise ValueError("not a better-meos backup database")
             src.backup(_c())
+            # A backup from an older version lacks newer tables/columns.
+            _c().executescript(SCHEMA)
+            _migrate(_c())
+            _c().commit()
         finally:
             src.close()
 
@@ -632,6 +669,114 @@ def get_entry(entry_id: int) -> dict | None:
 def delete_entry(entry_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+        _c().commit()
+
+
+# ---------------------------------------------------------------------------
+# Online orders (entry page payments)
+# ---------------------------------------------------------------------------
+
+def insert_order(order: dict) -> int:
+    with _lock:
+        cur = _c().execute(
+            """INSERT INTO online_orders
+               (created_at, status, amount, currency, email, entries_json, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (order["created_at"], order["status"], order["amount"], order["currency"],
+             order.get("email"), order["entries_json"], order.get("note")),
+        )
+        _c().commit()
+        return cur.lastrowid
+
+
+_ORDER_COLS = {"status", "paypal_order_id", "capture_id", "captured_at",
+               "capture_attempt", "result_json", "note"}
+
+
+def update_order(order_id: int, **fields) -> None:
+    if not fields:
+        return
+    unknown = set(fields) - _ORDER_COLS
+    if unknown:
+        raise ValueError(f"not an order column: {sorted(unknown)}")
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    with _lock:
+        _c().execute(f"UPDATE online_orders SET {cols} WHERE id = ?",
+                     (*fields.values(), order_id))
+        _c().commit()
+
+
+def get_order(order_id: int) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM online_orders WHERE id = ?",
+                           (order_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_order_by_paypal(paypal_order_id: str) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM online_orders WHERE paypal_order_id = ?",
+                           (paypal_order_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def all_orders() -> list[dict]:
+    with _lock:
+        rows = _c().execute("SELECT * FROM online_orders ORDER BY id DESC")
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Unmatched card reads
+# ---------------------------------------------------------------------------
+
+def insert_card_read(card: dict) -> int:
+    punches = [[code, _iso(t)] for code, t in card.get("punches", [])]
+    with _lock:
+        cur = _c().execute(
+            """INSERT INTO card_reads
+               (card_number, read_at, station_id, start, finish, punches_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (card["card_number"], datetime.now().isoformat(timespec="seconds"),
+             card.get("station_id"), _iso(card.get("start")), _iso(card.get("finish")),
+             json.dumps(punches)),
+        )
+        _c().commit()
+        return cur.lastrowid
+
+
+def _card_read_row(row) -> dict:
+    return {
+        "id": row["id"], "card_number": row["card_number"], "read_at": row["read_at"],
+        "station_id": row["station_id"], "start": _dt(row["start"]),
+        "finish": _dt(row["finish"]), "competitor_id": row["competitor_id"],
+        "punches": [(code, _dt(t)) for code, t in json.loads(row["punches_json"])],
+    }
+
+
+def get_card_read(read_id: int) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM card_reads WHERE id = ?", (read_id,)).fetchone()
+        return _card_read_row(row) if row else None
+
+
+def unmatched_card_reads() -> list[dict]:
+    with _lock:
+        rows = _c().execute(
+            "SELECT * FROM card_reads WHERE competitor_id IS NULL ORDER BY id DESC")
+        return [_card_read_row(r) for r in rows]
+
+
+def mark_card_read_assigned(read_id: int, competitor_id: int) -> None:
+    with _lock:
+        _c().execute("UPDATE card_reads SET competitor_id = ? WHERE id = ?",
+                     (competitor_id, read_id))
+        _c().commit()
+
+
+def delete_card_read(read_id: int) -> None:
+    with _lock:
+        _c().execute("DELETE FROM card_reads WHERE id = ?", (read_id,))
         _c().commit()
 
 

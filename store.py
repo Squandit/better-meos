@@ -537,14 +537,31 @@ def delete_team(team_id: int) -> None:
         db.delete_team(team_id)
 
 
-def _relay_team(team: dict, members: list[dict], by_id: dict) -> dict:
-    """A relay team's result: legs run in sequence, time is their sum, valid only
-    when every leg is OK."""
+def _relay_team(team: dict, members: list[dict], course: dict | None,
+                by_id: dict) -> dict:
+    """
+    A relay team's result: legs run in sequence, time is their sum, valid only
+    when every leg is OK.
+
+    Relay runners rarely have a start of their own: leg 1 goes at the team's
+    start (or the course's mass start) and every later leg starts when the
+    previous runner finishes (the changeover). So a leg with no recorded start
+    is timed from the previous leg's finish. Only leg 1 uses a mass start.
+    """
     legs = []
     total = 0
     ok = bool(members)
-    for m in members:
+    prev_finish = None
+    for i, m in enumerate(members):
         res = by_id.get(m["id"])
+        if course is not None:
+            ecourse = engine_course(course)
+            card = _engine_card(m)
+            if card["start"] is None:
+                card["start"] = prev_finish if i > 0 else team.get("start")
+            if i > 0 and ecourse.get("start_mode") == "mass":
+                ecourse = {**ecourse, "start_mode": "clock"}
+            res = build_result(card, ecourse)
         leg_ok = res is not None and res["status"] == "ok" \
             and res["total_seconds"] is not None
         legs.append({"name": m["name"], "leg": m.get("leg"),
@@ -554,6 +571,7 @@ def _relay_team(team: dict, members: list[dict], by_id: dict) -> dict:
             total += res["total_seconds"]
         else:
             ok = False
+        prev_finish = m["finish"]
     return {"team": team, "legs": legs,
             "total_seconds": total if ok else None, "ok": ok}
 
@@ -608,7 +626,7 @@ def team_results() -> list[dict]:
                 if kind == "patrol" and course is not None:
                     teams.append(_patrol_team(team, members, course))
                 else:
-                    teams.append(_relay_team(team, members, by_id))
+                    teams.append(_relay_team(team, members, course, by_id))
             ranked = sorted((t for t in teams if t["ok"]),
                             key=lambda t: t["total_seconds"])
             for i, t in enumerate(ranked):
@@ -794,6 +812,7 @@ def create_competitor(data: dict) -> dict:
             team_id=fields.get("team_id"),
             leg=fields.get("leg"),
         )
+        _apply_pending_read(_competitors[cid])
         return competitor_json(_competitors[cid])
 
 
@@ -803,10 +822,13 @@ def update_competitor(comp_id: int, data: dict) -> dict:
         if comp is None:
             raise StoreError("That competitor no longer exists")
         fields = _validated_competitor_fields(data, partial=True, current=comp)
+        card_changed = "card_number" in fields and fields["card_number"] != comp["card_number"]
         if "card_number" in fields:
             _check_card_unique(fields["card_number"], ignore=comp_id)
         comp.update(fields)
         db.save_competitor(_active_event_id, comp)
+        if card_changed:
+            _apply_pending_read(comp)
         return competitor_json(comp)
 
 
@@ -1082,6 +1104,20 @@ def add_radio_punch(card_number: int, code: int, time: datetime,
         return comp
 
 
+def _apply_card(comp: dict, card: dict) -> None:
+    """Overwrite a competitor's run from a card read (caller holds _lock)."""
+    station = card.get("station_id")
+    comp["punches"] = [
+        {"code": code, "time": time, "station_id": station}
+        for code, time in card.get("punches", [])
+    ]
+    if card.get("start") is not None:
+        comp["start"] = card["start"]
+    if card.get("finish") is not None:
+        comp["finish"] = card["finish"]
+    db.save_competitor(_active_event_id, comp)
+
+
 def apply_card_read(card: dict) -> dict:
     """
     Record a downloaded SI card against the competitor registered to it.
@@ -1093,24 +1129,79 @@ def apply_card_read(card: dict) -> dict:
     download); a manual status override, if any, is left untouched.
 
     Returns the competitor's editable JSON. Raises StoreError if no competitor is
-    registered for the card number -- on-the-day entries must be created first.
+    registered for the card number (see :func:`record_unmatched_read`).
     """
     with _lock:
         number = card.get("card_number")
         comp = find_by_card(number) if number is not None else None
         if comp is None:
             raise StoreError(f"No competitor registered for SI card {number}")
-        station = card.get("station_id")
-        comp["punches"] = [
-            {"code": code, "time": time, "station_id": station}
-            for code, time in card.get("punches", [])
-        ]
-        if card.get("start") is not None:
-            comp["start"] = card["start"]
-        if card.get("finish") is not None:
-            comp["finish"] = card["finish"]
-        db.save_competitor(_active_event_id, comp)
+        _apply_card(comp, card)
         return competitor_json(comp)
+
+
+# ---------------------------------------------------------------------------
+# Unmatched card reads: kept until the operator says whose run it was
+# ---------------------------------------------------------------------------
+
+def record_unmatched_read(card: dict) -> int:
+    """Keep a read that matched nobody, so the runner needn't read out again."""
+    return db.insert_card_read(card)
+
+
+def unmatched_reads() -> list[dict]:
+    """Unassigned reads, newest first, shaped for the download page."""
+    out = []
+    for read in db.unmatched_card_reads():
+        out.append({
+            "id": read["id"], "card_number": read["card_number"],
+            "read_at": read["read_at"].replace("T", " "),
+            "station": read["station_id"] or "main",
+            "start": format_clock(read["start"]), "finish": format_clock(read["finish"]),
+            "punches": len(read["punches"]),
+        })
+    return out
+
+
+def assign_card_read(read_id: int, comp_id: int) -> dict:
+    """
+    Give a kept read to a competitor: their run becomes the card's punches and
+    the card number becomes theirs (they ran with it, e.g. a borrowed card).
+    """
+    with _lock:
+        read = db.get_card_read(read_id)
+        if read is None or read["competitor_id"] is not None:
+            raise StoreError("That card read has already been dealt with")
+        comp = _competitors.get(comp_id)
+        if comp is None:
+            raise StoreError("That competitor no longer exists")
+        number = read["card_number"]
+        if comp["card_number"] != number:
+            _check_card_unique(number, ignore=comp_id)
+            comp["card_number"] = number
+        _apply_card(comp, read)
+        db.mark_card_read_assigned(read_id, comp_id)
+        return competitor_json(comp)
+
+
+def delete_card_read(read_id: int) -> None:
+    with _lock:
+        if db.get_card_read(read_id) is None:
+            raise StoreError("That card read no longer exists")
+        db.delete_card_read(read_id)
+
+
+def _apply_pending_read(comp: dict) -> None:
+    """If a card read is waiting for this competitor's card, apply it now (the
+    'read out first, enter afterwards' case). Caller holds _lock."""
+    number = comp.get("card_number")
+    if number is None:
+        return
+    for read in db.unmatched_card_reads():  # newest first
+        if read["card_number"] == number:
+            _apply_card(comp, read)
+            db.mark_card_read_assigned(read["id"], comp["id"])
+            return
 
 
 def auto_create_from_card(card: dict) -> dict:
@@ -1238,6 +1329,8 @@ def open_event(path: str) -> dict:
     """Open an existing event file as the current event."""
     global _current_path
     with _lock:
+        if not str(path).lower().endswith(".bmeos"):
+            raise StoreError("Only .bmeos event files can be opened")
         if not os.path.exists(path):
             raise StoreError("That event file no longer exists")
         # Validate on a throwaway connection FIRST, so a foreign/corrupt file

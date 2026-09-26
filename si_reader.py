@@ -8,9 +8,10 @@ read pipeline can be exercised with no hardware. Both end in
 :func:`process_card`, which records the card against its competitor
 (``store.apply_card_read``) and notifies live pages (``events.publish``).
 
-The real reader runs on a background daemon thread and is **off by default** --
-it only starts when ``store.EVENT["reader_enabled"]`` is set (env ``BMEOS_READER``),
-so development and tests never block waiting for a serial port.
+The real reader runs on a supervised background thread and is **off by
+default** -- it only starts when "Use a real SI reader" is on in Settings (env
+``BMEOS_READER`` as fallback), so development and tests never block waiting for
+a serial port. A reader that fails (cable pulled) is reopened automatically.
 
 Card dict shape (mirrors ``MOCK_CARD_DATA``)::
 
@@ -27,7 +28,9 @@ import time
 from collections import deque
 from datetime import datetime
 
+import config
 import events
+import network
 import store
 from store import StoreError
 
@@ -84,6 +87,21 @@ def process_card(card: dict, *, station_id: str | None = None,
     if auto_create is None:
         auto_create = AUTO_CREATE
     when = datetime.now().strftime("%H:%M:%S")
+    if network.is_secondary():
+        # A secondary station holds no event: forward the read to the primary.
+        try:
+            outcome = network.push_card(card)
+        except Exception as err:  # network/HTTP failure
+            log.error("could not forward card %s to primary: %s",
+                      card.get("card_number"), err)
+            _remember(when, None, card.get("card_number"), station_id, ok=False)
+            # push_failed tells the reader loop not to acknowledge the card,
+            # so the runner can read out again instead of the run being lost.
+            return {"ok": False, "error": f"primary unreachable: {err}",
+                    "card_number": card.get("card_number"), "push_failed": True}
+        _remember(when, (outcome.get("competitor") or {}).get("name"),
+                  card.get("card_number"), station_id, ok=bool(outcome.get("ok")))
+        return outcome
     try:
         comp = store.apply_card_read(card)
     except StoreError as err:
@@ -98,10 +116,17 @@ def process_card(card: dict, *, station_id: str | None = None,
                 return {"ok": True, "competitor": comp, "auto_created": True}
         log.warning("unmatched card %s: %s", card.get("card_number"), err)
         _remember(when, None, card.get("card_number"), station_id, ok=False)
+        # Keep the read: the operator attaches it to the right runner from the
+        # download page (or it applies itself once that card is entered), so
+        # nobody has to come back and read out again.
+        read_id = None
+        if card.get("card_number") is not None and store.has_open_event():
+            read_id = store.record_unmatched_read(card)
         # The SSE feed is public (live/projector screens), so publish only the
         # signal to refresh -- not the card number or runner name.
         events.publish("card_unknown", station_id=station_id)
-        return {"ok": False, "error": str(err), "card_number": card.get("card_number")}
+        return {"ok": False, "error": str(err), "card_number": card.get("card_number"),
+                "read_id": read_id}
 
     _remember(when, comp["name"], comp["card_number"], station_id, ok=True)
     events.publish("card_read", station_id=station_id)
@@ -124,13 +149,27 @@ def simulate(card: dict, *, station_id: str | None = None,
 # Real hardware loop (guarded; off unless reader_enabled)
 # ---------------------------------------------------------------------------
 
+def _on_event_date(value: datetime | None) -> datetime | None:
+    """
+    Re-pin a hardware time to the open event's date.
+
+    SI cards store time of day only; the library attaches *today's* date. Typed
+    and imported times use the event date, so mixing the two would put a
+    finish on a different day from its start whenever the event file's date
+    isn't today (e.g. results fixed up the day after).
+    """
+    if value is None:
+        return None
+    return datetime.combine(store.EVENT_DATE, value.time())
+
+
 def _card_from_si(data: dict, station_id: str | None) -> dict:
     """Translate the sportident library's read into our card dict."""
     return {
         "card_number": data.get("card_number"),
-        "start": data.get("start"),
-        "finish": data.get("finish"),
-        "punches": list(data.get("punches", [])),
+        "start": _on_event_date(data.get("start")),
+        "finish": _on_event_date(data.get("finish")),
+        "punches": [(code, _on_event_date(t)) for code, t in data.get("punches", [])],
         "station_id": station_id,
     }
 
@@ -144,9 +183,9 @@ def _card_from_emit(data: dict, station_id: str | None) -> dict:
     """
     return {
         "card_number": data.get("ecard") or data.get("card_number"),
-        "start": data.get("start"),
-        "finish": data.get("finish"),
-        "punches": list(data.get("punches", [])),
+        "start": _on_event_date(data.get("start")),
+        "finish": _on_event_date(data.get("finish")),
+        "punches": [(code, _on_event_date(t)) for code, t in data.get("punches", [])],
         "station_id": station_id,
     }
 
@@ -157,6 +196,7 @@ def _run_emit(port: str, station_id: str, stop_event: threading.Event) -> None:
     from emit import EmitReader  # type: ignore  # pragma: no cover - optional dep
 
     reader = EmitReader(port)
+    _set_status(station_id, state="running", error="")
     try:
         while not stop_event.is_set():
             data = reader.poll()
@@ -183,12 +223,18 @@ def _run(port: str, station_id: str, stop_event: threading.Event) -> None:
 
     log.info("opening SI reader on %s (station %s)", port, station_id)
     si = SIReaderReadout(port)
+    _set_status(station_id, state="running", error="")
     try:
         while not stop_event.is_set():
             if si.poll_sicard():
                 data = si.read_sicard()
-                process_card(_card_from_si(data, station_id), station_id=station_id)
+                outcome = process_card(_card_from_si(data, station_id),
+                                       station_id=station_id)
+                if outcome.get("push_failed"):
+                    time.sleep(1.0)  # no ack: the station signals a failed read
+                    continue
                 si.ack_sicard()
+                _set_status(station_id, last_read=datetime.now().strftime("%H:%M:%S"))
             else:
                 time.sleep(0.5)
     finally:
@@ -198,53 +244,94 @@ def _run(port: str, station_id: str, stop_event: threading.Event) -> None:
             pass
 
 
+# Per-station health for the operator: state is connecting | running | retrying
+# | stopped, with the last error and when the last card came in.
+_status: dict[str, dict] = {}
+_status_lock = threading.Lock()
+
+# Seconds to wait before reopening a reader after it fails (a bumped USB cable,
+# a station unplugged and replugged), growing to the cap while it keeps failing.
+RETRY_DELAYS = (2, 5, 10, 30)
+
+
+def _set_status(station_id: str, **fields) -> None:
+    with _status_lock:
+        _status.setdefault(station_id, {"station": station_id, "port": "",
+                                        "state": "stopped", "error": "",
+                                        "last_read": ""}).update(fields)
+
+
+def reader_status() -> list[dict]:
+    """Health of every configured reader station (for the download page)."""
+    with _status_lock:
+        return [dict(v) for v in sorted(_status.values(), key=lambda v: v["station"])]
+
+
+def _supervise(port: str, station_id: str, stop_event: threading.Event) -> None:
+    """Keep one station's reader running: reopen it after any failure until
+    told to stop, so a disconnect mid-event recovers by itself."""
+    failures = 0
+    while not stop_event.is_set():
+        _set_status(station_id, port=port, state="connecting")
+        try:
+            _run(port, station_id, stop_event)
+            failures = 0
+        except Exception as err:  # pragma: no cover - hardware/serial errors
+            delay = RETRY_DELAYS[min(failures, len(RETRY_DELAYS) - 1)]
+            failures += 1
+            log.error("SI reader %s on %s failed: %s (retrying in %ss)",
+                      station_id, port, err, delay)
+            _set_status(station_id, state="retrying", error=str(err))
+            stop_event.wait(delay)
+    _set_status(station_id, state="stopped")
+
+
 def _start_one(port: str, station_id: str) -> bool:
-    """Start a reader thread for one station (no enable/guard checks)."""
+    """Start a supervised reader thread for one station (no enable checks)."""
     with _start_lock:
         if station_id in _threads and _threads[station_id].is_alive():
             return False
         stop_event = threading.Event()
         _stops[station_id] = stop_event
-
-        def runner():
-            try:
-                _run(port, station_id, stop_event)
-            except Exception as err:  # pragma: no cover - hardware/serial errors
-                log.error("SI reader %s stopped: %s", station_id, err)
-
-        thread = threading.Thread(target=runner, name=f"si-reader-{station_id}",
-                                  daemon=True)
+        thread = threading.Thread(target=_supervise, args=(port, station_id, stop_event),
+                                  name=f"si-reader-{station_id}", daemon=True)
         _threads[station_id] = thread
         thread.start()
         return True
 
 
+def reader_enabled() -> bool:
+    """Real reader on? (Settings -> SI reader, env BMEOS_READER as fallback.)"""
+    return bool(config.get("reader_enabled"))
+
+
 def start(port: str | None = None, station_id: str = "main") -> bool:
     """
-    Start a single real reader thread if the event has the reader enabled.
+    Start a single real reader thread if the reader is enabled.
 
     Returns True if a thread was started, False if the reader is disabled or that
-    station is already running. Port-open errors are logged, not raised, so a
-    missing reader never takes down the web server.
+    station is already running. Port-open errors are logged and retried, not
+    raised, so a missing reader never takes down the web server.
     """
-    if not store.EVENT.get("reader_enabled"):
-        log.info("SI reader disabled (set BMEOS_READER to enable); running on simulated reads")
+    if not reader_enabled():
+        log.info("SI reader disabled (turn it on in Settings); running on simulated reads")
         return False
-    return _start_one(port or store.EVENT.get("reader_port"), station_id)
+    return _start_one(port or store.EVENT.get("reader_port") or "COM5", station_id)
 
 
 def start_all() -> int:
     """
     Start a reader thread per configured download station and return the count.
 
-    ``BMEOS_READER_PORTS`` lists stations as comma-separated ``port[:station]``
-    (e.g. ``COM5:finish,COM6:start``); when unset, a single ``main`` reader on
-    the event's port is started. No-op (returns 0) when the reader is disabled.
+    The "Reader ports" setting (env ``BMEOS_READER_PORTS``) lists stations as
+    comma-separated ``port[:station]`` (e.g. ``COM5:finish,COM6:start``); when
+    unset, a single ``main`` reader on the event's port is started. No-op
+    (returns 0) when the reader is disabled.
     """
-    if not store.EVENT.get("reader_enabled"):
+    if not reader_enabled():
         log.info("SI reader disabled; running on simulated reads")
         return 0
-    spec = os.environ.get("BMEOS_READER_PORTS")
+    spec = config.get_str("reader_ports")
     if not spec:
         return 1 if start() else 0
     count = 0

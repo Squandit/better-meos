@@ -44,26 +44,18 @@ def test_entry_check_entered():
     assert c.get("/check-entered?name=Ghost").get_json()["entered"] is False
 
 
-def test_entry_submit_creates_competitor_and_rejects_dupe_card():
+def test_old_unverified_entry_endpoints_are_gone():
+    # /submit-entry created competitors with no payment check and /log-entries
+    # emailed attacker-chosen text; both are replaced by online_entry.
     c = appmod.app.test_client()
     cid = store.class_options()[0]["id"]
-    r = c.get(f"/submit-entry?class={cid}&name=Paid Pat&club=REGOC&card=9100050")
-    assert "<Status>OK</Status>" in r.get_data(as_text=True)
-    assert store.find_by_card(9100050)["name"] == "Paid Pat"
-    # Same card again -> Fail with Info
-    r2 = c.get(f"/submit-entry?class={cid}&name=Other&club=&card=9100050")
-    body = r2.get_data(as_text=True)
-    assert "<Status>Fail</Status>" in body and "<Info>" in body
+    assert c.get(f"/submit-entry?class={cid}&name=Free Fred&card=9100050").status_code == 404
+    assert c.post("/log-entries", json={"email": "a@b.co"}).status_code in (404, 405)
+    assert store.find_by_card(9100050) is None
 
 
-def test_entry_log_and_results():
-    c = appmod.app.test_client()
-    r = c.post("/log-entries", json={
-        "entries": [{"name": "Paid Pat", "className": "M21A", "price": 10.0, "ok": True}],
-        "total": 10.0, "paypalId": "TESTREF", "email": "",
-    })
-    assert r.get_json()["emailSent"] is False  # no SMTP configured
-    results = c.get("/get-results").get_json()
+def test_entry_results():
+    results = appmod.app.test_client().get("/get-results").get_json()
     assert isinstance(results, list)
     assert all("className" in cls and "competitors" in cls for cls in results)
 
@@ -71,31 +63,12 @@ def test_entry_log_and_results():
 def test_entry_config_is_xss_escaped():
     # A club name containing </script> must be neutralised in the injected config.
     cid = store.class_options()[0]["id"]
-    c = appmod.app.test_client()
-    c.get(f"/submit-entry?class={cid}&name=XSS Xavier&club=" +
-          "%3C/script%3E%3Cscript%3Ealert(1)%3C/script%3E&card=9109999")
-    html = c.get("/enter").get_data(as_text=True)
+    store.create_competitor({"name": "XSS Xavier", "class_id": cid, "card_number": 9109999,
+                             "club": "</script><script>alert(1)</script>"})
+    html = appmod.app.test_client().get("/enter").get_data(as_text=True)
     # The raw breakout sequence must not appear inside the injected config.
     assert "</script><script>alert(1)" not in html
     assert "\\u003c/script\\u003e" in html  # escaped form present
-
-
-def test_log_entries_rejects_bad_email_and_caps(monkeypatch):
-    import notify
-    monkeypatch.setattr(notify, "is_enabled", lambda: True)
-    sent = {"called": False}
-    monkeypatch.setattr(notify, "_send", lambda *a, **k: sent.__setitem__("called", True) or True)
-
-    c = appmod.app.test_client()
-    # Malformed payload must not 500, and bad email must not send.
-    r = c.post("/log-entries", json={"email": "not-an-email", "entries": "junk"})
-    assert r.status_code == 200 and r.get_json()["emailSent"] is False
-    assert sent["called"] is False
-
-    r2 = c.post("/log-entries", json={"email": "ok@example.com",
-                                      "entries": [{"name": "A", "price": "bad"}],
-                                      "total": "x"})
-    assert r2.status_code == 200 and r2.get_json()["emailSent"] is True
 
 
 def test_entry_pwa_files():

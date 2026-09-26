@@ -228,9 +228,13 @@
                 if (!teams || !teams.length) {
                     teamField.hidden = true; legField.hidden = true; return;
                 }
-                sel.innerHTML = '<option value="">— none —</option>' + teams.map(function (t) {
-                    return '<option value="' + t.id + '">' + t.name + '</option>';
-                }).join("");
+                sel.innerHTML = '<option value="">— none —</option>';
+                teams.forEach(function (t) {
+                    var opt = document.createElement("option");
+                    opt.value = t.id;
+                    opt.textContent = t.name;  // text, not HTML: names are user input
+                    sel.appendChild(opt);
+                });
                 if (selectedTeamId) { sel.value = selectedTeamId; }
                 teamField.hidden = false; legField.hidden = false;
             }).catch(function () {});

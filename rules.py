@@ -22,6 +22,7 @@ Available variables are supplied by the caller (see ``results.build_result``):
 from __future__ import annotations
 
 import ast
+import math
 import operator
 
 __all__ = ["RuleError", "evaluate_formula", "validate_formula"]
@@ -31,6 +32,19 @@ class RuleError(ValueError):
     """A formula was malformed or used something not on the whitelist."""
 
 
+# Limits that keep a typo from hanging the server: ``9**9**9`` would otherwise
+# grind for minutes while holding the event lock.
+MAX_LENGTH = 300
+MAX_EXPONENT = 10
+MAX_MAGNITUDE = 1e12
+
+
+def _pow(base, exp):
+    if abs(exp) > MAX_EXPONENT:
+        raise RuleError(f"powers above {MAX_EXPONENT} aren't allowed")
+    return operator.pow(base, exp)
+
+
 _BIN_OPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -38,7 +52,7 @@ _BIN_OPS = {
     ast.Div: operator.truediv,
     ast.FloorDiv: operator.floordiv,
     ast.Mod: operator.mod,
-    ast.Pow: operator.pow,
+    ast.Pow: _pow,
 }
 _UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 _COMPARE_OPS = {
@@ -93,26 +107,55 @@ def evaluate_formula(expr: str, variables: dict) -> float:
     """
     if not expr or not expr.strip():
         raise RuleError("empty formula")
+    if len(expr) > MAX_LENGTH:
+        raise RuleError(f"formula is longer than {MAX_LENGTH} characters")
     try:
         tree = ast.parse(expr, mode="eval")
     except SyntaxError as err:
         raise RuleError(f"syntax error: {err.msg}")
-    return _eval(tree, variables)
+    try:
+        value = _eval(tree, variables)
+    except RuleError:
+        raise
+    except ZeroDivisionError:
+        raise RuleError("divides by zero")
+    except (ArithmeticError, TypeError, ValueError) as err:
+        # OverflowError, a bad round()/int() argument, and so on: every failure
+        # surfaces as RuleError so callers only ever need to catch one thing.
+        raise RuleError(f"can't be calculated: {err}")
+    if isinstance(value, complex) or not math.isfinite(value) \
+            or abs(value) > MAX_MAGNITUDE:
+        raise RuleError("result is out of range")
+    return value
 
 
-# Variables a formula may reference, with sample values, used to validate a
-# formula at the point the operator saves it (so bad formulas are rejected early).
-_SAMPLE = {"controls": 5, "points": 150, "seconds": 3000, "minutes": 50,
-           "limit": 60, "over_minutes": 0}
+# Variables a formula may reference, with sample runs (on time, late, nothing
+# found) used to validate a formula when the operator saves it, so unknown names
+# and divide-by-zero on an ordinary run are caught at save time, not mid-event.
+_SAMPLES = [
+    {"controls": 5, "points": 150, "seconds": 3000, "minutes": 50.0,
+     "limit": 60, "over_minutes": 0},
+    {"controls": 8, "points": 240, "seconds": 3790, "minutes": 3790 / 60,
+     "limit": 60, "over_minutes": 4},
+    {"controls": 0, "points": 0, "seconds": 1200, "minutes": 20.0,
+     "limit": 60, "over_minutes": 0},
+]
 
 
 def validate_formula(expr: str) -> str:
     """
-    Check a formula parses and only uses known variables/operations.
+    Check a formula parses, only uses known variables/operations, and gives a
+    number for typical runs.
 
     Returns the trimmed formula on success; raises :class:`RuleError` otherwise.
-    Run a sample evaluation so unknown names are caught at save time, not mid-event.
     """
     expr = (expr or "").strip()
-    evaluate_formula(expr, dict(_SAMPLE))
+    for sample in _SAMPLES:
+        try:
+            evaluate_formula(expr, dict(sample))
+        except RuleError as err:
+            if sample is _SAMPLES[0]:
+                raise
+            raise RuleError(f"{err} (for a run with {sample['controls']} controls, "
+                            f"{sample['over_minutes']} min over)")
     return expr

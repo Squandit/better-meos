@@ -121,6 +121,7 @@ body {
     padding: 4px 10px; border-radius: 999px; white-space: nowrap; font-weight: 600;
 }
 .chip.grey { color: var(--muted); background: #eef1f4; }
+.chip.red { color: #b8302f; background: #fbeaea; }
 
 /* ---- Stat tiles --------------------------------------------------------- */
 

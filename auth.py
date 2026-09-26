@@ -24,15 +24,18 @@ from flask import jsonify, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+import security
 
 log = logging.getLogger("auth")
 
 # Paths reachable without logging in (public-facing surfaces + auth itself).
 _PUBLIC_EXACT = {
-    "/login", "/logout", "/unlock", "/api/entries", "/api/stream", "/live", "/enter",
-    # Ported entry page (public PWA) and its backend.
+    "/login", "/logout", "/unlock", "/api/stream", "/api/version", "/live", "/enter",
+    # Ported entry page (public PWA) and its backend. Online entries go through
+    # the server-verified order/capture pair (see online_entry.py).
     "/get-classes", "/get-result-classes", "/get-results", "/search-competitors",
-    "/lookup-competitor", "/check-entered", "/submit-entry", "/log-entries",
+    "/lookup-competitor", "/check-entered",
+    "/api/online-entry/order", "/api/online-entry/capture",
     "/manifest.json", "/sw.js",
 }
 _PUBLIC_PREFIX = ("/static/", "/public/")
@@ -93,6 +96,9 @@ def install(app) -> None:
     @app.before_request
     def _require_login():
         if not is_enabled() or _is_public(request.path):
+            return None
+        # Download stations / radio controls authenticate with the station token.
+        if request.path in security.STATION_PATHS and security.has_station_token():
             return None
         user = current_user()
         if user is None:

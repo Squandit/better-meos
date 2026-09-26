@@ -9,9 +9,13 @@ over HTTP. A secondary therefore needs no event file of its own: it reads a card
 and POSTs it to ``/api/station/push`` on the primary, which records it exactly as
 it does for its own reader and broadcasts the live update to every screen.
 
-Configure a secondary with ``BMEOS_PRIMARY=http://primary-host:8765``; leave it
-unset on the primary. Pair it with ``BMEOS_READER`` so the secondary's SI station
+Configure a secondary with ``BMEOS_PRIMARY=http://primary-host:8799``; leave it
+unset on the primary. Pair it with the real reader so the secondary's SI station
 runs, and the cards flow straight through to the primary.
+
+Every push carries the shared **station token** (Settings -> Network, same value
+on every PC); the primary refuses pushes without it. The primary must also have
+"Allow the console from other computers" on so it listens on the LAN.
 """
 
 from __future__ import annotations
@@ -21,9 +25,12 @@ import os
 import urllib.error
 import urllib.request
 
+import config
 import store
 
 PUSH_PATH = "/api/station/push"
+# Must match security.STATION_HEADER (not imported: security pulls in Flask).
+STATION_HEADER = "X-Station-Token"
 
 
 def primary_url() -> str | None:
@@ -67,9 +74,13 @@ def push_card(card: dict, *, url: str | None = None, timeout: float = 5.0) -> di
     base = (url or primary_url())
     if not base:
         raise RuntimeError("no primary configured (set BMEOS_PRIMARY)")
+    token = config.get_str("station_token")
+    if not token:
+        raise RuntimeError("no station token set (Settings -> Network) -- the "
+                           "primary only accepts pushes that carry it")
     data = json.dumps(card_payload(card)).encode("utf-8")
     req = urllib.request.Request(
         base.rstrip("/") + PUSH_PATH, data=data,
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", STATION_HEADER: token})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
