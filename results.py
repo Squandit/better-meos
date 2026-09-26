@@ -1,3 +1,4 @@
+from bisect import bisect_left
 from datetime import datetime
 
 from rules import RuleError, evaluate_formula
@@ -168,8 +169,9 @@ def build_splits_matrix(results: list[dict], controls: list[int],
         })
 
     def rank(sorted_times: list[int], value: int) -> int:
-        # 1-based rank; ties share the lower rank (1, 1, 3, ...).
-        return sum(1 for x in sorted_times if x < value) + 1
+        # 1-based rank; ties share the lower rank (1, 1, 3, ...). Binary search:
+        # a linear count here made the table quadratic in the class size.
+        return bisect_left(sorted_times, value) + 1
 
     leg_lengths = leg_lengths or []
     rows = []

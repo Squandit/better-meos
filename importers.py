@@ -61,6 +61,11 @@ def import_competitors(rows: list[dict]) -> dict:
     Returns ``{"created": int, "skipped": [{"row": n, "name": str,
     "reason": str}, ...]}``. Never raises for per-row problems.
     """
+    with store.batch():  # one disk commit for the whole file
+        return _import_rows(rows)
+
+
+def _import_rows(rows: list[dict]) -> dict:
     class_by_name = {c["name"].lower(): c["id"] for c in store.class_options()}
     created = 0
     skipped = []

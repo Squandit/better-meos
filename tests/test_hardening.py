@@ -257,3 +257,47 @@ def test_relay_legs_start_at_previous_finish():
     assert result["ok"] is True
     assert [leg["seconds"] for leg in result["legs"]] == [1800, 2100]
     assert result["total_seconds"] == 3900
+
+
+# --- Caching / batching ---------------------------------------------------------
+
+def test_results_cache_follows_every_write():
+    import db
+    c = appmod.app.test_client()
+    first = c.get("/results").get_data(as_text=True)
+    assert c.get("/results").get_data(as_text=True) == first   # served from cache
+    classes, _ = store.evaluate()
+    assert store.evaluate()[0] is classes                        # same revision, same object
+    cid = store.class_options()[0]["id"]
+    before = db.revision()
+    store.create_competitor({"name": "Cache Buster", "class_id": cid})
+    assert db.revision() > before
+    assert store.evaluate()[0] is not classes
+    assert "Cache Buster" in c.get("/results").get_data(as_text=True)
+
+
+def test_batch_commits_once(monkeypatch):
+    import db
+    commits = []
+    conn = db._c()
+
+    class Spy:
+        def __getattr__(self, name):
+            return getattr(conn, name)
+
+        def commit(self):
+            commits.append(1)
+            conn.commit()
+    monkeypatch.setattr(db, "_conn", Spy())
+    cid = store.class_options()[0]["id"]
+    with store.batch():
+        for i in range(5):
+            store.create_competitor({"name": f"Batch {i}", "class_id": cid})
+    assert len(commits) == 1
+    monkeypatch.setattr(db, "_conn", conn)
+    # Committed for real: a fresh connection sees them.
+    import sqlite3
+    other = sqlite3.connect(store.current_event_path())
+    n = other.execute("SELECT COUNT(*) FROM competitors WHERE name LIKE 'Batch %'").fetchone()[0]
+    other.close()
+    assert n == 5

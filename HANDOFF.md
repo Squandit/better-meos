@@ -26,6 +26,28 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
+### 1.3 DONE — performance pass (2026-09-26, cloud session)
+Measured on a 1500-runner / 40-class / 15-control event (scratch benchmark, not
+in the repo). Card reads were already fast (~2 ms); the cost was redoing the
+same work for every viewer and committing row by row.
+- `db.revision()` bumps on every write/open/close/restore (`db._commit()`
+  wraps every commit). It is the single cache-invalidation signal.
+- `store.evaluate()` caches its result per revision (35 ms -> ~0 on a hit).
+  Callers get shared objects: never mutate them.
+- `app.cached_page` caches the rendered HTML/JSON of `/results`, `/splits`,
+  `/live`, `/clubs`, `/teams`, `/speaker`, `/public/<slug>`, `/get-results`
+  per revision (+ path/query, port, user, lock/reader state), one render per
+  page per revision even under a reload burst. 1 card read + 50 phones
+  reloading `/results`: ~10 s CPU -> 0.19 s.
+- `store.batch()` / `db.transaction()` = one commit for bulk work: imports,
+  the draw, bib numbers (1.4 s -> 0.1 s here; far more on a Windows disk),
+  course import, an online-entry cart, runner-DB CSV import.
+- Splits leg/split ranks use `bisect` (was a linear count per cell).
+- Removed dead code: `db.is_empty/all_events/next_event_id`, series + members
+  functions, `store.evaluate_event/get_team` (legacy tables stay in the schema).
+- Cold render of a huge event is still ~200 ms (/results) and ~330 ms (/splits):
+  that's HTML volume. A per-class splits view would be the next step if needed.
+
 ### 1.2 DONE — security + payments hardening (2026-09-26, cloud session)
 Branch `claude/project-review-roadmap-gi2jih`, on top of `main` (PR #1 merged, so
 the 1.0/1.1 work below IS committed now; the "uncommitted" notes there are stale).
@@ -471,7 +493,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 151 passing)
+## 7. Test suite (`tests/`, 154 passing)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:
@@ -509,7 +531,7 @@ exact counts; tests that switch/close the event restore it.
   off by default. A shared users DB (like runners.db) would fix it.
 - **SSE under waitress** can buffer on some setups; the dev server (`python
   app.py`) is unaffected. If the live screen lags in the exe, this is why.
-- **Dead code:** the old `members` table + `db.all_events/series/next_event_id` +
+- **Dead code (functions removed 2026-09-26; tables kept):** the old `members` table + `db.all_events/series/next_event_id` +
   `store.evaluate_event` are present but unused — safe to remove later.
 - **Score points are not in the IOF results XML** (no valid v3 home; they're in
   HTML/PDF).

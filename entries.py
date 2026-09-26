@@ -122,6 +122,11 @@ def draw_startlist(first_start, interval_minutes) -> dict:
     if interval < 1:
         raise StoreError("Interval must be at least 1 minute")
 
+    with store.batch():  # one disk commit for the whole draw
+        return _draw(first, interval)
+
+
+def _draw(first, interval: int) -> dict:
     pending = [e for e in db.all_entries(_event_id()) if e["competitor_id"] is None]
     by_class: dict[int, list] = {}
     for e in pending:

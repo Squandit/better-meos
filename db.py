@@ -26,12 +26,61 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 
 DEFAULT_PATH = os.environ.get("BMEOS_DB", "meos.db")
 
 _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
+
+# Bumps on every write (and on open/close/restore). Anything derived from the
+# event data -- the store's evaluated results, cached result pages -- is valid
+# for exactly one revision, so this is the single cache-invalidation signal.
+_revision = 0
+# >0 while inside transaction(): writes are grouped into one commit.
+_tx_depth = 0
+
+
+def revision() -> int:
+    return _revision
+
+
+def mark_changed() -> None:
+    """Invalidate everything derived from the event data."""
+    global _revision
+    with _lock:
+        _revision += 1
+
+
+def _commit() -> None:
+    """Commit a write (deferred inside :func:`transaction`) and bump the revision."""
+    mark_changed()
+    if _tx_depth == 0:
+        _c().commit()
+
+
+@contextmanager
+def transaction():
+    """
+    Group many writes into one commit. Each commit is a disk sync, which on a
+    Windows/OneDrive disk costs milliseconds, so a 1500-runner import or bib
+    assignment committing row by row takes tens of seconds; batched it's one.
+
+    Always commits on exit, even after an error: the store's in-memory model
+    already holds every change made so far, and the file must match it.
+    Callers hold ``store._lock`` first (store -> db lock order).
+    """
+    global _tx_depth
+    with _lock:
+        _tx_depth += 1
+    try:
+        yield
+    finally:
+        with _lock:
+            _tx_depth -= 1
+            if _tx_depth == 0 and _conn is not None:
+                _conn.commit()
 
 
 SCHEMA = """
@@ -122,6 +171,8 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'operator',
     club TEXT
 );
+-- Legacy (unused since the runner DB moved to runners.db); kept so old files
+-- and the series_id FK stay valid.
 CREATE TABLE IF NOT EXISTS members (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -205,6 +256,7 @@ def connect(path: str | None = None) -> sqlite3.Connection:
         _conn.executescript(SCHEMA)
         _migrate(_conn)
         _conn.commit()
+        mark_changed()
         return _conn
 
 
@@ -258,6 +310,7 @@ def close() -> None:
         if _conn is not None:
             _conn.close()
             _conn = None
+        mark_changed()
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +355,8 @@ def restore_from(src_path: str) -> None:
             # A backup from an older version lacks newer tables/columns.
             _c().executescript(SCHEMA)
             _migrate(_c())
-            _c().commit()
+            _commit()
+            mark_changed()
         finally:
             src.close()
 
@@ -318,12 +372,6 @@ def _iso(value: datetime | None) -> str | None:
 # ---------------------------------------------------------------------------
 # Events
 # ---------------------------------------------------------------------------
-
-def is_empty() -> bool:
-    """True when no event has been created yet (fresh database)."""
-    with _lock:
-        row = _c().execute("SELECT COUNT(*) AS n FROM events").fetchone()
-        return row["n"] == 0
 
 
 def save_event(event: dict) -> None:
@@ -347,13 +395,7 @@ def save_event(event: dict) -> None:
              event.get("series_id"), event.get("first_start"),
              event.get("type", "linear")),
         )
-        _c().commit()
-
-
-def all_events() -> list[dict]:
-    with _lock:
-        rows = _c().execute("SELECT * FROM events ORDER BY date_iso, id").fetchall()
-        return [dict(r) for r in rows]
+        _commit()
 
 
 def get_event(event_id: int) -> dict | None:
@@ -379,45 +421,6 @@ def read_event_meta(path: str) -> dict | None:
             conn.close()
     except sqlite3.Error:
         return None
-
-
-def next_event_id() -> int:
-    with _lock:
-        row = _c().execute("SELECT MAX(id) AS m FROM events").fetchone()
-        return (row["m"] or 0) + 1
-
-
-# ---------------------------------------------------------------------------
-# Series
-# ---------------------------------------------------------------------------
-
-def save_series(series: dict) -> None:
-    # UPSERT, not REPLACE: replacing a series row would null out every event's
-    # series_id (events.series_id is ON DELETE SET NULL).
-    with _lock:
-        _c().execute(
-            "INSERT INTO series (id, name) VALUES (?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET name = excluded.name",
-            (series["id"], series["name"]))
-        _c().commit()
-
-
-def all_series() -> list[dict]:
-    with _lock:
-        rows = _c().execute("SELECT * FROM series ORDER BY name").fetchall()
-        return [dict(r) for r in rows]
-
-
-def get_series(series_id: int) -> dict | None:
-    with _lock:
-        row = _c().execute("SELECT * FROM series WHERE id = ?", (series_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def next_series_id() -> int:
-    with _lock:
-        row = _c().execute("SELECT MAX(id) AS m FROM series").fetchone()
-        return (row["m"] or 0) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -455,13 +458,13 @@ def save_course(event_id: int, course: dict) -> None:
                     "VALUES (?, ?, ?, NULL, ?)",
                     (course["id"], code, seq, length),
                 )
-        db.commit()
+        _commit()
 
 
 def delete_course(course_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM courses WHERE id = ?", (course_id,))
-        _c().commit()
+        _commit()
 
 
 # ---------------------------------------------------------------------------
@@ -476,13 +479,13 @@ def save_class(event_id: int, cls: dict) -> None:
             (cls["id"], event_id, cls["name"], cls["course_id"],
              cls.get("kind", "individual"), cls.get("legs", 1), cls.get("fee", 0)),
         )
-        _c().commit()
+        _commit()
 
 
 def delete_class(class_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM classes WHERE id = ?", (class_id,))
-        _c().commit()
+        _commit()
 
 
 # ---------------------------------------------------------------------------
@@ -497,13 +500,13 @@ def save_team(event_id: int, team: dict) -> None:
             (team["id"], event_id, team["class_id"], team["name"], team.get("club"),
              team.get("bib"), _iso(team.get("start"))),
         )
-        _c().commit()
+        _commit()
 
 
 def delete_team(team_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM teams WHERE id = ?", (team_id,))
-        _c().commit()
+        _commit()
 
 
 # ---------------------------------------------------------------------------
@@ -531,18 +534,14 @@ def save_competitor(event_id: int, comp: dict) -> None:
                 "VALUES (?, ?, ?, ?, ?)",
                 (comp["id"], p["code"], _iso(p["time"]), seq, p.get("station_id")),
             )
-        db.commit()
+        _commit()
 
 
 def delete_competitor(comp_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM competitors WHERE id = ?", (comp_id,))
-        _c().commit()
+        _commit()
 
-
-# ---------------------------------------------------------------------------
-# Load
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Users (optional auth)
@@ -553,7 +552,7 @@ def insert_user(username: str, password_hash: str, role: str, club: str | None) 
         cur = _c().execute(
             "INSERT INTO users (username, password_hash, role, club) VALUES (?, ?, ?, ?)",
             (username, password_hash, role, club))
-        _c().commit()
+        _commit()
         return cur.lastrowid
 
 
@@ -567,60 +566,6 @@ def get_user(username: str) -> dict | None:
 def count_users() -> int:
     with _lock:
         return _c().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
-
-
-# ---------------------------------------------------------------------------
-# Members (the runner database powering the entry page)
-# ---------------------------------------------------------------------------
-
-def insert_member(member: dict) -> int:
-    with _lock:
-        cur = _c().execute(
-            "INSERT INTO members (name, club, card_number, type, email) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (member["name"], member.get("club"), member.get("card_number"),
-             member.get("type", "senior"), member.get("email")))
-        _c().commit()
-        return cur.lastrowid
-
-
-def all_members() -> list[dict]:
-    with _lock:
-        rows = _c().execute("SELECT * FROM members ORDER BY name").fetchall()
-        return [dict(r) for r in rows]
-
-
-def search_members(query: str, limit: int = 8) -> list[dict]:
-    with _lock:
-        rows = _c().execute(
-            "SELECT * FROM members WHERE LOWER(name) LIKE ? ORDER BY name LIMIT ?",
-            (f"%{query.lower()}%", limit)).fetchall()
-        return [dict(r) for r in rows]
-
-
-def find_member(name: str) -> dict | None:
-    with _lock:
-        row = _c().execute("SELECT * FROM members WHERE LOWER(name) = ?",
-                           (name.lower(),)).fetchone()
-        return dict(row) if row else None
-
-
-def delete_member(member_id: int) -> None:
-    with _lock:
-        _c().execute("DELETE FROM members WHERE id = ?", (member_id,))
-        _c().commit()
-
-
-def replace_members(members: list[dict]) -> None:
-    with _lock:
-        _c().execute("DELETE FROM members")
-        for m in members:
-            _c().execute(
-                "INSERT INTO members (name, club, card_number, type, email) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (m["name"], m.get("club"), m.get("card_number"),
-                 m.get("type", "senior"), m.get("email")))
-        _c().commit()
 
 
 # ---------------------------------------------------------------------------
@@ -639,7 +584,7 @@ def insert_entry(event_id: int, entry: dict) -> int:
              1 if entry.get("paid") else 0, 1 if entry.get("late") else 0,
              entry.get("competitor_id"), entry.get("created_at")),
         )
-        _c().commit()
+        _commit()
         return cur.lastrowid
 
 
@@ -650,7 +595,7 @@ def update_entry(entry_id: int, **fields) -> None:
     with _lock:
         _c().execute(f"UPDATE entries SET {cols} WHERE id = ?",
                      (*fields.values(), entry_id))
-        _c().commit()
+        _commit()
 
 
 def all_entries(event_id: int) -> list[dict]:
@@ -669,7 +614,7 @@ def get_entry(entry_id: int) -> dict | None:
 def delete_entry(entry_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM entries WHERE id = ?", (entry_id,))
-        _c().commit()
+        _commit()
 
 
 # ---------------------------------------------------------------------------
@@ -685,7 +630,7 @@ def insert_order(order: dict) -> int:
             (order["created_at"], order["status"], order["amount"], order["currency"],
              order.get("email"), order["entries_json"], order.get("note")),
         )
-        _c().commit()
+        _commit()
         return cur.lastrowid
 
 
@@ -703,7 +648,7 @@ def update_order(order_id: int, **fields) -> None:
     with _lock:
         _c().execute(f"UPDATE online_orders SET {cols} WHERE id = ?",
                      (*fields.values(), order_id))
-        _c().commit()
+        _commit()
 
 
 def get_order(order_id: int) -> dict | None:
@@ -741,7 +686,7 @@ def insert_card_read(card: dict) -> int:
              card.get("station_id"), _iso(card.get("start")), _iso(card.get("finish")),
              json.dumps(punches)),
         )
-        _c().commit()
+        _commit()
         return cur.lastrowid
 
 
@@ -771,13 +716,13 @@ def mark_card_read_assigned(read_id: int, competitor_id: int) -> None:
     with _lock:
         _c().execute("UPDATE card_reads SET competitor_id = ? WHERE id = ?",
                      (competitor_id, read_id))
-        _c().commit()
+        _commit()
 
 
 def delete_card_read(read_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM card_reads WHERE id = ?", (read_id,))
-        _c().commit()
+        _commit()
 
 
 def load_event(event_id: int) -> dict:

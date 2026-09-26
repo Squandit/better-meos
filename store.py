@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
 from datetime import date, datetime
 
 import db
@@ -92,6 +93,14 @@ _competitors: dict[int, dict] = {}
 _teams: dict[int, dict] = {}
 
 _counters = {"course": 0, "class": 0, "competitor": 0, "team": 0}
+
+
+@contextmanager
+def batch():
+    """Many mutations, one disk commit (imports, draws, bib numbering).
+    Takes the store lock first so the lock order stays store -> db."""
+    with _lock, db.transaction():
+        yield
 
 
 def _next_id(kind: str) -> int:
@@ -264,6 +273,11 @@ def seed_demo() -> None:
 
     Used by tests and demos only -- the app never seeds; new events start empty.
     """
+    with batch():
+        _seed_demo()
+
+
+def _seed_demo() -> None:
     _courses.clear()
     _classes.clear()
     _competitors.clear()
@@ -447,20 +461,29 @@ def get_competitor(comp_id: int) -> dict | None:
 
 def _evaluate_model(courses: dict, classes: dict,
                     competitors: dict) -> tuple[list[dict], dict[int, dict]]:
-    """Run a (courses, classes, competitors) model through the engine. Shared by
-    the live :func:`evaluate` and the cross-event :func:`evaluate_event`."""
+    """Run a (courses, classes, competitors) model through the engine."""
     out = []
     by_id: dict[int, dict] = {}
+    by_class: dict[int, list] = {}
+    for comp in competitors.values():
+        by_class.setdefault(comp["class_id"], []).append(comp)
     for cls in sorted(classes.values(), key=lambda c: c["name"].lower()):
         course = courses[cls["course_id"]]
         ecourse = engine_course(course)
-        members = [c for c in competitors.values() if c["class_id"] == cls["id"]]
+        members = by_class.get(cls["id"], [])
         results_in = [build_result(_engine_card(c, classes), ecourse) for c in members]
         ranked = rank_results(results_in).get(cls["name"], [])
         for r in ranked:
             by_id[r["id"]] = r
         out.append({"class": cls, "course": course, "results": ranked})
     return out, by_id
+
+
+# The last evaluation and the db revision it was computed at. Every page and
+# API reads results through evaluate(), and the same event is evaluated again
+# and again between changes (each live screen reload, each phone), so compute
+# once per revision. Every mutation writes through to db, which bumps it.
+_eval_cache: dict = {"revision": None, "value": None}
 
 
 def evaluate() -> tuple[list[dict], dict[int, dict]]:
@@ -470,19 +493,15 @@ def evaluate() -> tuple[list[dict], dict[int, dict]]:
     Returns ``(classes, by_id)`` where ``classes`` is a list of
     ``{class, course, results}`` (results already ranked for that class) and
     ``by_id`` maps competitor id -> its result, for quick lookups.
+
+    Cached per db revision: callers get shared objects and must not mutate them.
     """
     with _lock:
-        return _evaluate_model(_courses, _classes, _competitors)
-
-
-def evaluate_event(event_id: int) -> tuple[list[dict], dict[int, dict]]:
-    """Evaluate any event (the active one in memory, or another loaded from
-    the database) without disturbing the active in-memory model."""
-    with _lock:
-        if event_id == _active_event_id:
-            return _evaluate_model(_courses, _classes, _competitors)
-        data = db.load_event(event_id)
-        return _evaluate_model(data["courses"], data["classes"], data["competitors"])
+        rev = db.revision()
+        if _eval_cache["revision"] != rev:
+            _eval_cache["value"] = _evaluate_model(_courses, _classes, _competitors)
+            _eval_cache["revision"] = rev
+        return _eval_cache["value"]
 
 
 def result_for(comp_id: int) -> dict | None:
@@ -497,10 +516,6 @@ def result_for(comp_id: int) -> dict | None:
 
 def teams_in_class(class_id: int) -> list[dict]:
     return [t for t in _teams.values() if t["class_id"] == class_id]
-
-
-def get_team(team_id: int) -> dict | None:
-    return _teams.get(team_id)
 
 
 def create_team(data: dict) -> dict:
@@ -524,7 +539,7 @@ def create_team(data: dict) -> dict:
 
 
 def delete_team(team_id: int) -> None:
-    with _lock:
+    with batch():
         if team_id not in _teams:
             raise StoreError("That team no longer exists")
         # Detach members from the team (they remain as competitors).
@@ -663,7 +678,7 @@ def economy_summary() -> dict:
 
 def assign_bibs(start: int = 1) -> int:
     """Number every competitor sequentially (by start time, then name)."""
-    with _lock:
+    with batch():
         ordered = sorted(
             _competitors.values(),
             key=lambda c: (c["start"] or datetime.max, c["name"].lower()))
@@ -1317,6 +1332,7 @@ def events_in_folder(folder: str | None = None) -> list[dict]:
 
 def _load_active() -> None:
     """Replace the in-memory model with the open event file's data."""
+    db.mark_changed()
     data = db.load_event(_active_event_id)
     _courses.clear(); _courses.update(data["courses"])
     _classes.clear(); _classes.update(data["classes"])

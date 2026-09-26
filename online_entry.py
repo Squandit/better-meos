@@ -224,7 +224,7 @@ def clean_cart(raw) -> list[dict]:
 def _enter_items(items: list[dict]) -> list[dict]:
     """Create a competitor per entry; returns a per-entry outcome list."""
     results = []
-    with store._lock:
+    with store.batch():
         for item in items:
             cls = store.get_class(item["class_id"])
             outcome = {"name": item["name"], "className": cls["name"] if cls else "",

@@ -1,12 +1,14 @@
+import functools
 import json
 import os
 import tempfile
+import threading
 from datetime import datetime
 from xml.etree.ElementTree import ParseError as ET_ERROR
 from xml.sax.saxutils import escape as xml_escape
 
 from flask import (Flask, render_template, request, jsonify, abort, Response,
-                   url_for, redirect, session)
+                   make_response, url_for, redirect, session)
 
 import auth
 import config
@@ -48,6 +50,74 @@ security.install(app)
 # after an event opens (below) -- never at import, so it can't create a stray DB
 # before any event file is connected.
 auth.install(app)
+
+
+# ---------------------------------------------------------------------------
+# Rendered-page cache for the read-only result views
+# ---------------------------------------------------------------------------
+# Live screens and phones reload these pages after every change, all at once,
+# and they render identically for everyone until the data changes again. So a
+# page is rendered once per db revision (see db.revision) and served from memory
+# until the next write; a burst of reloads costs one render, not one each.
+
+_page_cache: dict = {}
+_render_locks: dict = {}
+_page_cache_revision = None
+_page_cache_lock = threading.Lock()
+# Bound on cached variants per revision (different paths / query strings), so
+# junk query strings can't grow memory without limit.
+_PAGE_CACHE_MAX = 200
+
+
+def _page_key():
+    """Everything a cached page's HTML depends on besides the event data."""
+    user = auth.current_user() or {}
+    return (request.full_path, request.environ.get("SERVER_PORT", ""),
+            user.get("username"), user.get("role"), auth.is_enabled(),
+            config.admin_password_set(), si_reader.reader_enabled())
+
+
+def _cached(key, revision):
+    with _page_cache_lock:
+        return _page_cache.get(key) if _page_cache_revision == revision else None
+
+
+def cached_page(view):
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        global _page_cache_revision
+        # Read the revision BEFORE rendering: the page is then at least as new
+        # as its key, never older (a write mid-render just makes the next
+        # request miss).
+        revision = db.revision()
+        key = _page_key()
+        with _page_cache_lock:
+            if _page_cache_revision != revision:
+                _page_cache.clear()
+                _render_locks.clear()
+                _page_cache_revision = revision
+            hit = _page_cache.get(key)
+            render_lock = _render_locks.get(key)
+            if render_lock is None and len(_render_locks) < _PAGE_CACHE_MAX:
+                render_lock = _render_locks[key] = threading.Lock()
+        if hit is None and render_lock is None:
+            return view(*args, **kwargs)  # cache full this revision: just render
+        if hit is None:
+            # One render per page per revision: a reload burst waits for the
+            # first render instead of every request rendering the same page.
+            with render_lock:
+                hit = _cached(key, revision)
+                if hit is None:
+                    resp = make_response(view(*args, **kwargs))
+                    if resp.status_code != 200:
+                        return resp
+                    hit = (resp.get_data(), resp.mimetype)
+                    with _page_cache_lock:
+                        if _page_cache_revision == revision \
+                                and len(_page_cache) < _PAGE_CACHE_MAX:
+                            _page_cache[key] = hit
+        return Response(hit[0], mimetype=hit[1])
+    return wrapper
 
 
 @app.context_processor
@@ -332,6 +402,7 @@ def api_delete_card_read(read_id):
 
 
 @app.route("/results")
+@cached_page
 def results():
     return render_template("results.html", active="results", classes=_console_data())
 
@@ -362,6 +433,7 @@ def _splits_data():
 
 
 @app.route("/splits")
+@cached_page
 def splits():
     return render_template("splits.html", active="splits", classes=_splits_data())
 
@@ -380,6 +452,7 @@ def slip(comp_id):
 
 
 @app.route("/live")
+@cached_page
 def live():
     """Projector-friendly live leaderboard (no operator chrome)."""
     return render_template("live.html", active="live", classes=_console_data())
@@ -400,6 +473,7 @@ def _club_archive():
 
 
 @app.route("/clubs")
+@cached_page
 def clubs():
     return render_template("clubs.html", active="clubs", clubs=_club_archive())
 
@@ -409,6 +483,7 @@ def clubs():
 # ---------------------------------------------------------------------------
 
 @app.route("/teams")
+@cached_page
 def teams_page():
     return render_template("teams.html", active="teams", classes=store.team_results())
 
@@ -442,6 +517,7 @@ def economy_page():
 
 
 @app.route("/speaker")
+@cached_page
 def speaker_page():
     """Commentator view: who's out on course, recent finishes."""
     rows = [r for c in _console_data() for r in c["rows"]]
@@ -504,6 +580,7 @@ def tools():
 
 
 @app.route("/public/<slug>")
+@cached_page
 def public_results(slug):
     """Permanent public, read-only results page (no operator chrome)."""
     if slug != store.EVENT["slug"]:
@@ -529,7 +606,8 @@ def api_import_courses():
         courses = iofxml.parse_courses(_uploaded_text())
     except (ValueError, ET_ERROR) as err:
         raise StoreError(f"Could not read course file: {err}")
-    created = [store.create_course(c)["name"] for c in courses]
+    with store.batch():
+        created = [store.create_course(c)["name"] for c in courses]
     events.publish("course", action="import")
     return jsonify({"created": len(created), "names": created})
 
@@ -749,6 +827,7 @@ _STATUS_TO_ENTRY = {"dsq": "dq"}  # entry page uses 'dq'; others map 1:1
 
 
 @app.route("/get-results")
+@cached_page
 def entry_results():
     class_id = request.args.get("classId", type=int)
     classes, _ = store.evaluate()
