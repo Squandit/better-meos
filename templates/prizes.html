@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Prizes{% endblock %}
+{% block heading %}Prizes{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Prize giving</h3>
+    <p>Who gets a prize under this event's rules (gear menu, top right). Read it out from the bottom of each class.
+       {% if prizes.one_per_season %}
+       {% if prizes.season %}One prize per season: earlier winners in <strong>{{ prizes.season }}</strong>{% if prizes.earlier %} ({{ prizes.earlier|join(", ") }}){% endif %} are passed over.
+       {% else %}<strong>One prize per season is on, but this event has no season set</strong>, so nobody is passed over.{% endif %}
+       {% endif %}</p>
+</div>
+
+<div class="toolbar">
+    <a class="btn btn-primary" href="{{ url_for('export_prizes_pdf') }}">Download the list (PDF)</a>
+    {% if prizes.season %}<a class="btn btn-soft" href="{{ url_for('season_page', name=prizes.season) }}">Season standings</a>{% endif %}
+</div>
+
+{% for cls in prizes.classes %}
+<section class="panel class-card">
+    <div class="panel-head">
+        <h4>{{ cls['class'] }}</h4>
+        <span class="panel-chips">
+            <span class="chip">{{ cls.prizes }} prize{{ "s" if cls.prizes != 1 }}</span>
+            <span class="chip grey">{{ cls.starters }} starter{{ "s" if cls.starters != 1 }}</span>
+        </span>
+    </div>
+    <table class="table">
+        <thead><tr><th style="width:70px;text-align:center">Prize</th><th>Name</th><th style="width:90px">Result place</th><th class="num" style="width:110px">{{ "Points" if cls.is_score else "Time" }}</th></tr></thead>
+        <tbody>
+            {% for w in cls.winners %}
+            <tr>
+                <td style="text-align:center"><span class="pos{% if w.place == 1 %} pos-lead{% endif %}">{{ w.place }}</span></td>
+                <td><span class="cell-name">{{ w.name }}</span>{% if w.club %}<div class="cell-sub">{{ w.club }}</div>{% endif %}</td>
+                <td class="mono dim">{{ w.position|ordinal }}</td>
+                <td class="num strong">{{ w.points if cls.is_score else w.time }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty">No placed runners yet</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if cls.passed_over %}
+    <div class="on-course">
+        <span class="on-course-label">Passed over</span>
+        {% for p in cls.passed_over %}<span class="on-course-item">{{ p.name }} <span class="dim">(prize at {{ p.won_at }})</span></span>{% endfor %}
+    </div>
+    {% endif %}
+</section>
+{% else %}
+<p class="empty">No classes have prizes. Check "Classes with prizes" in the gear menu.</p>
+{% endfor %}
+{% endblock %}

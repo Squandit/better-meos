@@ -166,6 +166,8 @@ def source(key: str, *, include_event: bool = True) -> str:
         return "default"
     if include_event and spec.scope == "event" and key in _event_values():
         return "event"
+    if not spec.inherit:
+        return "default"
     if _load().get(key) not in (None, ""):
         return "computer"
     if spec.env and os.environ.get(spec.env) not in (None, ""):
@@ -183,6 +185,8 @@ def get(key: str, *, include_event: bool = True):
             coerced = _coerce(values[key], type)
             if coerced is not None:
                 return coerced
+    if spec is not None and not spec.inherit:
+        return spec.default           # each event says for itself
     stored = _load().get(key)
     if stored not in (None, ""):
         coerced = _coerce(stored, type)
@@ -298,6 +302,8 @@ def save(updates: dict, *, target: str = "auto", reset: list | tuple = ()) -> No
         if spec is None:
             continue
         into_event = to_event and spec.scope == "event"
+        if not spec.inherit and not into_event:
+            continue          # no computer-wide default for this one
         blank = raw is None or (isinstance(raw, str) and raw.strip() == "")
         if spec.type == "password" and blank:
             continue  # write-only: blank means "keep the current value"
@@ -362,6 +368,9 @@ def settings_view(*, page: str | None = None, target: str = "event",
     for spec in SCHEMA:
         if spec.hidden or (page and page not in spec.pages):
             continue
+        if not spec.inherit and not include_event:
+            continue          # set per event only; nothing to default
+
         if needle and needle not in f"{spec.label} {spec.help} {spec.group}".lower():
             continue
         groups[spec.group].append(_field(spec, include_event=include_event))

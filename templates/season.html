@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Season{% endblock %}
+{% block heading %}Season{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Season standings</h3>
+    <p>Every event in the events folder with the same season name counts. Set an event's season in the gear
+       menu (or on Setup). Runners are matched by name. Points follow the open event's season rules.</p>
+</div>
+
+<form class="toolbar" method="get">
+    <label class="check">Season
+        <select name="name" onchange="this.form.submit()">
+            {% for n in names %}<option value="{{ n }}"{% if n == name %} selected{% endif %}>{{ n }}</option>{% endfor %}
+            {% if not names %}<option value="">No seasons yet</option>{% endif %}
+        </select>
+    </label>
+    {% if table %}
+    <span class="muted-count">
+        {{ table.events|length }} event{{ "s" if table.events|length != 1 }} ·
+        {% if table.rules.scoring == "time_ratio" %}time ratio, top score {{ table.rules.max_points }}{% else %}points table {{ table.rules.table[:5]|join(", ") }}{% if table.rules.table|length > 5 %}…{% endif %}{% endif %}
+        {% if table.rules.best_of %} · best {{ table.rules.best_of }} count{% endif %}
+        {% if table.rules.min_events %} · at least {{ table.rules.min_events }} to be ranked{% endif %}
+    </span>
+    {% endif %}
+</form>
+
+{% if not name %}
+<section class="panel"><div class="panel-body">
+    <p>No event belongs to a season yet. Open an event, press the gear (top right) and type a season name,
+       e.g. <em>Summer Series 2026</em>. Give the other events in the series the same name.</p>
+</div></section>
+{% elif table and not table.events %}
+<p class="empty">No event files are in the season "{{ name }}".</p>
+{% elif table %}
+{% for cls in table.classes %}
+<section class="panel class-card">
+    <div class="panel-head"><h4>{{ cls['class'] }}</h4><span class="chip grey">{{ cls.rows|length }} runner{{ "s" if cls.rows|length != 1 }}</span></div>
+    <div class="table-scroll">
+    <table class="table season-table">
+        <thead>
+            <tr>
+                <th style="width:46px;text-align:center">#</th>
+                <th>Name</th>
+                {% for ev in table.events %}<th class="num" title="{{ ev.date_iso }}">{{ ev.name }}</th>{% endfor %}
+                <th class="num" style="width:80px">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in cls.rows %}
+            <tr{% if r.position is none %} class="dim-row"{% endif %}>
+                <td style="text-align:center">{% if r.position %}<span class="pos{% if r.position == 1 %} pos-lead{% endif %}">{{ r.position }}</span>{% else %}<span class="pos pos-none" title="Not enough events yet">&ndash;</span>{% endif %}</td>
+                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                {% for p in r.points %}
+                <td class="num mono{% if p is not none and not r.counted[loop.index0] %} dropped{% endif %}"{% if p is not none and not r.counted[loop.index0] %} title="Doesn't count (not one of the best {{ table.rules.best_of }})"{% endif %}>{{ p if p is not none else "" }}</td>
+                {% endfor %}
+                <td class="num strong">{{ r.total }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

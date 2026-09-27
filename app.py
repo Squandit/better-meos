@@ -28,6 +28,7 @@ import pdf
 import publish
 import remote
 import runners
+import season
 import security
 import settings_schema
 import si_reader
@@ -1170,13 +1171,28 @@ def api_publish_now():
     return jsonify({"ok": True, "targets": targets})
 
 
+@app.route("/prizes")
+def prizes_page():
+    """The prize list under the event's prize rules (see season.py)."""
+    return render_template("prizes.html", active="prizes", prizes=season.prizes_for_open_event())
+
+
+@app.route("/season")
+def season_page():
+    """Season standings across every event with the same season name."""
+    names = season.season_names()
+    name = request.args.get("name") or config.get_str("season_name") or (names[0] if names else "")
+    return render_template("season.html", active="season", names=names, name=name,
+                           table=season.standings(name) if name else None)
+
+
 @app.route("/export/prizes.pdf")
 def export_prizes_pdf():
-    """Prize-giving list: the top places of every class."""
+    """Prize-giving list, under the same rules as the Prizes page."""
     places = max(1, int(config.get("prize_places") or 3))
-    classes = [{"name": c["name"], "is_score": c["is_score"],
-                "rows": [r for r in c["rows"] if r["position"] and r["position"] <= places]}
-               for c in display.console_data()]
+    classes = [{"name": c["class"], "is_score": c["is_score"],
+                "rows": [dict(w, position=w["place"]) for w in c["winners"]]}
+               for c in season.prizes_for_open_event()["classes"]]
     data = pdf.prize_list_pdf([c for c in classes if c["rows"]], store.EVENT, places)
     return Response(data, mimetype="application/pdf", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-prizes.pdf"})

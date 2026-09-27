@@ -463,6 +463,26 @@ def read_event_meta(path: str) -> dict | None:
         return None
 
 
+def read_event_settings(path: str) -> dict:
+    """Another event file's own settings (``{}`` if it has none or can't be
+    read), without loading the rest of it."""
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    out = {}
+    for key, value in rows:
+        try:
+            out[key] = json.loads(value)
+        except ValueError:
+            continue
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Courses (+ controls)
 # ---------------------------------------------------------------------------

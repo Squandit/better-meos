@@ -14,7 +14,8 @@ Scopes:
 * ``event``: stored inside the event file, so it travels with the event
   (fees, results display, prize rules). An event that hasn't set a value uses
   the computer's value, which is edited on the Settings page as "Defaults for
-  every event".
+  every event". ``inherit=False`` settings have no such default: each event
+  says for itself (which season an event belongs to, say).
 
 Keep secrets (``password`` type) computer-scoped: an event file gets copied
 around (backups, other PCs), so it must never carry credentials.
@@ -46,6 +47,7 @@ class Setting:
     maximum: float | None = None
     restart: bool = False       # takes effect after restarting the app
     hidden: bool = False        # stored + read by code, never shown as a field
+    inherit: bool = True        # event scope: False = no "default for every event"
 
     def __post_init__(self):
         assert self.type in TYPES, self.type
@@ -53,6 +55,7 @@ class Setting:
         assert not (self.type == "password" and self.scope == "event"), \
             f"{self.key}: secrets must stay on this computer"
         assert self.type != "choice" or self.choices, f"{self.key}: choice needs choices"
+        assert self.inherit or self.scope == "event", f"{self.key}: only event settings can opt out"
 
 
 # Order of sections on the master Settings page.
@@ -229,10 +232,45 @@ SCHEMA: list[Setting] = [
       env="BMEOS_SLIP_PAPER", pages=("download",),
       choices=(("80mm", "80 mm receipt printer"), ("a4", "A4 / Letter"))),
 
-    # ---- Prizes ---------------------------------------------------------------
+    # ---- Prizes & season ------------------------------------------------------
     S("prize_places", "Prizes per class", "int", 3, "Prizes & season",
-      "How many places get a prize (prize list PDF).", env="BMEOS_PRIZE_PLACES",
-      scope="event", pages=("results",), minimum=1, maximum=50),
+      "How many places get a prize.", env="BMEOS_PRIZE_PLACES",
+      scope="event", pages=("results", "prizes"), minimum=1, maximum=50),
+    S("prize_share", "At most this share of starters", "int", 0, "Prizes & season",
+      "Small classes get fewer prizes: e.g. 33 gives a third of the starters a "
+      "prize, rounded up (0 = always the full number).", scope="event",
+      pages=("prizes",), minimum=0, maximum=100),
+    S("prize_classes", "Classes with prizes", "text", "", "Prizes & season",
+      "Comma separated, e.g. juniors only (blank = every class).", scope="event",
+      pages=("prizes",)),
+    S("prize_one_per_season", "One prize per season", "bool", False, "Prizes & season",
+      "Someone who won a prize at an earlier event this season is passed over "
+      "and the prize goes to the next runner. Needs the event's season set.",
+      scope="event", pages=("prizes", "season")),
+    S("season_name", "Season", "str", "", "Prizes & season",
+      "Events with the same season name count together for standings and prizes, "
+      "e.g. Summer Series 2026. Set it on each event.", scope="event", inherit=False,
+      pages=("prizes", "season", "setup")),
+    S("season_scoring", "Season points", "choice", "points_table", "Prizes & season",
+      "", scope="event", pages=("season",),
+      choices=(("points_table", "By place, from the points table"),
+               ("time_ratio", "Winner's time ÷ your time × the top score"))),
+    S("season_points", "Points table", "str", "25,20,16,13,11,10,9,8,7,6,5,4,3,2,1",
+      "Prizes & season", "Points for 1st, 2nd, 3rd…", scope="event", pages=("season",)),
+    S("season_max_points", "Top score (time ratio)", "int", 100, "Prizes & season",
+      "The winner's points; everyone else gets a share by time (score courses: "
+      "by points).", scope="event", pages=("season",), minimum=1, maximum=10000),
+    S("season_finish_points", "Points for other finishers", "int", 0, "Prizes & season",
+      "OK runs past the end of the points table.", scope="event", pages=("season",),
+      minimum=0, maximum=10000),
+    S("season_start_points", "Points for MP / DNF", "int", 0, "Prizes & season",
+      "For turning up and trying (0 = none).", scope="event", pages=("season",),
+      minimum=0, maximum=10000),
+    S("season_best_of", "Best results that count", "int", 0, "Prizes & season",
+      "Only each runner's best N events count (0 = all).", scope="event",
+      pages=("season",), minimum=0, maximum=100),
+    S("season_min_events", "Events needed to be ranked", "int", 0, "Prizes & season",
+      "", scope="event", pages=("season",), minimum=0, maximum=100),
 
     # ---- SI reader -----------------------------------------------------------
     S("reader_enabled", "Use a real SI reader", "bool", False, "SI reader",

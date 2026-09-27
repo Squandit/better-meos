@@ -929,3 +929,8 @@ tr.quick-entry-row > td { background: var(--surface-2); }
 .quick-entry .form-error { color: var(--red, #c0392b); font-weight: 600; }
 .form-error:empty { display: none; }
 .toolbar select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+
+/* ---- Season standings --------------------------------------------------- */
+.table-scroll { overflow-x: auto; }
+.season-table td.dropped { color: var(--hint); text-decoration: line-through; }
+.season-table tr.dim-row td { color: var(--muted); }
