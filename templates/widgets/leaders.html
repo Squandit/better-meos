@@ -1,0 +1,11 @@
+<div class="leader-grid">
+    {% for l in w.data.leaders %}
+    <div class="leader">
+        <div class="l-class">{{ l['class'] }}</div>
+        <div class="l-name">{{ l.row.name }}</div>
+        <div class="cell-sub">{{ l.row.club }}{% if l.is_score %} · {{ l.row.points }} pts{% endif %} · {{ l.row.time }}</div>
+    </div>
+    {% else %}
+    <p class="empty">No leaders yet.</p>
+    {% endfor %}
+</div>

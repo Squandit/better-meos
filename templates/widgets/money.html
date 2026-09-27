@@ -1,0 +1,6 @@
+<ul class="sys-list">
+    <li><span>Entry fees (classes)</span><strong>{{ '%.2f'|format(w.data.fees) }} {{ w.data.currency }}</strong></li>
+    <li><span>Paid online</span><span>{{ w.data.online_orders }} checkout{{ '' if w.data.online_orders == 1 else 's' }} · {{ '%.2f'|format(w.data.online_total) }}</span></li>
+    <li><span>Hire cards out</span><span>{{ w.data.hire_out }}</span></li>
+</ul>
+<a class="link-btn" href="{{ url_for('economy_page') }}">Economy →</a>

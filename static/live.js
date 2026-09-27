@@ -21,7 +21,12 @@
     var reloadTimer = null;
     function scheduleReload() {
         if (reloadTimer) { return; }          // a reload is already queued
-        reloadTimer = setTimeout(function () { window.location.reload(); }, 600);
+        reloadTimer = setTimeout(function () {
+            reloadTimer = null;
+            // Don't yank the page away while someone is customising it or typing.
+            if (document.body.dataset.editing === "1") { scheduleReload(); return; }
+            window.location.reload();
+        }, 600);
     }
 
     // Fallback when the server refuses a stream (too many open) or the browser

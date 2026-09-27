@@ -97,6 +97,16 @@ SCHEMA: list[Setting] = [
       pages=("overview",),
       choices=(("90", "Small"), ("100", "Normal"), ("110", "Large"), ("125", "Extra large"))),
 
+    # ---- Home screen -----------------------------------------------------------
+    S("dashboard_layout", "Home screen layout", "json", "", "Home screen",
+      "Which widgets show, in what order and size (set with Customise).",
+      hidden=True),
+    S("dashboard_notes", "Notes", "text", "", "Home screen", "", scope="event", hidden=True),
+    S("overdue_after_minutes", "Overdue after (minutes)", "int", 0, "Home screen",
+      "Flag runners still out after this long when their course has no max time "
+      "(0 = only use max times).", scope="event", pages=("overview", "speaker"),
+      minimum=0, maximum=1440),
+
     # ---- Entries & fees (per event) ----------------------------------------
     S("currency", "Currency", "str", "AUD", "Entries & fees",
       "ISO currency code, e.g. AUD. Must match your PayPal account.",

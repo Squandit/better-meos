@@ -1,0 +1,9 @@
+{% if w.data['items'] %}
+<ul class="alert-list">
+    {% for a in w.data['items'] %}
+    <li class="alert-{{ a.level }}"><span>{{ a.text }}</span><a class="link-btn" href="{{ a.href }}">{{ a.action }} →</a></li>
+    {% endfor %}
+</ul>
+{% else %}
+<p class="dash-ok">All good. Nothing needs you right now.</p>
+{% endif %}

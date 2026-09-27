@@ -1,0 +1,17 @@
+<div class="ops-bar">
+    <span class="reader-pill{% if w.data.reader_enabled %} live{% endif %}"><span class="dot"></span>{{ 'Reader live' if w.data.reader_enabled else 'Simulated reads' }}</span>
+    <span class="toolbar-spacer"></span>
+    <a class="btn btn-soft btn-sm" href="{{ url_for('readout_page') }}" target="_blank" rel="noopener">Readout screen</a>
+    <button class="btn btn-sm" data-simulate-read>Simulate card read</button>
+</div>
+<ul class="read-list">
+    {% for r in w.data.reads %}
+    <li class="{{ 'ok' if r.ok else 'bad' }}">
+        <span class="mono">{{ r.time }}</span>
+        <span class="rd-station">{{ r.station }}</span>
+        <span class="rd-name">{% if r.ok %}{{ r.name }}{% else %}unknown card {{ r.card_number }}{% endif %}</span>
+    </li>
+    {% else %}
+    <li class="empty">No downloads yet.</li>
+    {% endfor %}
+</ul>

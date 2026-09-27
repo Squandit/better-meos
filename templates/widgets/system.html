@@ -1,0 +1,8 @@
+<ul class="sys-list">
+    <li><span>SI reader</span>
+        {% if not w.data.reader_enabled %}<span class="dim">simulated</span>
+        {% else %}{% for r in w.data.readers %}<span class="{{ 'ok-text' if r.state == 'running' else 'bad-text' }}">{{ r.station }} {{ r.port }} {{ r.state }}</span>{% else %}<span class="bad-text">not started</span>{% endfor %}{% endif %}</li>
+    <li><span>Last backup</span><span class="{{ 'bad-text' if w.data.backup.error else '' }}">{{ w.data.backup.last_time or 'not yet' }}</span></li>
+    <li><span>Online results</span><span>{% if w.data.publish.enabled %}{{ w.data.publish.last_time or 'waiting' }}{% else %}<span class="dim">off</span>{% endif %}</span></li>
+    <li><span>Remote entry</span><span>{% if w.data.remote %}<a href="{{ w.data.remote }}/enter" target="_blank" rel="noopener">on</a>{% else %}<span class="dim">off</span>{% endif %}</span></li>
+</ul>

@@ -1,0 +1,12 @@
+{% if w.data.minute %}
+<p class="dash-sub">Next start <strong class="mono">{{ w.data.minute }}</strong> · in <span class="mono" data-countdown="{{ w.data.seconds }}"></span></p>
+<table class="mini-list">
+    {% for r in w.data.rows %}
+    <tr class="{{ 'dim' if r.vacant else '' }}"><td class="mono">{{ r.start }}</td><td>{{ r.name }}</td><td class="cell-sub">{{ r['class'] }}</td></tr>
+    {% endfor %}
+</table>
+{% if w.data.later %}<p class="cell-sub">+{{ w.data.later }} later</p>{% endif %}
+<a class="link-btn" href="{{ url_for('starter_page') }}" target="_blank" rel="noopener">Start clock →</a>
+{% else %}
+<p class="dash-ok">No more starts.</p>
+{% endif %}

@@ -1,0 +1,7 @@
+<div class="status-chips">
+    {% for s in w.data['items'] %}
+    <span><span class="badge badge-{{ s.status }}">{{ s.status|upper }}</span> <strong>{{ s.count }}</strong></span>
+    {% else %}
+    <span class="empty">No results yet.</span>
+    {% endfor %}
+</div>

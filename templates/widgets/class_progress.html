@@ -1,0 +1,14 @@
+<div class="progress-list">
+    {% for c in w.data.rows %}
+    <div class="progress-row">
+        <span class="p-name">{{ c.name }}</span>
+        <span class="p-bar" title="{{ c.finished }} of {{ c.total }} finished, {{ c.started }} started">
+            <span class="p-started" style="width:{{ (100 * c.started / c.total) if c.total else 0 }}%"></span>
+            <span class="p-done" style="width:{{ c.pct }}%"></span>
+        </span>
+        <span class="p-num mono">{{ c.finished }}/{{ c.total }}</span>
+    </div>
+    {% else %}
+    <p class="empty">No classes yet.</p>
+    {% endfor %}
+</div>

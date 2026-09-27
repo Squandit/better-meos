@@ -1,0 +1,9 @@
+{% if w.data.bars %}
+<div class="bars" role="img" aria-label="Finishes per 10 minutes">
+    {% for b in w.data.bars %}
+    <div class="bar" title="{{ b.label }}: {{ b.count }}"><span style="height:{{ (100 * b.count / w.data.peak) if w.data.peak else 0 }}%"></span><em>{{ b.label if loop.first or loop.last else '' }}</em></div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="empty">No finishes yet.</p>
+{% endif %}

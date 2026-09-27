@@ -1,0 +1,8 @@
+<div class="dash-stats">
+    <div><span class="v">{{ w.data.competitors }}</span><span class="l">competitors</span></div>
+    <div><span class="v">{{ w.data.started }}</span><span class="l">started</span></div>
+    <div><span class="v">{{ w.data.out }}</span><span class="l">out on course</span></div>
+    <div><span class="v">{{ w.data.finished }}</span><span class="l">finished</span></div>
+    <div class="{{ 'bad' if w.data.flagged else '' }}"><span class="v">{{ w.data.flagged }}</span><span class="l">MP / DNF / DSQ</span></div>
+    <div class="{{ 'bad' if w.data.unmatched else '' }}"><span class="v">{{ w.data.unmatched }}</span><span class="l">unmatched cards</span></div>
+</div>

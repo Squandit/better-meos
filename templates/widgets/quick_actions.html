@@ -1,0 +1,10 @@
+<div class="quick-grid">
+    <button class="btn btn-soft btn-sm" data-simulate-read>Simulate read</button>
+    <a class="btn btn-soft btn-sm" href="{{ url_for('readout_page') }}" target="_blank" rel="noopener">Readout screen</a>
+    <a class="btn btn-soft btn-sm" href="{{ url_for('starter_page') }}" target="_blank" rel="noopener">Start clock</a>
+    <a class="btn btn-soft btn-sm" href="{{ url_for('live') }}" target="_blank" rel="noopener">Live screen</a>
+    <a class="btn btn-soft btn-sm" href="{{ url_for('draw_page') }}">Start draw</a>
+    <a class="btn btn-soft btn-sm" href="{{ url_for('export_prizes_pdf') }}">Prize list</a>
+    <button class="btn btn-soft btn-sm" data-post="/api/backups/now">Back up now</button>
+    {% if w.data.publish_enabled %}<button class="btn btn-soft btn-sm" data-post="/api/publish/now">Publish results</button>{% endif %}
+</div>

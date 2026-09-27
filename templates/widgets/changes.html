@@ -1,0 +1,8 @@
+<ul class="change-list">
+    {% for e in w.data.entries %}
+    <li><span class="mono dim">{{ e.at[11:16] }}</span> <strong>{{ e.action }}</strong> {{ e.target }}<div class="cell-sub">{{ e.detail }}</div></li>
+    {% else %}
+    <li class="empty">No changes yet.</li>
+    {% endfor %}
+</ul>
+<a class="link-btn" href="{{ url_for('audit_page') }}">Change log →</a>

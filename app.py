@@ -13,6 +13,7 @@ from flask import (Flask, render_template, request, jsonify, abort, Response,
 import auth
 import backups
 import config
+import dashboard
 import db
 import draw
 import entries as entries_mod
@@ -311,39 +312,34 @@ def _console_data():
 
 @app.route("/")
 def index():
+    """The customisable home screen (see dashboard.py)."""
     classes = _console_data()
-    all_rows = [r for c in classes for r in c["rows"]]
-    finished = [r for r in all_rows if r["time"] is not None]
+    ctx = {"classes": classes, "rows": [r for c in classes for r in c["rows"]],
+           "evaluated": store.evaluate()[0]}
+    return render_template("overview.html", active="overview",
+                           widgets=dashboard.build(ctx), catalogue=dashboard.catalogue())
 
-    counts = {}
-    for r in all_rows:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
-    status_breakdown = [
-        {"status": s, "label": STATUS_LABELS[s], "count": counts[s]}
-        for s in STATUS_ORDER if counts.get(s)
-    ]
 
-    latest = sorted(finished, key=lambda r: r["finish"], reverse=True)[:6]
+@app.route("/api/dashboard", methods=["POST"])
+def api_dashboard_layout():
+    """Save the home screen layout (which widgets, order, width) for this PC."""
+    return jsonify({"ok": True, "layout": dashboard.save_layout(_payload().get("layout"))})
 
-    leaders = []
-    for c in classes:
-        top = next((r for r in c["rows"] if r["position"] == 1), None)
-        if top:
-            leaders.append({"class": c["name"], "is_score": c["is_score"], "row": top})
 
-    stats = {
-        "competitors": len(all_rows),
-        "classes": len(classes),
-        "finished": len(finished),
-        "flagged": sum(1 for r in all_rows if r["status"] in FLAGGED),
-        "awaiting": len(all_rows) - len(finished),
-    }
-    return render_template(
-        "overview.html", active="overview", stats=stats,
-        status_breakdown=status_breakdown, latest=latest, leaders=leaders,
-        reader_enabled=si_reader.reader_enabled(),
-        recent_reads=si_reader.recent_reads(),
-    )
+@app.route("/api/dashboard/reset", methods=["POST"])
+def api_dashboard_reset():
+    dashboard.reset_layout()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/dashboard/notes", methods=["POST"])
+def api_dashboard_notes():
+    text = str(_payload().get("text") or "")
+    try:
+        config.save({"dashboard_notes": text}, target="event")
+    except config.SettingError as err:
+        raise StoreError(str(err))
+    return jsonify({"ok": True})
 
 
 def _vacant_rows():

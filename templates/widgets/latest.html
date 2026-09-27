@@ -1,0 +1,12 @@
+<table class="mini-list">
+    {% for r in w.data.rows %}
+    <tr>
+        <td class="mono dim">{{ r.finish }}</td>
+        <td>{{ r.name }}<div class="cell-sub">{{ r['class'] }}</div></td>
+        <td class="num strong">{{ r.time or '–' }}</td>
+        <td style="text-align:right">{% if r.is_ok %}<span class="badge badge-ok">OK</span>{% else %}<span class="badge badge-{{ r.status }}">{{ r.status_label }}</span>{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td class="empty">No finishes yet.</td></tr>
+    {% endfor %}
+</table>

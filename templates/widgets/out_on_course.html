@@ -1,0 +1,13 @@
+{% if w.data.rows %}
+<p class="dash-sub">{{ w.data.total }} out{% if w.data.overdue %} · <strong class="bad-text">{{ w.data.overdue }} overdue</strong>{% endif %}</p>
+<table class="mini-list">
+    {% for r in w.data.rows %}
+    <tr class="{{ 'overdue' if r.overdue else '' }}">
+        <td>{{ r.name }}<div class="cell-sub">{{ r['class'] }} · started {{ r.start }}</div></td>
+        <td class="num mono">{{ r.running | format_secs }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+<p class="dash-ok">Nobody out on course.</p>
+{% endif %}

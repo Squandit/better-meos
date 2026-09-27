@@ -1,0 +1,10 @@
+{% if w.data.rows %}
+<table class="mini-list">
+    {% for r in w.data.rows %}
+    <tr class="{{ 'overdue' if r.pct >= 20 else '' }}"><td>Control <strong>{{ r.code }}</strong></td><td class="num">{{ r.missed }} missed</td><td class="num dim">{{ r.pct }}%</td></tr>
+    {% endfor %}
+</table>
+<p class="cell-sub">Several misses at one control usually means it's missing, moved or its unit is broken.</p>
+{% else %}
+<p class="dash-ok">No missed controls.</p>
+{% endif %}
