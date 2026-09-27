@@ -92,6 +92,14 @@ Committed straight to main, one commit per feature. Tests: **256 passing**
 - **Runner analysis** (`/public/<slug>/runner/<id>`): leg table, estimated time
   loss (vs the mean of the best three, scaled by the runner's median pace),
   behind-the-fastest graph. `/public/<slug>/results.json` for websites.
+- **Sidebar**: Essentials (Overview, Competitors, Classes, Courses, Start draw,
+  Download, Results) always shown; everything else under a collapsible "More
+  tools" (remembered per browser, open when you're on one of its pages).
+- **Help panel** (`static/help.js`, `?` / F1 or the ? button): per-page help with
+  the MeOS equivalent and "Show me" buttons that spotlight controls, a MeOS tab
+  -> page map, and guided tours that move page to page highlighting each
+  button (state in sessionStorage). Tour steps are data at the top of help.js;
+  a step whose element is missing shows as a centred card.
 - Small fixes: favicon (every page 404'd), numeric table headers right-aligned,
   macros imported `with context`.
 

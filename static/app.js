@@ -35,3 +35,16 @@ document.querySelectorAll("[data-filter]").forEach(function (wrap) {
     }
     input.addEventListener("input", apply);
 });
+
+// Sidebar "More tools": stays open or closed as you left it (always open on
+// one of its own pages).
+(function () {
+    var more = document.querySelector("[data-nav-more]");
+    if (!more) return;
+    var saved = null;
+    try { saved = localStorage.getItem("bm-nav-more"); } catch (e) { /* private mode */ }
+    if (saved === "1") more.open = true;
+    more.addEventListener("toggle", function () {
+        try { localStorage.setItem("bm-nav-more", more.open ? "1" : "0"); } catch (e) { /* ignore */ }
+    });
+})();

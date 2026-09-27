@@ -113,3 +113,15 @@ def test_command_palette_search(client):
     assert client.get("/api/search?q=").get_json()["runners"] == []
     html = client.get("/results").get_data(as_text=True)
     assert "palette.js" in html and "data-palette" in html
+
+
+def test_sidebar_groups_and_help_panel(client):
+    html = client.get("/results").get_data(as_text=True)
+    essentials = html[html.index("Essentials"):html.index("data-nav-more")]
+    for page in ("Competitors", "Classes", "Courses", "Download", "Results"):
+        assert page in essentials
+    more = html[html.index("data-nav-more"):html.index("</details>")]
+    for page in ("Speaker", "Start clock", "Economy", "Controls"):
+        assert page in more
+    assert "data-help-panel" in html and "help.js" in html and "data-help-open" in html
+    assert "Take the tour" in client.get("/setup").get_data(as_text=True)
