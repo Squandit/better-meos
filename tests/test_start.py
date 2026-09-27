@@ -78,7 +78,7 @@ def test_start_clock_call_up_and_beeps(cfg):
     import app as appmod
     c = appmod.app.test_client()
     html = c.get("/starter").get_data(as_text=True)
-    assert 'data-callup="3"' in html and "Call up" in html and '<button class="sound"' in html
+    assert 'data-callup-minutes="3"' in html and "Call up" in html and '<button class="sound"' in html
     cfg.save({"start_callup_minutes": 0}, target="event")
     cfg.save({"start_beeps": "off"}, target="computer")
     html = c.get("/starter").get_data(as_text=True)

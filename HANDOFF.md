@@ -26,6 +26,79 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
+### 1.5 DONE: settings, flow and MeOS parity (2026-09-27, cloud session)
+Committed straight to main, one commit per feature. Tests: **256 passing**
+(`python -m pytest -q`); every new page checked in Chromium under waitress.
+
+- **Settings v2** (`settings_schema.py` declares every setting, `config.py`
+  resolves them): event file -> config.json -> env -> default. Scopes are
+  `computer` and `event` (event values travel in the event file's `settings`
+  table). `inherit=False` settings (season name, control statuses) have no
+  "default for every event". Secrets are computer-only. Master page /config
+  (search, "This event" vs "Defaults for every event", `?q=` deep link) and a
+  gear drawer on every page with settings (`pages=` in the schema). Changes
+  save as you make them; any save bumps `db.revision()` so cached pages and
+  results refresh.
+- **Appearance**: theme light/dark/auto, accent colour, density, text size
+  (per computer), via `data-*` on `<html>` and CSS variables.
+- **Home screen** (`dashboard.py`, `templates/widgets/`): 17 widgets, layout
+  per computer, Customise mode (add, remove, drag, resize). Notes widget saves
+  with the event. Checklist widget.
+- **"Pending" status** (important): a runner with no card read and no finish
+  is `pending` (shown On course / Not started / Not read), never DNF/DNS.
+  `competitors.read_at` is set by every card read, auto-create, imports and a
+  typed-in finish; old files are backfilled from existing runs. IOF export:
+  Active / Inactive.
+- **Results display** (`display.py` is now the view layer: `view_row`,
+  `console_data`, `results_view`, time formats, class order, slip view,
+  runner analysis). Per-event settings: time format (45:09 / 65:09 /
+  01:05:09), results by class or course, which unplaced runners show, who's
+  still out, time behind, clickable splits, custom class order (natural sort
+  otherwise). `results_view(public=...)`: public views drop hidden classes.
+- **Live screen**: pages through classes that don't fit, refreshes in place
+  (`static/livescreen.js` + `window.BMSoftRefresh` hook in live.js), fresh
+  finishers glow, ticker, clock, text size, `?classes=` per screen.
+- **Download desk**: quick entry for unknown cards (class guessed from the
+  punches, name from the runner DB), "Unknown cards" setting replaces
+  BMEOS_AUTO_CREATE (still honoured). **Auto-print rewritten**: hidden print
+  frames (`static/printing.js`), read-sequence based, rules off/all/OK/problems
+  per computer. The old window.open version was popup-blocked. Slips: course
+  order, leg places, place/behind, footer.
+- **Engine fixes**: a check punch later than the start is ignored (stale
+  check / night event used to wipe out whole runs).
+- **Seasons + prizes** (`season.py`, /season, /prizes): events with the same
+  Season name count together. Points table or time ratio, best N, minimum
+  events, participation points. Prize rules: places, share of starters,
+  classes, **one prize per season** (earlier winners passed over, earlier
+  events judged by their own rules). Prize PDF follows the same list.
+- **Control statuses** (`controls.py`, /controls): bad / optional / no timing /
+  alternate codes per event (hidden json setting `control_config`), applied in
+  the engine (`results.parse_control_config`, `linear_course_rules`) and in
+  every split view (`store.split_controls`). Page shows punched/missed, first
+  and last punch, typical leg, stray codes.
+- **Class options**: results normal / names only / hidden, max entries,
+  online entry on/off (enforced in online_entry, entry page class list).
+- **Course import**: OCAD / Purple Pen ClassCourseAssignment creates or moves
+  classes; re-import updates courses by name instead of duplicating.
+- **Economy**: per-runner fee (blank = class fee), paid, method; hire card
+  fee; one-click payments; club invoices PDF. Online entries arrive paid with
+  exact shares (`payments._shares` spreads the family-cap discount).
+- **Start clock**: call-up list N minutes ahead, SI-style beeps (per computer,
+  one click to enable sound). **Entry page**: on/off switch, organiser message.
+- **Command palette** (Ctrl+K or "/", `static/palette.js`, `/api/search`):
+  runners by name/card/bib -> editor, classes, clubs, pages, settings, actions.
+- **Checklists** (`checklist.py`, Setup page): race day, and close-out with
+  runners still out by name and "mark the rest DNS".
+- **Runner analysis** (`/public/<slug>/runner/<id>`): leg table, estimated time
+  loss (vs the mean of the best three, scaled by the runner's median pace),
+  behind-the-fastest graph. `/public/<slug>/results.json` for websites.
+- Small fixes: favicon (every page 404'd), numeric table headers right-aligned,
+  macros imported `with context`.
+
+**Still not done**: native .meos import; list designer; i18n; Emit/SRR radio
+hardware; hire-card option on the online entry form (needs entries without a
+card number); live PayPal / Eventor runs.
+
 ### 1.4 DONE — MeOS gap list (2026-09-27, cloud session)
 One commit per item on `claude/project-review-roadmap-gi2jih` (then merged to
 main). Tests: **194 passing**; every page checked in Chromium under waitress.
@@ -323,7 +396,15 @@ is open.
 
 ### 3.2 Python modules (all in the repo root)
 - **`app.py`** — Flask app: all routes, the open-event guard, context processors,
-  status/label helpers, view-row shaping. The orchestration layer.
+  the rendered-page cache. The orchestration layer.
+- **`display.py`** — results as people see them: status labels, time formats,
+  `view_row`, `console_data`, `results_view` (grouping, filtering, behind,
+  on course, public/hidden), `slip_view`, `runner_analysis`, public JSON.
+- **`settings_schema.py` / `config.py`** — every setting declared once; lookup
+  event -> computer -> env -> default; `settings_view` for the UI.
+- **`dashboard.py`** (home screen widgets), **`season.py`** (standings + prize
+  rules across event files), **`controls.py`** (control statuses + report),
+  **`checklist.py`** (race day / close-out), **`search.py`** (command palette).
 - **`store.py`** — the in-memory event model (courses/classes/competitors/teams
   as dicts keyed by id) + all validation and mutations, **write-through** to the
   open event file via `db`. Owns: `open_event/new_event/close_event/
@@ -393,7 +474,13 @@ class_name, count).
   the editor** (Edit button kept, clicking outside cancels), card→runner
   autofill, relay team/leg picker.
 - `static/app.js` — splits expand/collapse + table filters.
-- `static/live.js` — SSE subscriber; reloads read-only pages on change.
+- `static/live.js` — SSE subscriber; reloads read-only pages on change (or calls
+  `window.BMSoftRefresh` when a page defines it; holds while
+  `body.dataset.editing` / `printing` is set).
+- `static/settings.js` (settings rows + gear drawer), `static/dashboard.js`
+  (customise mode), `static/livescreen.js` (paging + in-place refresh),
+  `static/printing.js` (hidden-frame slip printing), `static/palette.js`
+  (Ctrl+K).
 - `templates/start.html` (standalone event-selection page) + `setup.html`
   (per-event hub). `templates/entry.html` — the ported OWA PayPal PWA (now
   sans-serif; no-DB entry; results tab expands splits). `slip.html` (printable
@@ -504,8 +591,15 @@ padding as `.panel-body`.
   `POST /api/orders/<id>/refunded`. **Unmatched reads:**
   `POST /api/card-reads/<id>/assign`, `DELETE /api/card-reads/<id>`.
 - **Auth:** `GET/POST /login`, `GET /logout`.
-- **Admin unlock + Settings:** `GET/POST /unlock`, `GET /lock`, `GET /config`,
-  `GET/POST /api/config`. (Admin surface; `/unlock` is exempt from the gate.)
+- **Admin unlock + Settings:** `GET/POST /unlock`, `GET /lock`, `GET /config`
+  (`?target=`, `?q=`), `GET/POST /api/settings`, `GET/POST /api/config` (old
+  shape). (Admin surface; `/unlock` is exempt from the gate.)
+- **Added 2026-09-27:** `/controls` + `POST /api/controls/<code>`, `/prizes`,
+  `/season`, `GET /api/search`, `POST /api/dashboard` (+ `/reset`, `/notes`),
+  `POST /api/card-reads/<id>/enter` (quick entry), `POST /api/competitors/<id>/
+  payment`, `/export/invoices.pdf[?club=]`, `POST /api/close-out/remaining`,
+  public `/public/<slug>/runner/<id>` and `/public/<slug>/results.json`,
+  `/favicon.ico`.
 
 ---
 
@@ -542,7 +636,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 194 passing)
+## 7. Test suite (`tests/`, 256 passing)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:
@@ -552,7 +646,12 @@ backup/restore), `test_api` (routes), `test_import_export`, `test_entries`
 (runners/simulator/autofill/print/teams), `test_meos_features` (relay/geometry/
 economy/bibs/punch-start), `test_integrations` (Emit/radio/Eventor), `test_ops`
 (auth/multi-station/sync), `test_start` (file-per-event lifecycle + guard),
-`test_packaging` (launcher + remote). Run: `venv\Scripts\python -m pytest -q`.
+`test_packaging` (launcher + remote), plus (2026-09-27) `test_settings`,
+`test_dashboard`, `test_display`, `test_readout_desk`, `test_season`,
+`test_controls`, `test_class_options`, `test_economy`, `test_checklist`.
+Run: `venv\Scripts\python -m pytest -q`. Tests that need their own data
+create it and clean up (see the `scratch` fixtures); don't assert on the
+shared seeded runners' exact places, other tests add runners to M21A.
 Note: tests share one process/store, so several assert membership rather than
 exact counts; tests that switch/close the event restore it.
 
@@ -574,10 +673,8 @@ exact counts; tests that switch/close the event restore it.
 ---
 
 ## 9. Known limitations / deferred
-- **Cross-event series + competitor profiles** were retired by file-per-event;
-  revisit as a cross-file feature (scan event files in the folder).
-- **Auth users live in the open event file** (per-event) — a limitation; auth is
-  off by default. A shared users DB (like runners.db) would fix it.
+- **Seasons** scan the events folder and match runners by name (case and
+  spacing ignored); two different people with the same name merge.
 - **SSE under waitress** can buffer on some setups; the dev server (`python
   app.py`) is unaffected. If the live screen lags in the exe, this is why.
 - **Dead code (functions removed 2026-09-26; tables kept):** the old `members` table + `db.all_events/series/next_event_id` +
@@ -592,22 +689,22 @@ exact counts; tests that switch/close the event restore it.
 ---
 
 ## 10. Pending / next steps
-1. **Commit + push** the uncommitted overhaul (Efforts 3 & 4) so it's on GitHub
-   and portable. Suggested message: "MeOS-style workflow: file-per-event start
-   page, runner DB + download simulator, exe + ngrok, UI overhaul".
-2. Send the **OWA operator guide** → refine the Setup screen around it.
-3. Provide **`NGROK_AUTHTOKEN`** (+ optional `NGROK_DOMAIN`) to make remote entry
-   live; provide live **PayPal/Stripe/SMTP** creds via env to exercise those.
-4. Optional polish: shared users DB (fix per-event auth); remove the dead
-   multi-event/members code; a cross-file series/profile feature; verify SSE
-   under waitress (or serve the exe with a streaming-friendly server).
-5. Each new change: run `pytest`, and consider `/code-review` per phase (that's
-   the pattern used throughout).
+1. Try it at a real event: SI reader on the finish PC, auto-print with silent
+   printing, the live screen on a projector, the start clock with sound.
+2. Hire cards on the online entry form (entries with no card number yet).
+3. Native .meos import (today: export IOF XML from MeOS and import that).
+4. A list designer (custom result / start list layouts) and translations.
+5. Live runs against PayPal sandbox and a real Eventor.
+6. Each change: run `pytest`, check pages in a browser, one commit per feature.
 
 ---
 
 ## 11. Project conventions (from CLAUDE.md)
 Long-term project — prioritise correctness + readability over cleverness.
+Git: commit and push straight to main; a separate branch only for a feature
+that might break something. New settings go in `settings_schema.py` (with
+`pages=` for the gear menus) and are read with `config.get`; never put
+secrets in event scope.
 Timestamps are `datetime` objects, not seconds-since-midnight. The operator knows
 orienteering; skip basic explanations. Reuse the engine/store adapters; match
 existing template/JS idioms. Keep the mock/simulated path working hardware-free.

@@ -30,18 +30,18 @@
         @media (max-width: 900px) { .lists { grid-template-columns: 1fr; } }
     </style>
 </head>
-<body data-callup="{{ callup }}" data-beeps="{{ beeps }}">
+<body data-callup-minutes="{{ callup }}" data-beeps="{{ beeps }}">
 {% if beeps != "off" %}<button class="sound" type="button" data-sound>Sound off · click to turn on</button>{% endif %}
 <div class="clock" data-clock>--:--:--</div>
 <div class="count" data-count></div>
 <div class="lists">
-    {% if callup > 1 %}<section class="callup"><h2>Call up <small data-callup-time></small></h2><table data-callup></table></section>{% endif %}
+    {% if callup > 1 %}<section class="callup"><h2>Call up <small data-callup-time></small></h2><table data-callup-list></table></section>{% endif %}
     <section class="now"><h2>Next start <small data-now-time></small></h2><table data-now></table></section>
     <section><h2>After that</h2><table data-next></table></section>
 </div>
 <script>
 (function () {
-    var CALLUP = parseInt(document.body.dataset.callup, 10) || 0;   // minutes ahead
+    var CALLUP = parseInt(document.body.dataset.callupMinutes, 10) || 0;   // minutes ahead
     var BEEPS = document.body.dataset.beeps;                         // off | starts | every_minute
     var offset = 0;             // server clock minus this device's clock, ms
     var starters = [];
@@ -116,7 +116,7 @@
         if (CALLUP > 1) {
             var callMinute = (Math.floor(now / 60) + CALLUP) * 60;
             document.querySelector("[data-callup-time]").textContent = fmt(callMinute) + " starters";
-            fill(document.querySelector("[data-callup]"), minuteRows(starters, callMinute));
+            fill(document.querySelector("[data-callup-list]"), minuteRows(starters, callMinute));
         }
         count.textContent = first === null ? "No more starts" : "Next start in " + fmt(first - now).replace(/^00:/, "");
         clock.classList.toggle("go", first !== null && first - now <= 5);

@@ -8,6 +8,7 @@
     --muted: #6c7783;
     --hint: #9aa5b1;
     --line: #e6eaee;
+    --red-ink: #b8302f;
     --track: #cfd6de;
     --orange: #ef7d22;
     --shadow: 0 1px 2px rgba(20, 30, 45, .06), 0 8px 24px rgba(20, 30, 45, .06);
@@ -38,7 +39,7 @@
 :root[data-theme="dark"] {
     --bg: #0e141b; --surface: #151d26; --surface-2: #1a232e; --hover: #1f2a36;
     --chip: #222d39; --ink: #e3e9ef; --muted: #93a1af; --hint: #6f7d8a;
-    --line: #253140; --track: #3a4655;
+    --line: #253140; --track: #3a4655; --red-ink: #ff8a80;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
     --sidebar: #0a0f15; --sidebar-hover: #141c25;
     --green-soft: color-mix(in srgb, var(--green) 24%, var(--surface));
@@ -51,7 +52,7 @@
     :root[data-theme="auto"] {
         --bg: #0e141b; --surface: #151d26; --surface-2: #1a232e; --hover: #1f2a36;
         --chip: #222d39; --ink: #e3e9ef; --muted: #93a1af; --hint: #6f7d8a;
-        --line: #253140; --track: #3a4655;
+        --line: #253140; --track: #3a4655; --red-ink: #ff8a80;
         --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
         --sidebar: #0a0f15; --sidebar-hover: #141c25;
         --green-soft: color-mix(in srgb, var(--green) 24%, var(--surface));
@@ -177,7 +178,7 @@ body {
     padding: 4px 10px; border-radius: 999px; white-space: nowrap; font-weight: 600;
 }
 .chip.grey { color: var(--muted); background: var(--chip); }
-.chip.red { color: #b8302f; background: #fbeaea; }
+.chip.red { color: var(--red-ink); background: color-mix(in srgb, #c0392b 14%, var(--surface)); }
 
 /* ---- Stat tiles --------------------------------------------------------- */
 
@@ -617,7 +618,7 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .slip-splits th, .slip-splits td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; }
 .slip-splits th { font-size: 11px; color: var(--muted); text-transform: uppercase; }
 .slip-foot { margin-top: 18px; color: var(--muted); font-size: 11px; text-align: center; }
-.slip-splits tr.slip-missing td { color: #b8302f; font-style: italic; }
+.slip-splits tr.slip-missing td { color: var(--red-ink); font-style: italic; }
 .slip-splits tr.slip-best td { font-weight: 700; }
 
 @media print {
@@ -926,7 +927,7 @@ tr.quick-entry-row > td { background: var(--surface-2); }
 .quick-entry { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
 .quick-entry label:not(.check) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .quick-entry input:not([type=checkbox]), .quick-entry select { min-width: 160px; }
-.quick-entry .form-error { color: var(--red, #c0392b); font-weight: 600; }
+.quick-entry .form-error { color: var(--red-ink); font-weight: 600; }
 .form-error:empty { display: none; }
 .toolbar select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
 
@@ -940,10 +941,10 @@ tr.quick-entry-row > td { background: var(--surface-2); }
 .controls-table tr.ctl-bad td { background: color-mix(in srgb, #b8302f 7%, transparent); }
 .controls-table tr.ctl-optional td, .controls-table tr.ctl-no_timing td { background: color-mix(in srgb, #e08a1e 8%, transparent); }
 .controls-table tr.ctl-alarm td:first-child { box-shadow: inset 3px 0 0 #b8302f; }
-.missed-hot { color: #b8302f; font-weight: 700; }
+.missed-hot { color: var(--red-ink); font-weight: 700; }
 
 /* ---- Economy ------------------------------------------------------------------ */
-td.owing { color: #b8302f; font-weight: 700; }
+td.owing { color: var(--red-ink); font-weight: 700; }
 .stat-grid + .panel { margin-top: 16px; }
 
 /* ---- Command palette (Ctrl+K) ------------------------------------------------ */
@@ -991,9 +992,9 @@ td.owing { color: #b8302f; font-weight: 700; }
 .behind-graph .dot { fill: var(--surface); stroke: var(--green); stroke-width: 2; }
 .behind-graph .tick { fill: var(--muted); font-size: 11px; text-anchor: middle; }
 .behind-graph .ylab { fill: var(--hint); font-size: 11px; text-anchor: end; }
-.leg-table td.lost { color: #b8302f; font-weight: 600; }
+.leg-table td.lost { color: var(--red-ink); font-weight: 600; }
 .leg-table tr.leg-big td { background: color-mix(in srgb, #c0392b 8%, transparent); }
-.leg-table tr.leg-missing td { color: #b8302f; font-style: italic; }
+.leg-table tr.leg-missing td { color: var(--red-ink); font-style: italic; }
 .speed-bar { display: block; height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
 .speed-bar span { display: block; height: 100%; background: var(--green); border-radius: 4px; }
 .analyse-link { display: inline-block; margin: 8px 0 0; font-size: 13px; }
