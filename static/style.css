@@ -983,3 +983,17 @@ td.owing { color: #b8302f; font-weight: 700; }
 .check-text { flex: 1; min-width: 200px; }
 .check-ok .check-text { color: var(--muted); }
 .check-bad .check-text { font-weight: 600; }
+
+/* ---- Runner analysis ------------------------------------------------------------- */
+.behind-graph { width: 100%; height: auto; }
+.behind-graph .axis { stroke: var(--line); stroke-width: 1; }
+.behind-graph .line { fill: none; stroke: var(--green); stroke-width: 2.5; stroke-linejoin: round; }
+.behind-graph .dot { fill: var(--surface); stroke: var(--green); stroke-width: 2; }
+.behind-graph .tick { fill: var(--muted); font-size: 11px; text-anchor: middle; }
+.behind-graph .ylab { fill: var(--hint); font-size: 11px; text-anchor: end; }
+.leg-table td.lost { color: #b8302f; font-weight: 600; }
+.leg-table tr.leg-big td { background: color-mix(in srgb, #c0392b 8%, transparent); }
+.leg-table tr.leg-missing td { color: #b8302f; font-style: italic; }
+.speed-bar { display: block; height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.speed-bar span { display: block; height: 100%; background: var(--green); border-radius: 4px; }
+.analyse-link { display: inline-block; margin: 8px 0 0; font-size: 13px; }

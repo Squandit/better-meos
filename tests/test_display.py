@@ -168,3 +168,23 @@ def test_exports_and_entry_page_skip_or_mark_pending(scratch):
     names = [c["name"] for cls in results for c in cls["competitors"]]
     assert "Iof Active" not in names
     assert store.result_for(comp["id"])["status"] == "pending"
+
+
+def test_runner_analysis_page_and_json(cfg, scratch):
+    runner = store.create_competitor({
+        "name": "Analyse Ann", "class_id": m21a(), "read": True, "start": "10:00:00",
+        "finish": "11:05:00", "punches": [{"code": c, "time": t} for c, t in
+                                           ((138, "10:12:00"), (130, "10:16:00"),
+                                            (142, "10:50:00"), (155, "11:00:00"))]})
+    view = display.runner_analysis(runner["id"])
+    assert view["legs"] and view["lost"] and view["graph"]["points"]
+    leg3 = view["legs"][2]                       # the 34 minute leg is the big mistake
+    assert leg3["big"] and leg3["lost"] > 300
+    c = appmod.app.test_client()
+    slug = store.EVENT["slug"]
+    page = c.get(f"/public/{slug}/runner/{runner['id']}", environ_overrides={"SERVER_PORT": "8800"})
+    assert page.status_code == 200 and "Analyse Ann" in page.get_data(as_text=True)
+    assert c.get(f"/public/nope/runner/{runner['id']}").status_code == 404
+    data = c.get(f"/public/{slug}/results.json", environ_overrides={"SERVER_PORT": "8800"}).get_json()
+    assert data["event"]["name"] and any(r["name"] == "Analyse Ann"
+                                         for cls in data["classes"] for r in cls["results"])

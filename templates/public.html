@@ -63,6 +63,7 @@
                                 <thead><tr><th>Control</th><th>Leg</th><th>Cumulative</th></tr></thead>
                                 <tbody>{% for s in r.splits %}<tr><td>{{ s.control }}</td><td>{{ s.leg }}</td><td>{{ s.cumulative }}</td></tr>{% endfor %}</tbody>
                             </table>
+                            {% if not published_at %}<a class="analyse-link" href="{{ url_for('runner_analysis', slug=event.slug, comp_id=r.id) }}">Analyse this run: where the time went →</a>{% endif %}
                         </div>
                     </td>
                 </tr>

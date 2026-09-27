@@ -807,6 +807,27 @@ def public_results(slug):
                            show_splits=config.get("results_show_splits"))
 
 
+@app.route("/public/<slug>/runner/<int:comp_id>")
+@cached_page
+def runner_analysis(slug, comp_id):
+    """One runner's race, leg by leg, with estimated time loss (public)."""
+    if slug != store.EVENT["slug"]:
+        abort(404)
+    data = display.runner_analysis(comp_id)
+    if data is None:
+        abort(404)
+    return render_template("runner.html", a=data)
+
+
+@app.route("/public/<slug>/results.json")
+@cached_page
+def public_results_json(slug):
+    """Results as JSON for club websites (the same view as the public page)."""
+    if slug != store.EVENT["slug"]:
+        abort(404)
+    return jsonify(display.public_results_json())
+
+
 # ---------------------------------------------------------------------------
 # Import (IOF XML courses, CSV / IOF XML start lists)
 # ---------------------------------------------------------------------------

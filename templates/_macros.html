@@ -22,6 +22,7 @@
                     {% for s in row.splits %}<tr><td>{{ s.control }}</td><td>{{ s.leg }}</td><td>{{ s.cumulative }}</td></tr>{% endfor %}
                 </tbody>
             </table>
+            {% if row.id and event.slug %}<a class="analyse-link" href="{{ url_for('runner_analysis', slug=event.slug, comp_id=row.id) }}" target="_blank" rel="noopener">Analyse this run →</a>{% endif %}
         </div>
     </td>
 </tr>

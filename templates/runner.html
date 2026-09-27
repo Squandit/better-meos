@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ a.row.name }} · {{ event.name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+</head>
+<body class="public-page" data-page="results">
+<header class="public-head">
+    <p><a href="{{ url_for('public_results', slug=event.slug) }}">← {{ event.name }} results</a></p>
+    <h1>{{ a.row.name }}</h1>
+    <p>{{ a['class'] }}{% if a.row.club %} · {{ a.row.club }}{% endif %}</p>
+</header>
+
+<main class="public-main">
+    <div class="stat-grid">
+        <div class="stat accent"><div class="label">Time</div><div class="value">{{ a.row.time or a.row.status_label }}</div>
+            <div class="sub">{% if a.place %}{{ a.place|ordinal }} of {{ a.of }}{% else %}{{ a.row.status_label }}{% endif %}</div></div>
+        {% if a.lost %}
+        <div class="stat"><div class="label">Time lost (estimate)</div><div class="value">{{ a.lost }}</div>
+            <div class="sub">against the fastest legs at your pace</div></div>
+        <div class="stat"><div class="label">Your pace</div><div class="value">{{ a.pace }}%</div>
+            <div class="sub">of the best three, leg by leg (median)</div></div>
+        {% endif %}
+    </div>
+
+    {% if a.graph %}
+    {% set g = a.graph %}
+    {% set w = 640 %}{% set h = 180 %}{% set pad = 28 %}
+    <section class="panel">
+        <div class="panel-head"><h4>Behind the fastest time at each control</h4></div>
+        <div class="panel-body">
+            <svg class="behind-graph" viewBox="0 0 {{ w }} {{ h + pad }}" role="img" aria-label="Time behind the fastest at each control">
+                <line x1="{{ pad }}" y1="{{ pad // 2 }}" x2="{{ w - 8 }}" y2="{{ pad // 2 }}" class="axis"/>
+                {% set pts = namespace(s="" ~ pad ~ "," ~ (pad // 2)) %}
+                {% for p in g.points %}
+                {% set x = pad + (w - pad - 8) * p.n / g.legs %}
+                {% set y = pad // 2 + (h - pad) * p.behind / g.max %}
+                {% set pts.s = pts.s ~ " " ~ x|round(1) ~ "," ~ y|round(1) %}
+                <text x="{{ x|round(1) }}" y="{{ h + pad - 4 }}" class="tick">{{ p.label }}</text>
+                {% endfor %}
+                <polyline points="{{ pts.s }}" class="line"/>
+                {% for p in g.points %}
+                {% set x = pad + (w - pad - 8) * p.n / g.legs %}
+                {% set y = pad // 2 + (h - pad) * p.behind / g.max %}
+                <circle cx="{{ x|round(1) }}" cy="{{ y|round(1) }}" r="3.5" class="dot"><title>{{ p.label }}: +{{ p.behind|format_secs }}</title></circle>
+                {% endfor %}
+                <text x="{{ w - 8 }}" y="{{ pad // 2 - 4 }}" class="ylab">fastest</text>
+                <text x="{{ w - 8 }}" y="{{ h - pad // 2 - 6 }}" class="ylab">+{{ g.max|format_secs }}</text>
+            </svg>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if a.legs %}
+    <section class="panel">
+        <div class="panel-head"><h4>Leg by leg</h4></div>
+        <div class="table-scroll">
+        <table class="table leg-table">
+            <thead><tr><th>#</th><th>Control</th><th class="num">Leg</th><th class="num">Place</th><th class="num">Behind best</th>
+                <th class="num">Lost</th><th style="width:22%">Speed vs the best</th><th class="num">Time</th><th class="num">Place</th></tr></thead>
+            <tbody>
+                {% for l in a.legs %}
+                {% if l.missing %}
+                <tr class="leg-missing"><td>{{ l.n }}</td><td>{{ l.code }}</td><td colspan="7">missing</td></tr>
+                {% else %}
+                <tr{% if l.big %} class="leg-big"{% endif %}>
+                    <td>{{ l.n }}</td><td class="mono">{{ l.code }}</td>
+                    <td class="num mono strong">{{ l.leg }}</td>
+                    <td class="num">{{ l.leg_rank }}</td>
+                    <td class="num mono dim">{% if l.leg_rank > 1 %}+{{ l.leg_behind }}{% endif %}</td>
+                    <td class="num mono lost">{{ l.lost_text }}</td>
+                    <td><span class="speed-bar"><span style="width: {{ l.bar }}%"></span></span></td>
+                    <td class="num mono">{{ l.cum }}</td>
+                    <td class="num">{{ l.cum_rank }}</td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <p class="tool-note" style="padding: 0 16px 14px">Lost = your leg time minus what you'd have run at your own
+           typical pace on it. Legs in red cost you more than 30 seconds and 15%.</p>
+    </section>
+    {% else %}
+    <p class="empty">No leg times to analyse for this run.</p>
+    {% endif %}
+</main>
+<footer class="public-foot">Live results · better-meos</footer>
+</body>
+</html>
