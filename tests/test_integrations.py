@@ -40,8 +40,8 @@ def test_eventor_fetch_requires_key(monkeypatch):
     assert eventor.is_enabled() is False
     try:
         eventor.fetch_entries("123")
-        assert False, "expected RuntimeError"
-    except RuntimeError:
+        assert False, "expected EventorError"
+    except eventor.EventorError:
         pass
 
 
@@ -75,3 +75,30 @@ def test_radio_punch_unknown_card_400():
     r = c.post("/api/radio/punch", json={"card_number": 424299, "code": 99,
                                          "time": "09:07:00"})
     assert r.status_code == 400
+
+
+def test_eventor_fetch_uses_api_key_and_imports(cfg, monkeypatch):
+    import eventor
+    import store
+    cid = store.class_options()[0]
+    xml = f"""<?xml version="1.0"?>
+<EntryList xmlns="http://www.orienteering.org/datastandard/3.0" iofVersion="3.0">
+  <PersonEntry><Person><Name><Family>Api</Family><Given>Eva</Given></Name></Person>
+    <Organisation><Name>OK Api</Name></Organisation><ControlCard>9750001</ControlCard>
+    <Class><Name>{cid['name']}</Name></Class></PersonEntry>
+</EntryList>""".encode()
+    seen = {}
+
+    def fake_get(url, headers, timeout=30.0):
+        seen.update(url=url, headers=headers)
+        return xml
+    monkeypatch.setattr(eventor, "_http_get", fake_get)
+    c = appmod.app.test_client()
+    assert c.post("/api/eventor/fetch", json={"event_id": "123"}).status_code == 400  # not set up
+    cfg.save({"eventor_base_url": "https://eventor.example", "eventor_api_key": "k3y"})
+    r = c.post("/api/eventor/fetch", json={"event_id": "123"})
+    assert r.status_code == 200 and r.get_json()["created"] == 1
+    assert seen["headers"]["ApiKey"] == "k3y" and "eventIds=123" in seen["url"]
+    assert store.find_by_card(9750001)["name"] == "Eva Api"
+    cfg.save({"eventor_base_url": "http://eventor.example"})
+    assert "https" in c.post("/api/eventor/fetch", json={"event_id": "123"}).get_json()["error"]

@@ -838,6 +838,18 @@ def api_import_eventor():
     return jsonify(importers.import_competitors(rows))
 
 
+@app.route("/api/eventor/fetch", methods=["POST"])
+def api_eventor_fetch():
+    """Pull entries for an Eventor event straight from the Eventor API."""
+    try:
+        rows = eventor.fetch_entries(_payload().get("event_id"))
+    except eventor.EventorError as err:
+        raise StoreError(str(err))
+    outcome = importers.import_competitors(rows)
+    events.publish("competitor", action="import")
+    return jsonify(outcome)
+
+
 @app.route("/api/radio/punch", methods=["POST"])
 def api_radio_punch():
     """Live radio / online-control punch -> intermediate split, broadcast live."""

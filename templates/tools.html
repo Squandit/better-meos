@@ -101,6 +101,27 @@
         <span class="tool-result" data-result></span>
     </form>
     <p class="tool-note">Export the EntryList from Eventor and import it here. Classes must already exist.</p>
+    <form class="tool-form" data-eventor>
+        <label>Or fetch directly: Eventor event id <input name="event_id" inputmode="numeric" size="8"></label>
+        <button class="btn" type="submit">Fetch from Eventor</button>
+        <span class="tool-result" data-result></span>
+    </form>
+    <p class="tool-note">Needs the Eventor address and your club's API key in <a href="{{ url_for('config_page') }}">Settings</a>.</p>
+    <script>
+    document.querySelector("[data-eventor]").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var out = e.target.querySelector("[data-result]");
+        out.className = "tool-result"; out.textContent = "Fetching…";
+        fetch("/api/eventor/fetch", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event_id: e.target.elements.event_id.value }) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                out.className = "tool-result " + (res.ok ? "ok" : "err");
+                out.textContent = res.ok ? ("Created " + res.d.created + ", skipped " + res.d.skipped.length)
+                                         : (res.d.error || "Failed");
+            });
+    });
+    </script>
 </section>
 
 <section class="panel">
