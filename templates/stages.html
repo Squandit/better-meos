@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Multi-stage{% endblock %}
+{% block heading %}Multi-stage{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Multi-day standings</h3>
+    <p>Each stage is its own event file in the events folder. Tick the stages to combine; runners are
+       matched by SI card, then name + club. Only runners OK in every stage are ranked.</p>
+</div>
+
+<form method="get" data-stages>
+<section class="panel">
+    <table class="table">
+        <thead><tr><th style="width:40px"></th><th>Stage</th><th style="width:120px">Date</th><th style="width:90px"></th></tr></thead>
+        <tbody>
+            {% for e in events %}
+            <tr>
+                <td><input type="checkbox" name="stage" value="{{ e.filename }}" {% if e.filename in chosen %}checked{% endif %} aria-label="{{ e.name }}"></td>
+                <td class="cell-name">{{ e.name }}</td>
+                <td class="mono dim">{{ e.date_iso }}</td>
+                <td>{% if e.open %}<span class="chip">open</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+<div class="ops-bar">
+    <button class="btn btn-primary" type="submit">Show combined results</button>
+    <span class="toolbar-spacer"></span>
+    <label>Chase first start <input name="first_start" class="mono" value="{{ event.first_start or '10:00:00' }}" size="9"></label>
+    <button class="btn btn-soft" type="button" data-chase>Set chase starts on the open event</button>
+    <span class="tool-result" data-result></span>
+</div>
+</form>
+<p class="tool-note">Chase start: tick the <em>earlier</em> stages only. The overall leader of each class starts at the
+   first start, everyone else behind by their total deficit.</p>
+
+{% if combined is not none %}
+{% for cls in combined %}
+<section class="panel class-card">
+    <div class="panel-head"><h4>{{ cls['class'] or 'No class' }}</h4></div>
+    <table class="table">
+        <thead>
+            <tr><th style="width:46px;text-align:center">#</th><th>Athlete</th>
+                {% for s in cls.stages %}<th class="num">{{ s }}</th>{% endfor %}
+                <th class="num" style="width:104px">Total</th></tr>
+        </thead>
+        <tbody>
+            {% for r in cls.rows %}
+            <tr>
+                <td style="text-align:center">{{ r.position or '–' }}</td>
+                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                {% for t in r.stage_times %}<td class="num mono">{{ t or '–' }}</td>{% endfor %}
+                <td class="num strong">{{ r.total or '–' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% else %}
+<p class="empty">No runners in the chosen stages.</p>
+{% endfor %}
+{% endif %}
+
+<script>
+document.querySelector("[data-chase]").addEventListener("click", function () {
+    var form = document.querySelector("[data-stages]");
+    var out = form.querySelector("[data-result]");
+    var stages = Array.prototype.map.call(form.querySelectorAll('input[name="stage"]:checked'), function (b) { return b.value; });
+    if (!window.confirm("Set start times on the open event from the ticked stages?")) { return; }
+    fetch("/api/stages/chase", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stages: stages, first_start: form.elements.first_start.value }) })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+            out.className = "tool-result " + (res.ok ? "ok" : "err");
+            out.textContent = res.ok ? ("Set " + res.d.assigned + " chase starts") : (res.d.error || "Failed");
+        });
+});
+</script>
+{% endblock %}

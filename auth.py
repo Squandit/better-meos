@@ -7,8 +7,9 @@ public surfaces (entry form, public results, live screen) stay open either way.
 
 When enabled, :func:`install` registers a ``before_request`` guard that redirects
 un-authenticated browsers to ``/login`` and answers protected API calls with 401.
-Passwords are hashed with Werkzeug. A first admin can be seeded from
-``BMEOS_ADMIN_USER`` / ``BMEOS_ADMIN_PASS``.
+Passwords are hashed with Werkzeug. Logins live in the shared runner database
+(runners.db), not per event file, so they work before an event is opened. A
+first admin can be seeded from ``BMEOS_ADMIN_USER`` / ``BMEOS_ADMIN_PASS``.
 
 Roles: ``operator`` (full control) and ``club`` (a club manager). Role-specific
 gating beyond "logged in" is a thin layer on :func:`current_user` that views can
@@ -24,15 +25,19 @@ from flask import jsonify, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+import runners
+import security
 
 log = logging.getLogger("auth")
 
 # Paths reachable without logging in (public-facing surfaces + auth itself).
 _PUBLIC_EXACT = {
-    "/login", "/logout", "/unlock", "/api/entries", "/api/stream", "/live", "/enter",
-    # Ported entry page (public PWA) and its backend.
+    "/login", "/logout", "/unlock", "/api/stream", "/api/version", "/live", "/enter",
+    # Ported entry page (public PWA) and its backend. Online entries go through
+    # the server-verified order/capture pair (see online_entry.py).
     "/get-classes", "/get-result-classes", "/get-results", "/search-competitors",
-    "/lookup-competitor", "/check-entered", "/submit-entry", "/log-entries",
+    "/lookup-competitor", "/check-entered",
+    "/api/online-entry/order", "/api/online-entry/capture",
     "/manifest.json", "/sw.js",
 }
 _PUBLIC_PREFIX = ("/static/", "/public/")
@@ -44,11 +49,11 @@ def is_enabled() -> bool:
 
 def create_user(username: str, password: str, role: str = "operator",
                 club: str | None = None) -> int:
-    return db.insert_user(username, generate_password_hash(password), role, club)
+    return runners.insert_user(username, generate_password_hash(password), role, club)
 
 
 def verify(username: str, password: str) -> dict | None:
-    user = db.get_user(username or "")
+    user = runners.get_user(username or "")
     if user and check_password_hash(user["password_hash"], password or ""):
         return user
     return None
@@ -67,9 +72,24 @@ def current_user() -> dict | None:
     return session.get("user")
 
 
+def adopt_event_users() -> int:
+    """Move logins an older version stored inside the open event file into the
+    shared database (existing shared usernames win). Returns how many moved."""
+    moved = 0
+    for user in db.legacy_users():
+        if runners.get_user(user["username"]) is None:
+            runners.insert_user(user["username"], user["password_hash"],
+                                user.get("role") or "operator", user.get("club"))
+            moved += 1
+    return moved
+
+
 def ensure_admin() -> None:
     """Seed a first admin from env when auth is on and no users exist yet."""
-    if not is_enabled() or db.count_users() > 0:
+    if not is_enabled():
+        return
+    adopt_event_users()
+    if runners.count_users() > 0:
         return
     username = os.environ.get("BMEOS_ADMIN_USER")
     password = os.environ.get("BMEOS_ADMIN_PASS")
@@ -93,6 +113,9 @@ def install(app) -> None:
     @app.before_request
     def _require_login():
         if not is_enabled() or _is_public(request.path):
+            return None
+        # Download stations / radio controls authenticate with the station token.
+        if request.path in security.STATION_PATHS and security.has_station_token():
             return None
         user = current_user()
         if user is None:

@@ -21,6 +21,61 @@
         Already-drawn entries are skipped, so you can re-run after late entries.</p>
 </section>
 
+<section class="panel" data-orders>
+    <div class="panel-head">
+        <h4>Online payments</h4>
+        {% set attention = orders|selectattr("needs_attention")|list %}
+        {% if attention %}<span class="chip red">{{ attention|length }} need{{ 's' if attention|length == 1 else '' }} attention</span>{% endif %}
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>When</th><th>People</th><th>Amount</th><th>Status</th>
+                <th>PayPal ref</th><th>Note</th><th style="text-align:right"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in orders %}
+            <tr data-order-row data-id="{{ o.id }}">
+                <td class="mono dim">{{ o.created_at.replace("T", " ") }}</td>
+                <td>{{ o.people }}{% if o.email %}<div class="dim">{{ o.email }}</div>{% endif %}</td>
+                <td class="mono">{{ o.amount }} {{ o.currency }}</td>
+                <td>
+                    {% if o.status == "completed" %}<span class="chip">paid · entered</span>
+                    {% elif o.status == "free" %}<span class="chip grey">free</span>
+                    {% elif o.status == "needs_refund" %}<span class="chip red">paid · REFUND NEEDED</span>
+                    {% elif o.status == "pending" %}<span class="chip red">held by PayPal</span>
+                    {% elif o.status == "failed" %}<span class="chip red">failed · check PayPal</span>
+                    {% elif o.status == "refunded" %}<span class="chip grey">refunded</span>
+                    {% elif o.status == "rejected" %}<span class="chip grey">not charged</span>
+                    {% elif o.status == "created" %}<span class="chip grey">awaiting payment</span>
+                    {% elif o.status == "capturing" %}<span class="chip{% if o.needs_attention %} red{% else %} grey{% endif %}">confirming with PayPal</span>
+                    {% elif o.status == "paid" %}<span class="chip red">paid · not entered yet</span>
+                    {% elif o.status == "superseded" %}<span class="chip grey">replaced · not charged</span>
+                    {% else %}<span class="chip grey">{{ o.status }}</span>{% endif %}
+                </td>
+                <td class="mono dim">{{ o.capture_id or o.paypal_order_id or '—' }}</td>
+                <td class="dim">{{ o.note or '' }}</td>
+                <td style="text-align:right">
+                    {% if o.status in ("created", "capturing", "pending") and o.paypal_order_id %}
+                    <button class="link-btn" data-reconcile>Check with PayPal</button>{% endif %}
+                    {% if o.status in ("needs_refund", "failed") %}
+                    <button class="link-btn" data-refunded>Mark refunded</button>{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty">No online payments yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="tool-note">Every payment is captured and checked by the server before anyone is
+        entered. "Refund needed" means PayPal took the money but an entry couldn't be created
+        (e.g. the card was registered at the desk in the meantime): refund it in PayPal, then
+        mark it here. "Confirming with PayPal" in red means the payment call never came back:
+        press "Check with PayPal" to finish or clear it. "Awaiting payment" is just an open or
+        abandoned checkout; no money has moved.</p>
+</section>
+
 <section class="panel" data-entries>
     <div class="panel-head">
         <h4>{{ entries|length }} entr{{ 'y' if entries|length == 1 else 'ies' }}</h4>
@@ -78,6 +133,22 @@
               out.className = "tool-result ok"; out.textContent = msg;
               setTimeout(function () { window.location.reload(); }, 900);
           }).catch(function () { out.className = "tool-result err"; out.textContent = "Failed"; });
+    });
+
+    document.querySelector("[data-orders]").addEventListener("click", function (e) {
+        var row = e.target.closest("[data-order-row]");
+        if (!row) { return; }
+        var action = e.target.closest("[data-reconcile]") ? "reconcile"
+            : e.target.closest("[data-refunded]") ? "refunded" : null;
+        if (!action) { return; }
+        if (action === "refunded" &&
+            !window.confirm("Only do this after refunding the payment in PayPal. Mark refunded?")) { return; }
+        fetch("/api/orders/" + row.dataset.id + "/" + action, { method: "POST" })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (!res.ok) { window.alert((res.d && res.d.error) || "Failed"); return; }
+                window.location.reload();
+            });
     });
 
     document.querySelector("[data-entries]").addEventListener("click", function (e) {

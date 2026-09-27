@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import threading
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -43,6 +44,10 @@ class _Setting:
 SCHEMA: list[_Setting] = [
     _Setting("paypal_client_id", "PAYPAL_CLIENT_ID", "str", "Payments (PayPal)",
              "PayPal client ID", "Public client id from your PayPal app."),
+    _Setting("paypal_client_secret", "PAYPAL_CLIENT_SECRET", "password",
+             "Payments (PayPal)", "PayPal client secret",
+             "Secret from the same PayPal app. The server needs it to create and "
+             "verify every payment, so online entry stays off without it."),
     _Setting("paypal_sandbox", "PAYPAL_SANDBOX", "bool", "Payments (PayPal)",
              "Use PayPal sandbox", "On = test money only. Turn off to take real payments.",
              default=True),
@@ -56,11 +61,20 @@ SCHEMA: list[_Setting] = [
              "Concession fee", "", default=5.0),
     _Setting("family_cap", "BMEOS_FAMILY_CAP", "float", "Pricing",
              "Family cap", "Max total charged to one family.", default=25.0),
+    _Setting("late_fee", "BMEOS_LATE_FEE", "float", "Pricing",
+             "Late entry surcharge", "Added per person from the late-entry time on.",
+             default=0.0),
+    _Setting("late_fee_from", "BMEOS_LATE_FEE_FROM", "str", "Pricing",
+             "Late entries from", "Date/time the surcharge starts, e.g. 2026-10-01T18:00"),
+    _Setting("trust_member_type", "BMEOS_TRUST_MEMBER_TYPE", "bool", "Pricing",
+             "Let entrants choose junior / concession",
+             "Off = everyone pays the senior fee (nothing checks what they pick). "
+             "Turn on if you're happy to trust entrants.", default=False),
     _Setting("entry_close", "BMEOS_ENTRY_CLOSE", "str", "Entry page",
              "Entry close time", "Shown on the entry page (free text)."),
     _Setting("clubs", "BMEOS_CLUBS", "str", "Entry page",
              "Clubs", "Comma-separated list to override the club dropdown."),
-    _Setting("ngrok_authtoken", "NGROK_AUTHTOKEN", "str", "Remote hosting (ngrok)",
+    _Setting("ngrok_authtoken", "NGROK_AUTHTOKEN", "password", "Remote hosting (ngrok)",
              "ngrok authtoken", "Your ngrok token; without it tunnels are rate-limited."),
     _Setting("ngrok_domain", "NGROK_DOMAIN", "str", "Remote hosting (ngrok)",
              "ngrok domain", "Reserved/static domain so the public URL never changes."),
@@ -73,11 +87,63 @@ SCHEMA: list[_Setting] = [
              "SMTP password", "e.g. a Gmail app password."),
     _Setting("smtp_from", "BMEOS_SMTP_FROM", "str", "Email (receipts)",
              "From address", "Defaults to the SMTP user."),
+    _Setting("eventor_base_url", "EVENTOR_BASE_URL", "str", "Eventor",
+             "Eventor address", "e.g. https://eventor.orienteering.asn.au"),
+    _Setting("eventor_api_key", "EVENTOR_API_KEY", "password", "Eventor",
+             "Eventor API key", "Your club's API key (Eventor -> club admin)."),
     _Setting("admin_port", "BMEOS_PORT", "int", "Network (ports)",
              "Admin port", "Operator console port. Restart to apply.", default=8799),
     _Setting("public_port", "BMEOS_PUBLIC_PORT", "int", "Network (ports)",
              "Public port", "Results + entry port (share this one). Restart to apply.",
              default=8800),
+    _Setting("admin_lan", "BMEOS_ADMIN_LAN", "bool", "Network (ports)",
+             "Allow the console from other computers",
+             "Off = the operator console only answers on this PC. Turn on for a "
+             "second operator laptop or secondary download stations (needs an "
+             "admin password). Restart to apply.", default=False),
+    _Setting("station_token", "BMEOS_STATION_TOKEN", "password", "Network (ports)",
+             "Station token",
+             "Shared secret that secondary download stations and radio controls "
+             "send with each punch. Set the same value on every station."),
+    _Setting("silent_print", "BMEOS_SILENT_PRINT", "bool", "Printing",
+             "Print split slips without a dialog",
+             "Opens the console in Edge/Chrome with kiosk printing, so auto-print "
+             "goes straight to the default printer. Restart to apply.", default=False),
+    _Setting("slip_paper", "BMEOS_SLIP_PAPER", "str", "Printing",
+             "Split slip paper", "80mm (thermal receipt printer) or A4.", default="80mm"),
+    _Setting("publish_dir", "BMEOS_PUBLISH_DIR", "str", "Online results",
+             "Publish folder",
+             "Write results.html + results.xml here whenever results change "
+             "(blank = off)."),
+    _Setting("ftp_host", "BMEOS_FTP_HOST", "str", "Online results",
+             "FTP host", "Also upload them to the club website (blank = off)."),
+    _Setting("ftp_port", "BMEOS_FTP_PORT", "int", "Online results", "FTP port", "",
+             default=21),
+    _Setting("ftp_user", "BMEOS_FTP_USER", "str", "Online results", "FTP user", ""),
+    _Setting("ftp_pass", "BMEOS_FTP_PASS", "password", "Online results", "FTP password", ""),
+    _Setting("ftp_dir", "BMEOS_FTP_DIR", "str", "Online results",
+             "FTP folder", "e.g. public_html/results"),
+    _Setting("ftp_tls", "BMEOS_FTP_TLS", "bool", "Online results",
+             "Use FTPS (encrypted)", "Leave on unless the host only speaks plain FTP.",
+             default=True),
+    _Setting("publish_interval_seconds", "BMEOS_PUBLISH_SECONDS", "int", "Online results",
+             "Publish at most every (seconds)", "", default=60),
+    _Setting("prize_places", "BMEOS_PRIZE_PLACES", "int", "Printing",
+             "Places on the prize list", "Per class.", default=3),
+    _Setting("backup_dir", "BMEOS_BACKUP_DIR", "str", "Backups",
+             "Backup folder",
+             "Blank = this PC's local app data (not synced by OneDrive)."),
+    _Setting("backup_dir_2", "BMEOS_BACKUP_DIR_2", "str", "Backups",
+             "Second backup folder", "Optional: a USB stick or network share."),
+    _Setting("backup_interval_minutes", "BMEOS_BACKUP_MINUTES", "int", "Backups",
+             "Back up every (minutes)", "Only when something changed.", default=3),
+    _Setting("backup_keep", "BMEOS_BACKUP_KEEP", "int", "Backups",
+             "Backups to keep per event", "", default=30),
+    _Setting("reader_enabled", "BMEOS_READER", "bool", "SI reader",
+             "Use a real SI reader", "Off = simulated downloads only.", default=False),
+    _Setting("reader_ports", "BMEOS_READER_PORTS", "str", "SI reader",
+             "Reader ports",
+             "e.g. COM5, or COM5:finish,COM6:start for several stations."),
 ]
 
 _BY_KEY = {s.key: s for s in SCHEMA}
@@ -159,6 +225,28 @@ def public_port() -> int:
     return int(get("public_port") or 8800)
 
 
+# --- Session signing key ------------------------------------------------------
+
+def secret_key() -> str:
+    """
+    The Flask session signing key: ``BMEOS_SECRET`` if set, else a random key
+    generated once and kept in config.json so logins survive a restart.
+
+    Never a fixed default: the admin lock lives in the session cookie, so a key
+    anyone can read in the source would let them forge an unlocked session.
+    """
+    env = os.environ.get("BMEOS_SECRET")
+    if env:
+        return env
+    with _lock:
+        stored = _load().get("secret_key")
+        if isinstance(stored, str) and len(stored) >= 32:
+            return stored
+        key = secrets.token_hex(32)
+        _write({"secret_key": key})
+        return key
+
+
 # --- Admin password (single shared password; hashed, never stored plaintext) ---
 
 def admin_password_set() -> bool:
@@ -210,7 +298,9 @@ def save(updates: dict) -> None:
         if spec is None:
             continue
         if spec.type == "bool":
-            clean[key] = bool(raw)
+            clean[key] = _coerce(raw, "bool")
+        elif spec.type == "password" and raw in (None, ""):
+            continue  # write-only: blank means "keep the current value"
         elif raw in (None, ""):
             clean[key] = ""  # cleared field -> fall back to env/default again
         else:
@@ -225,13 +315,18 @@ def dashboard_values() -> list[dict]:
     as hashes; the admin password is reported only as set/not-set)."""
     groups: dict[str, list] = {}
     for spec in SCHEMA:
-        groups.setdefault(spec.group, []).append({
+        field = {
             "key": spec.key,
             "label": spec.label,
             "help": spec.help,
             "type": spec.type,
             "value": get(spec.key),
-        })
+        }
+        if spec.type == "password":
+            # Write-only: report whether it's set, never the value itself.
+            field["is_set"] = bool(field["value"])
+            field["value"] = ""
+        groups.setdefault(spec.group, []).append(field)
     out = [{"group": g, "fields": fields} for g, fields in groups.items()]
     out.append({"group": "Security", "fields": [{
         "key": "admin_password",

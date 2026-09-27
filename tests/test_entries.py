@@ -52,10 +52,10 @@ def test_draw_creates_competitors_with_start_times():
     assert outcome["created"] >= 3
 
     members = sorted(store._competitors_in_class(cid), key=lambda c: c["start"])
-    # Alphabetical draw: Alpha 10:00, Bravo 10:03, Charlie 10:06
-    assert [c["name"] for c in members] == ["Alpha", "Bravo", "Charlie"]
-    assert members[0]["start"].strftime("%H:%M:%S") == "10:00:00"
-    assert members[1]["start"].strftime("%H:%M:%S") == "10:03:00"
+    # Random draw (clubs separated): all three placed 3 minutes apart from 10:00.
+    assert sorted(c["name"] for c in members) == ["Alpha", "Bravo", "Charlie"]
+    assert [c["start"].strftime("%H:%M:%S") for c in members] == [
+        "10:00:00", "10:03:00", "10:06:00"]
 
     # Re-running the draw skips already-converted entries.
     again = entries_mod.draw_startlist("11:00:00", 2)

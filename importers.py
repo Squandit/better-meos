@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import store
 
@@ -61,6 +61,11 @@ def import_competitors(rows: list[dict]) -> dict:
     Returns ``{"created": int, "skipped": [{"row": n, "name": str,
     "reason": str}, ...]}``. Never raises for per-row problems.
     """
+    with store.batch():  # one disk commit for the whole file
+        return _import_rows(rows)
+
+
+def _import_rows(rows: list[dict]) -> dict:
     class_by_name = {c["name"].lower(): c["id"] for c in store.class_options()}
     created = 0
     skipped = []
@@ -87,3 +92,60 @@ def import_competitors(rows: list[dict]) -> dict:
         except store.StoreError as err:
             skipped.append({"row": i, "name": name, "reason": str(err)})
     return {"created": created, "skipped": skipped}
+
+
+def import_results(rows: list[dict]) -> dict:
+    """
+    Recreate runs from an IOF ResultList (see iofxml.parse_resultlist).
+
+    Each runner gets their start, finish and a punch per split, so our engine
+    recomputes the results itself. A class that doesn't exist yet is created
+    with a course built from its first complete run's split order (import the
+    courses first for exact courses). Disqualified / not-competing verdicts are
+    kept as manual statuses; everything else the engine decides.
+    """
+    with store.batch():
+        return _import_results(rows)
+
+
+def _import_results(rows: list[dict]) -> dict:
+    classes = {c["name"].lower(): c["id"] for c in store.class_options()}
+    created, skipped, new_classes = 0, [], []
+    for i, row in enumerate(rows, start=1):
+        name = (row.get("name") or "").strip()
+        class_name = (row.get("class_name") or "").strip()
+        if not name or not class_name:
+            skipped.append({"row": i, "name": name, "reason": "missing name or class"})
+            continue
+        if class_name.lower() not in classes:
+            template = next((r for r in rows if r.get("class_name") == class_name
+                             and r.get("status") == "ok" and r.get("splits")), row)
+            codes = [code for code, _ in template.get("splits", [])]
+            if not codes:
+                skipped.append({"row": i, "name": name,
+                                "reason": f"class {class_name!r} unknown and no splits to build it"})
+                continue
+            course = store.create_course({"name": f"{class_name} course", "type": "linear",
+                                          "controls": codes})
+            cls = store.create_class({"name": class_name, "course_id": course["id"]})
+            classes[class_name.lower()] = cls["id"]
+            new_classes.append(class_name)
+        start = row.get("start")
+        punches = []
+        if start is not None:
+            punches = [{"code": code, "time": store.format_clock(start + timedelta(seconds=secs))}
+                       for code, secs in row.get("splits", [])]
+        try:
+            store.create_competitor({
+                "name": name, "club": row.get("club", ""),
+                "class_id": classes[class_name.lower()],
+                "card_number": row.get("card_number"),
+                "start": store.format_clock(start),
+                "finish": store.format_clock(row.get("finish")),
+                "punches": punches,
+                "manual_status": row["status"] if row.get("status") in ("dsq", "nc") else "",
+            })
+            created += 1
+        except store.StoreError as err:
+            skipped.append({"row": i, "name": name, "reason": str(err)})
+    return {"created": created, "skipped": skipped, "new_classes": new_classes}

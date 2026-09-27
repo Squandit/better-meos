@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ row.name }} · splits slip</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% if thermal %}<style>@page { size: 80mm auto; margin: 3mm; }</style>{% endif %}
 </head>
-<body class="slip-page">
+<body class="slip-page{% if thermal %} slip-thermal{% endif %}">
 <div class="slip">
     <div class="slip-head">
         <div>
@@ -57,6 +58,9 @@
 
     <p class="slip-foot">Printed from better-meos</p>
 </div>
-{% if auto_print %}<script>window.addEventListener("load", function () { window.print(); });</script>{% endif %}
+{% if auto_print %}<script>
+window.addEventListener("afterprint", function () { window.close(); });
+window.addEventListener("load", function () { window.print(); });
+</script>{% endif %}
 </body>
 </html>

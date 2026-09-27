@@ -13,10 +13,12 @@ by the route via :mod:`payments` (scaffolded).
 
 from __future__ import annotations
 
+import random
 import sqlite3
 from datetime import datetime, timedelta
 
 import db
+import draw
 import notify
 import store
 from store import StoreError, parse_clock, format_clock
@@ -122,6 +124,11 @@ def draw_startlist(first_start, interval_minutes) -> dict:
     if interval < 1:
         raise StoreError("Interval must be at least 1 minute")
 
+    with store.batch():  # one disk commit for the whole draw
+        return _draw(first, interval)
+
+
+def _draw(first, interval: int) -> dict:
     pending = [e for e in db.all_entries(_event_id()) if e["competitor_id"] is None]
     by_class: dict[int, list] = {}
     for e in pending:
@@ -134,7 +141,8 @@ def draw_startlist(first_start, interval_minutes) -> dict:
             for e in members:
                 skipped.append({"name": e["name"], "reason": "class no longer exists"})
             continue
-        members.sort(key=lambda e: e["name"].lower())
+        # Random order with clubmates kept apart (was alphabetical).
+        members = draw.club_separated(members, random.Random())
         # Continue after any start times already assigned in this class (from an
         # earlier draw), but never before the requested first start. This keeps a
         # re-run for late entries from colliding with the original draw.

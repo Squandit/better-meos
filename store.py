@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
 from datetime import date, datetime
 
 import db
 import rules
 from results import (
+    MIDNIGHT_WRAP,
     build_result,
     mock_classes,
     rank_results,
@@ -71,13 +73,72 @@ def current_event_path() -> str | None:
 
 # Statuses an operator may force on a competitor. "" / None means "automatic":
 # let the engine decide. These mirror results.STATUS_* values.
-MANUAL_STATUSES = ("ok", "mp", "dns", "dnf", "dsq", "oot")
+MANUAL_STATUSES = ("ok", "mp", "dns", "dnf", "dsq", "oot", "nc")
+
+# Name shown for a drawn-but-unfilled start slot (see draw.py).
+VACANT_NAME = "Vacant"
 
 COURSE_TYPES = ("linear", "score")
 
 
 class StoreError(Exception):
     """A mutation was rejected; the message is safe to show the operator."""
+
+
+# ---------------------------------------------------------------------------
+# Audit log: who changed what (see /audit)
+# ---------------------------------------------------------------------------
+
+# Who is acting on this thread: set per request by app.py, per read by the SI
+# reader, per checkout by online entry. Thread-local because requests and the
+# reader thread run concurrently.
+_actor = threading.local()
+
+
+def set_actor(name: str | None) -> None:
+    _actor.name = name
+
+
+def current_actor() -> str:
+    return getattr(_actor, "name", None) or "system"
+
+
+@contextmanager
+def acting_as(name: str):
+    previous = getattr(_actor, "name", None)
+    _actor.name = name
+    try:
+        yield
+    finally:
+        _actor.name = previous
+
+
+def _fmt(value) -> str:
+    if isinstance(value, datetime):
+        return format_clock(value)
+    if isinstance(value, list):
+        return f"{len(value)} punches"
+    return "" if value is None else str(value)
+
+
+def _audit(action: str, target: str, detail: str = "") -> None:
+    db.insert_audit(current_actor(), action, target, detail)
+
+
+def _changes(before: dict, fields: dict, names: dict | None = None) -> str:
+    """'status: '' -> dsq; finish: 10:49:53 -> 10:50:10' for the changed keys."""
+    parts = []
+    for key, new in fields.items():
+        old = before.get(key)
+        if old == new:
+            continue
+        label = (names or {}).get(key, key.replace("_", " "))
+        parts.append(f"{label}: {_fmt(old) or '(blank)'} -> {_fmt(new) or '(blank)'}")
+    return "; ".join(parts)
+
+
+def audit_log(limit: int = 1000) -> list[dict]:
+    return db.audit_entries(limit)
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +153,14 @@ _competitors: dict[int, dict] = {}
 _teams: dict[int, dict] = {}
 
 _counters = {"course": 0, "class": 0, "competitor": 0, "team": 0}
+
+
+@contextmanager
+def batch():
+    """Many mutations, one disk commit (imports, draws, bib numbering).
+    Takes the store lock first so the lock order stays store -> db."""
+    with _lock, db.transaction():
+        yield
 
 
 def _next_id(kind: str) -> int:
@@ -225,6 +294,7 @@ def engine_course(course: dict) -> dict:
     return {
         "type": "linear",
         "controls": list(course["controls"]),
+        "time_limit_minutes": course.get("time_limit_minutes"),  # max time
         "start_mode": course.get("start_mode", "clock"),
         "start_control": course.get("start_control"),
         # Mass start is stored as a wall-clock string; pin it to the event date
@@ -252,6 +322,7 @@ def _engine_card(comp: dict, classes: dict | None = None) -> dict:
         "finish": comp["finish"],
         "punches": [(p["code"], p["time"]) for p in comp["punches"]],
         "manual_status": comp["manual_status"] or None,
+        "check": comp.get("check"),
     }
 
 
@@ -264,6 +335,11 @@ def seed_demo() -> None:
 
     Used by tests and demos only -- the app never seeds; new events start empty.
     """
+    with batch():
+        _seed_demo()
+
+
+def _seed_demo() -> None:
     _courses.clear()
     _classes.clear()
     _competitors.clear()
@@ -330,7 +406,7 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
         "name": name,
         "type": ctype,
         "controls": controls,
-        "time_limit_minutes": time_limit_minutes if ctype == "score" else None,
+        "time_limit_minutes": time_limit_minutes,  # score: limit; linear: max time
         "penalty_per_minute": penalty_per_minute if ctype == "score" else 0,
         "start_mode": start_mode,
         "start_control": start_control,
@@ -343,17 +419,19 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
     return cid
 
 
-def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0) -> int:
+def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0,
+                  fork_courses=None, restart="") -> int:
     cid = _next_id("class")
     _classes[cid] = {"id": cid, "name": name, "course_id": course_id,
-                     "kind": kind, "legs": legs, "fee": fee}
+                     "kind": kind, "legs": legs, "fee": fee,
+                     "fork_courses": fork_courses or [], "restart": restart or ""}
     db.save_class(_active_event_id, _classes[cid])
     return cid
 
 
 def _insert_competitor(*, name, club, class_id, card_number, start, finish,
                        punches, manual_status, bib=None, hired=False,
-                       team_id=None, leg=None) -> int:
+                       team_id=None, leg=None, vacant=False, course_id=None) -> int:
     cid = _next_id("competitor")
     _competitors[cid] = {
         "id": cid,
@@ -369,6 +447,8 @@ def _insert_competitor(*, name, club, class_id, card_number, start, finish,
         "hired": hired,
         "team_id": team_id,
         "leg": leg,
+        "vacant": vacant,
+        "course_id": course_id,
     }
     db.save_competitor(_active_event_id, _competitors[cid])
     return cid
@@ -390,7 +470,10 @@ def course_meta(course: dict) -> str:
         limit = course["time_limit_minutes"]
         limit_txt = f"{limit} min" if limit is not None else "no limit"
         return f"Score · {limit_txt} · {course_total_points(course)} pts"
-    return f"Linear · {len(course['controls'])} controls"
+    meta = f"Linear · {len(course['controls'])} controls"
+    if course.get("time_limit_minutes"):
+        meta += f" · max {course['time_limit_minutes']} min"
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -447,20 +530,44 @@ def get_competitor(comp_id: int) -> dict | None:
 
 def _evaluate_model(courses: dict, classes: dict,
                     competitors: dict) -> tuple[list[dict], dict[int, dict]]:
-    """Run a (courses, classes, competitors) model through the engine. Shared by
-    the live :func:`evaluate` and the cross-event :func:`evaluate_event`."""
+    """Run a (courses, classes, competitors) model through the engine."""
     out = []
     by_id: dict[int, dict] = {}
+    by_class: dict[int, list] = {}
+    for comp in competitors.values():
+        if comp.get("vacant"):
+            continue  # an unfilled start slot isn't a result
+        by_class.setdefault(comp["class_id"], []).append(comp)
     for cls in sorted(classes.values(), key=lambda c: c["name"].lower()):
         course = courses[cls["course_id"]]
-        ecourse = engine_course(course)
-        members = [c for c in competitors.values() if c["class_id"] == cls["id"]]
-        results_in = [build_result(_engine_card(c, classes), ecourse) for c in members]
+        engine_courses = {}
+
+        def course_of(comp):
+            # A forked runner (course override) is judged on their own course.
+            cid = comp.get("course_id") if comp.get("course_id") in courses else course["id"]
+            if cid not in engine_courses:
+                engine_courses[cid] = engine_course(courses[cid])
+            return cid, engine_courses[cid]
+
+        members = by_class.get(cls["id"], [])
+        results_in = []
+        for comp in members:
+            cid, ecourse = course_of(comp)
+            res = build_result(_engine_card(comp, classes), ecourse)
+            res["course_id"] = cid
+            results_in.append(res)
         ranked = rank_results(results_in).get(cls["name"], [])
         for r in ranked:
             by_id[r["id"]] = r
         out.append({"class": cls, "course": course, "results": ranked})
     return out, by_id
+
+
+# The last evaluation and the db revision it was computed at. Every page and
+# API reads results through evaluate(), and the same event is evaluated again
+# and again between changes (each live screen reload, each phone), so compute
+# once per revision. Every mutation writes through to db, which bumps it.
+_eval_cache: dict = {"revision": None, "value": None}
 
 
 def evaluate() -> tuple[list[dict], dict[int, dict]]:
@@ -470,19 +577,15 @@ def evaluate() -> tuple[list[dict], dict[int, dict]]:
     Returns ``(classes, by_id)`` where ``classes`` is a list of
     ``{class, course, results}`` (results already ranked for that class) and
     ``by_id`` maps competitor id -> its result, for quick lookups.
+
+    Cached per db revision: callers get shared objects and must not mutate them.
     """
     with _lock:
-        return _evaluate_model(_courses, _classes, _competitors)
-
-
-def evaluate_event(event_id: int) -> tuple[list[dict], dict[int, dict]]:
-    """Evaluate any event (the active one in memory, or another loaded from
-    the database) without disturbing the active in-memory model."""
-    with _lock:
-        if event_id == _active_event_id:
-            return _evaluate_model(_courses, _classes, _competitors)
-        data = db.load_event(event_id)
-        return _evaluate_model(data["courses"], data["classes"], data["competitors"])
+        rev = db.revision()
+        if _eval_cache["revision"] != rev:
+            _eval_cache["value"] = _evaluate_model(_courses, _classes, _competitors)
+            _eval_cache["revision"] = rev
+        return _eval_cache["value"]
 
 
 def result_for(comp_id: int) -> dict | None:
@@ -497,10 +600,6 @@ def result_for(comp_id: int) -> dict | None:
 
 def teams_in_class(class_id: int) -> list[dict]:
     return [t for t in _teams.values() if t["class_id"] == class_id]
-
-
-def get_team(team_id: int) -> dict | None:
-    return _teams.get(team_id)
 
 
 def create_team(data: dict) -> dict:
@@ -524,7 +623,7 @@ def create_team(data: dict) -> dict:
 
 
 def delete_team(team_id: int) -> None:
-    with _lock:
+    with batch():
         if team_id not in _teams:
             raise StoreError("That team no longer exists")
         # Detach members from the team (they remain as competitors).
@@ -537,25 +636,64 @@ def delete_team(team_id: int) -> None:
         db.delete_team(team_id)
 
 
-def _relay_team(team: dict, members: list[dict], by_id: dict) -> dict:
-    """A relay team's result: legs run in sequence, time is their sum, valid only
-    when every leg is OK."""
+def _relay_team(team: dict, members: list[dict], course: dict | None,
+                by_id: dict, restart: datetime | None = None) -> dict:
+    """
+    A relay team's result: legs run in sequence, time is their sum, valid only
+    when every leg is OK.
+
+    Relay runners rarely have a start of their own: leg 1 goes at the team's
+    start (or the course's mass start) and every later leg starts when the
+    previous runner finishes (the changeover). So a leg with no recorded start
+    is timed from the previous leg's finish, or from the class's mass restart
+    when the previous runner hadn't finished by then. Only leg 1 uses a mass
+    start. Forked legs are judged on the runner's own course.
+    """
     legs = []
     total = 0
     ok = bool(members)
-    for m in members:
+    prev_finish = None
+    for i, m in enumerate(members):
         res = by_id.get(m["id"])
+        leg_course = _courses.get(m.get("course_id")) or course
+        if leg_course is not None:
+            ecourse = engine_course(leg_course)
+            card = _engine_card(m)
+            if card["start"] is None:
+                if i == 0:
+                    card["start"] = team.get("start")
+                elif restart is not None and (prev_finish is None or prev_finish > restart):
+                    card["start"] = restart
+                else:
+                    card["start"] = prev_finish
+            if i > 0 and ecourse.get("start_mode") == "mass":
+                ecourse = {**ecourse, "start_mode": "clock"}
+            res = build_result(card, ecourse)
         leg_ok = res is not None and res["status"] == "ok" \
             and res["total_seconds"] is not None
-        legs.append({"name": m["name"], "leg": m.get("leg"),
+        legs.append({"name": m["name"], "leg": m.get("leg") or i + 1,
                      "seconds": res["total_seconds"] if res else None,
-                     "status": res["status"] if res else "dns"})
+                     "status": res["status"] if res else "dns", "place": None})
         if leg_ok:
             total += res["total_seconds"]
         else:
             ok = False
+        prev_finish = res["finish"] if res and res.get("finish") else m["finish"]
     return {"team": team, "legs": legs,
             "total_seconds": total if ok else None, "ok": ok}
+
+
+def _rank_legs(teams: list[dict]) -> None:
+    """Place every OK leg among the same leg of the other teams (leg results)."""
+    by_leg: dict[int, list[dict]] = {}
+    for t in teams:
+        for leg in t["legs"]:
+            if leg["status"] == "ok" and leg["seconds"] is not None:
+                by_leg.setdefault(leg["leg"], []).append(leg)
+    for legs in by_leg.values():
+        times = sorted(l["seconds"] for l in legs)
+        for leg in legs:
+            leg["place"] = times.index(leg["seconds"]) + 1
 
 
 def _patrol_team(team: dict, members: list[dict], course: dict) -> dict:
@@ -608,7 +746,11 @@ def team_results() -> list[dict]:
                 if kind == "patrol" and course is not None:
                     teams.append(_patrol_team(team, members, course))
                 else:
-                    teams.append(_relay_team(team, members, by_id))
+                    restart = parse_clock(cls.get("restart"), "Restart") \
+                        if cls.get("restart") else None
+                    teams.append(_relay_team(team, members, course, by_id, restart))
+            if kind == "relay":
+                _rank_legs(teams)
             ranked = sorted((t for t in teams if t["ok"]),
                             key=lambda t: t["total_seconds"])
             for i, t in enumerate(ranked):
@@ -632,7 +774,7 @@ def economy_summary() -> dict:
         grand_fee = 0.0
         hire_total = 0
         for cls in _classes_sorted():
-            members = _competitors_in_class(cls["id"])
+            members = [c for c in _competitors_in_class(cls["id"]) if not c.get("vacant")]
             fee = cls.get("fee", 0) or 0
             hired = sum(1 for c in members if c.get("hired"))
             subtotal = fee * len(members)
@@ -640,20 +782,27 @@ def economy_summary() -> dict:
             hire_total += hired
             rows.append({"class": cls["name"], "entries": len(members),
                          "fee": fee, "subtotal": subtotal, "hired": hired})
-        return {"rows": rows, "total_fees": grand_fee, "hire_cards": hire_total}
+        outstanding = sorted(
+            ({"id": c["id"], "name": c["name"], "card": c["card_number"],
+              "class": _classes[c["class_id"]]["name"], "finished": c["finish"] is not None}
+             for c in _competitors.values() if c.get("hired") and not c.get("card_returned")),
+            key=lambda r: r["name"].lower())
+        return {"rows": rows, "total_fees": grand_fee, "hire_cards": hire_total,
+                "outstanding": outstanding}
 
 
 def assign_bibs(start: int = 1) -> int:
     """Number every competitor sequentially (by start time, then name)."""
-    with _lock:
+    with batch():
         ordered = sorted(
-            _competitors.values(),
+            (c for c in _competitors.values() if not c.get("vacant")),
             key=lambda c: (c["start"] or datetime.max, c["name"].lower()))
         n = start
         for c in ordered:
             c["bib"] = n
             db.save_competitor(_active_event_id, c)
             n += 1
+        _audit("bibs assigned", "all competitors", f"{start} to {n - 1}")
         return n - start
 
 
@@ -676,8 +825,11 @@ def competitor_json(comp: dict) -> dict:
         "manual_status": comp["manual_status"] or "",
         "bib": comp.get("bib"),
         "hired": bool(comp.get("hired")),
+        "card_returned": bool(comp.get("card_returned")),
         "team_id": comp.get("team_id"),
         "leg": comp.get("leg"),
+        "vacant": bool(comp.get("vacant")),
+        "course_id": comp.get("course_id"),
         "punches": [
             {"code": p["code"], "time": format_clock(p["time"])}
             for p in comp["punches"]
@@ -748,6 +900,8 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         out["bib"] = _as_int(data.get("bib"), "Bib", minimum=1, allow_blank=True)
     if has("hired"):
         out["hired"] = bool(data.get("hired"))
+    if has("card_returned"):
+        out["card_returned"] = bool(data.get("card_returned"))
     if has("team_id"):
         team_id = _as_int(data.get("team_id"), "Team", minimum=1, allow_blank=True)
         if team_id is not None and team_id not in _teams:
@@ -755,11 +909,19 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         out["team_id"] = team_id
     if has("leg"):
         out["leg"] = _as_int(data.get("leg"), "Leg", minimum=1, allow_blank=True)
+    if has("course_id"):
+        course_id = _as_int(data.get("course_id"), "Course", minimum=1, allow_blank=True)
+        if course_id is not None and course_id not in _courses:
+            raise StoreError("That course no longer exists")
+        out["course_id"] = course_id
 
     # Cross-field: finish must not precede start.
     start = out.get("start", current["start"] if current else None)
     finish = out.get("finish", current["finish"] if current else None)
-    if start is not None and finish is not None and finish < start:
+    # A finish up to 12 h "before" the start is a mistake; further back it's
+    # after midnight (night event) and the engine rolls it to the next day.
+    if start is not None and finish is not None and finish < start \
+            and start - finish <= MIDNIGHT_WRAP:
         raise StoreError("Finish time is before the start time")
 
     return out
@@ -793,8 +955,14 @@ def create_competitor(data: dict) -> dict:
             hired=fields.get("hired", False),
             team_id=fields.get("team_id"),
             leg=fields.get("leg"),
+            course_id=fields.get("course_id"),
         )
-        return competitor_json(_competitors[cid])
+        comp = _competitors[cid]
+        _audit("competitor added", _who(comp),
+               f"class {_classes[comp['class_id']]['name']}"
+               + (f", SI {comp['card_number']}" if comp["card_number"] else ""))
+        _apply_pending_read(comp)
+        return competitor_json(comp)
 
 
 def update_competitor(comp_id: int, data: dict) -> dict:
@@ -803,10 +971,25 @@ def update_competitor(comp_id: int, data: dict) -> dict:
         if comp is None:
             raise StoreError("That competitor no longer exists")
         fields = _validated_competitor_fields(data, partial=True, current=comp)
+        card_changed = "card_number" in fields and fields["card_number"] != comp["card_number"]
+        # Filling a vacant slot: giving it a real name or a card makes it a runner.
+        if comp.get("vacant") and (
+                fields.get("name", VACANT_NAME) != VACANT_NAME or fields.get("card_number")):
+            fields["vacant"] = False
         if "card_number" in fields:
             _check_card_unique(fields["card_number"], ignore=comp_id)
+        shown = dict(fields)
+        if "class_id" in shown:
+            shown["class_id"] = _classes[shown["class_id"]]["name"]
+        before = dict(comp, class_id=_classes[comp["class_id"]]["name"])
+        detail = _changes(before, shown, {"class_id": "class", "card_number": "SI",
+                                          "manual_status": "status"})
         comp.update(fields)
         db.save_competitor(_active_event_id, comp)
+        if detail:
+            _audit("competitor edited", _who(comp), detail)
+        if card_changed:
+            _apply_pending_read(comp)
         return competitor_json(comp)
 
 
@@ -814,8 +997,10 @@ def delete_competitor(comp_id: int) -> None:
     with _lock:
         if comp_id not in _competitors:
             raise StoreError("That competitor no longer exists")
-        del _competitors[comp_id]
+        comp = _competitors.pop(comp_id)
         db.delete_competitor(comp_id)
+        _audit("competitor deleted", _who(comp),
+               f"class {_classes.get(comp['class_id'], {}).get('name', '?')}")
 
 
 # ---------------------------------------------------------------------------
@@ -835,6 +1020,67 @@ def _class_kind(value) -> str:
     return kind
 
 
+def _fork_courses(raw) -> list[int]:
+    """Fork variants for a class: course ids (list or comma string)."""
+    if raw in (None, ""):
+        return []
+    items = raw if isinstance(raw, list) else str(raw).split(",")
+    out = []
+    for item in items:
+        if str(item).strip() == "":
+            continue
+        course_id = _as_int(item, "Fork course", minimum=1)
+        if course_id not in _courses:
+            raise StoreError("A fork course no longer exists")
+        if course_id not in out:
+            out.append(course_id)
+    return out
+
+
+def _restart(raw) -> str:
+    text = _clean_str(raw, "Restart")
+    if text:
+        parse_clock(text, "Restart")  # validate HH:MM:SS
+    return text
+
+
+def assign_forks(class_id: int) -> int:
+    """
+    Hand out the class's fork courses.
+
+    Individuals: in start order, fork 1, 2, 3, 1, 2, ... Relays / patrols: team
+    t (by bib, then name) runs leg l on fork (t + l) mod n, so every team runs
+    every fork once over n legs and neighbouring teams split up on each leg.
+    Returns how many runners got a course.
+    """
+    with batch():
+        cls = _classes.get(class_id)
+        if cls is None:
+            raise StoreError("That class no longer exists")
+        forks = cls.get("fork_courses") or []
+        if not forks:
+            raise StoreError(f"{cls['name']} has no fork courses set")
+        members = [c for c in _competitors_in_class(class_id) if not c.get("vacant")]
+        assigned = 0
+        if cls.get("kind") in ("relay", "patrol"):
+            teams = sorted(teams_in_class(class_id),
+                           key=lambda t: (t.get("bib") or 10**9, t["name"].lower()))
+            index = {t["id"]: i for i, t in enumerate(teams)}
+            for comp in members:
+                if comp.get("team_id") in index:
+                    leg = (comp.get("leg") or 1) - 1
+                    update_competitor(comp["id"], {
+                        "course_id": forks[(index[comp["team_id"]] + leg) % len(forks)]})
+                    assigned += 1
+        else:
+            members.sort(key=lambda c: (c["start"] or datetime.max, c["name"].lower()))
+            for i, comp in enumerate(members):
+                update_competitor(comp["id"], {"course_id": forks[i % len(forks)]})
+                assigned += 1
+        _audit("forks assigned", cls["name"], f"{assigned} runners, {len(forks)} forks")
+        return assigned
+
+
 def create_class(data: dict) -> dict:
     with _lock:
         name = _clean_str(data.get("name"), "Class name", required=True)
@@ -845,7 +1091,10 @@ def create_class(data: dict) -> dict:
         kind = _class_kind(data.get("kind"))
         legs = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
         fee = _as_float(data.get("fee"), "Fee")
-        cid = _insert_class(name=name, course_id=course_id, kind=kind, legs=legs, fee=fee)
+        cid = _insert_class(name=name, course_id=course_id, kind=kind, legs=legs, fee=fee,
+                            fork_courses=_fork_courses(data.get("fork_courses")),
+                            restart=_restart(data.get("restart")))
+        _audit("class added", name, f"course {_courses[course_id]['name']}")
         return dict(_classes[cid])
 
 
@@ -854,6 +1103,7 @@ def update_class(class_id: int, data: dict) -> dict:
         cls = _classes.get(class_id)
         if cls is None:
             raise StoreError("That class no longer exists")
+        before = dict(cls)
         if "name" in data:
             name = _clean_str(data.get("name"), "Class name", required=True)
             _check_unique_class_name(name, ignore=class_id)
@@ -869,7 +1119,14 @@ def update_class(class_id: int, data: dict) -> dict:
             cls["legs"] = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
         if "fee" in data:
             cls["fee"] = _as_float(data.get("fee"), "Fee")
+        if "fork_courses" in data:
+            cls["fork_courses"] = _fork_courses(data.get("fork_courses"))
+        if "restart" in data:
+            cls["restart"] = _restart(data.get("restart"))
         db.save_class(_active_event_id, cls)
+        detail = _changes(before, cls, {"course_id": "course id"})
+        if detail:
+            _audit("class edited", cls["name"], detail)
         return dict(cls)
 
 
@@ -886,6 +1143,7 @@ def delete_class(class_id: int) -> None:
             )
         del _classes[class_id]
         db.delete_class(class_id)
+        _audit("class deleted", cls["name"])
 
 
 # ---------------------------------------------------------------------------
@@ -919,6 +1177,8 @@ def _validated_course_fields(data: dict) -> dict:
         }
 
     controls = _coerce_linear_controls(data.get("controls"))
+    max_time = _as_int(data.get("time_limit_minutes"), "Max time", minimum=1,
+                       allow_blank=True)
     start_mode = _clean_str(data.get("start_mode"), "Start mode").lower() or "clock"
     if start_mode not in ("clock", "punch", "mass", "chase"):
         raise StoreError("Start mode must be 'clock', 'punch', 'mass' or 'chase'")
@@ -936,7 +1196,7 @@ def _validated_course_fields(data: dict) -> dict:
     length_m = _as_int(data.get("length_m"), "Course length", minimum=0, allow_blank=True)
     out = {
         "name": name, "type": "linear", "controls": controls,
-        "time_limit_minutes": None, "penalty_per_minute": 0,
+        "time_limit_minutes": max_time, "penalty_per_minute": 0,
         "start_mode": start_mode, "start_control": start_control,
         "mass_start": mass_start or None,
         "length_m": length_m,
@@ -963,6 +1223,7 @@ def create_course(data: dict) -> dict:
             score_formula=fields.get("score_formula"),
             leg_lengths=fields.get("leg_lengths") or [],
         )
+        _audit("course added", fields["name"], f"{len(fields['controls'])} controls")
         return course_json(_courses[cid])
 
 
@@ -972,8 +1233,13 @@ def update_course(course_id: int, data: dict) -> dict:
         if course is None:
             raise StoreError("That course no longer exists")
         fields = _validated_course_fields(data)
+        detail = _changes(course, {k: v for k, v in fields.items() if k != "controls"})
+        if fields["controls"] != course["controls"]:
+            detail = "; ".join(p for p in (detail, "controls changed") if p)
         course.update(fields)
         db.save_course(_active_event_id, course)
+        if detail:
+            _audit("course edited", course["name"], detail)
         return course_json(course)
 
 
@@ -990,6 +1256,7 @@ def delete_course(course_id: int) -> None:
             )
         del _courses[course_id]
         db.delete_course(course_id)
+        _audit("course deleted", course["name"])
 
 
 # ---------------------------------------------------------------------------
@@ -1008,7 +1275,8 @@ def preview(data: dict) -> dict:
         cls = _classes.get(class_id)
         if cls is None:
             raise StoreError("That class no longer exists")
-        ecourse = engine_course(_courses[cls["course_id"]])
+        override = _as_int(data.get("course_id"), "Course", minimum=1, allow_blank=True)
+        ecourse = engine_course(_courses.get(override) or _courses[cls["course_id"]])
 
         card = {
             "id": data.get("id"),
@@ -1079,7 +1347,23 @@ def add_radio_punch(card_number: int, code: int, time: datetime,
         comp["punches"].append({"code": code, "time": time, "station_id": station_id})
         comp["punches"].sort(key=lambda p: p["time"])
         db.save_competitor(_active_event_id, comp)
+        _audit("radio punch", _who(comp), f"control {code} at {format_clock(time)}")
         return comp
+
+
+def _apply_card(comp: dict, card: dict) -> None:
+    """Overwrite a competitor's run from a card read (caller holds _lock)."""
+    station = card.get("station_id")
+    comp["punches"] = [
+        {"code": code, "time": time, "station_id": station}
+        for code, time in card.get("punches", [])
+    ]
+    if card.get("start") is not None:
+        comp["start"] = card["start"]
+    if card.get("finish") is not None:
+        comp["finish"] = card["finish"]
+    comp["check"] = card.get("check")  # a new read replaces the old check too
+    db.save_competitor(_active_event_id, comp)
 
 
 def apply_card_read(card: dict) -> dict:
@@ -1093,24 +1377,93 @@ def apply_card_read(card: dict) -> dict:
     download); a manual status override, if any, is left untouched.
 
     Returns the competitor's editable JSON. Raises StoreError if no competitor is
-    registered for the card number -- on-the-day entries must be created first.
+    registered for the card number (see :func:`record_unmatched_read`).
     """
     with _lock:
         number = card.get("card_number")
         comp = find_by_card(number) if number is not None else None
         if comp is None:
             raise StoreError(f"No competitor registered for SI card {number}")
-        station = card.get("station_id")
-        comp["punches"] = [
-            {"code": code, "time": time, "station_id": station}
-            for code, time in card.get("punches", [])
-        ]
-        if card.get("start") is not None:
-            comp["start"] = card["start"]
-        if card.get("finish") is not None:
-            comp["finish"] = card["finish"]
-        db.save_competitor(_active_event_id, comp)
+        _apply_card(comp, card)
+        _audit("card read", _who(comp), f"{len(card.get('punches', []))} punches"
+               + (f", finish {format_clock(card['finish'])}" if card.get("finish") else ""))
         return competitor_json(comp)
+
+
+# ---------------------------------------------------------------------------
+# Unmatched card reads: kept until the operator says whose run it was
+# ---------------------------------------------------------------------------
+
+def record_unmatched_read(card: dict) -> int:
+    """Keep a read that matched nobody, so the runner needn't read out again."""
+    read_id = db.insert_card_read(card)
+    _audit("unmatched card kept", f"SI {card.get('card_number')}",
+           f"{len(card.get('punches', []))} punches")
+    return read_id
+
+
+def unmatched_reads() -> list[dict]:
+    """Unassigned reads, newest first, shaped for the download page."""
+    out = []
+    for read in db.unmatched_card_reads():
+        out.append({
+            "id": read["id"], "card_number": read["card_number"],
+            "read_at": read["read_at"].replace("T", " "),
+            "station": read["station_id"] or "main",
+            "start": format_clock(read["start"]), "finish": format_clock(read["finish"]),
+            "punches": len(read["punches"]),
+        })
+    return out
+
+
+def assign_card_read(read_id: int, comp_id: int) -> dict:
+    """
+    Give a kept read to a competitor: their run becomes the card's punches and
+    the card number becomes theirs (they ran with it, e.g. a borrowed card).
+    """
+    with _lock:
+        read = db.get_card_read(read_id)
+        if read is None or read["competitor_id"] is not None:
+            raise StoreError("That card read has already been dealt with")
+        comp = _competitors.get(comp_id)
+        if comp is None:
+            raise StoreError("That competitor no longer exists")
+        number = read["card_number"]
+        if comp["card_number"] != number:
+            _check_card_unique(number, ignore=comp_id)
+            comp["card_number"] = number
+        _apply_card(comp, read)
+        db.mark_card_read_assigned(read_id, comp_id)
+        _audit("card read assigned", _who(comp), f"SI {number}")
+        return competitor_json(comp)
+
+
+def delete_card_read(read_id: int) -> None:
+    with _lock:
+        read = db.get_card_read(read_id)
+        if read is None:
+            raise StoreError("That card read no longer exists")
+        db.delete_card_read(read_id)
+        _audit("card read discarded", f"SI {read['card_number']}",
+               f"{len(read['punches'])} punches")
+
+
+def _who(comp: dict) -> str:
+    return f"{comp['name']}" + (f" (SI {comp['card_number']})" if comp.get("card_number") else "")
+
+
+def _apply_pending_read(comp: dict) -> None:
+    """If a card read is waiting for this competitor's card, apply it now (the
+    'read out first, enter afterwards' case). Caller holds _lock."""
+    number = comp.get("card_number")
+    if number is None:
+        return
+    for read in db.unmatched_card_reads():  # newest first
+        if read["card_number"] == number:
+            _apply_card(comp, read)
+            db.mark_card_read_assigned(read["id"], comp["id"])
+            _audit("kept card read applied", _who(comp), f"SI {number}")
+            return
 
 
 def auto_create_from_card(card: dict) -> dict:
@@ -1226,6 +1579,7 @@ def events_in_folder(folder: str | None = None) -> list[dict]:
 
 def _load_active() -> None:
     """Replace the in-memory model with the open event file's data."""
+    db.mark_changed()
     data = db.load_event(_active_event_id)
     _courses.clear(); _courses.update(data["courses"])
     _classes.clear(); _classes.update(data["classes"])
@@ -1238,6 +1592,8 @@ def open_event(path: str) -> dict:
     """Open an existing event file as the current event."""
     global _current_path
     with _lock:
+        if not str(path).lower().endswith(".bmeos"):
+            raise StoreError("Only .bmeos event files can be opened")
         if not os.path.exists(path):
             raise StoreError("That event file no longer exists")
         # Validate on a throwaway connection FIRST, so a foreign/corrupt file
@@ -1321,6 +1677,7 @@ def restore(backup_path: str) -> None:
         except (ValueError, sqlite3.Error) as err:
             raise StoreError(f"Could not restore backup: {err}")
         _load_active()
+        _audit("event restored from backup", EVENT.get("name", ""))
 
 
 # No event is opened on import: the app starts at the event-selection page and

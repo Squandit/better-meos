@@ -1,30 +1,34 @@
+import functools
 import json
-import logging
 import os
 import tempfile
+import threading
 from datetime import datetime
 from xml.etree.ElementTree import ParseError as ET_ERROR
 from xml.sax.saxutils import escape as xml_escape
 
 from flask import (Flask, render_template, request, jsonify, abort, Response,
-                   url_for, redirect, session)
+                   make_response, url_for, redirect, session)
 
 import auth
+import backups
 import config
 import db
+import draw
 import entries as entries_mod
 import eventor
 import events
 import iofxml
 import importers
-import network
-import notify
+import online_entry
 import payments
 import pdf
+import publish
 import remote
 import runners
 import security
 import si_reader
+import speaker
 import simulator
 import stages
 import store
@@ -33,24 +37,24 @@ from results import build_splits_matrix, format_duration
 
 app = Flask(__name__)
 
-# Session signing key. A known default is fine with auth OFF (sessions carry
-# nothing sensitive), but with auth ON it would let anyone forge an operator
-# cookie -- so fail closed: use a strong per-process random key when BMEOS_SECRET
-# isn't supplied (sessions won't survive a restart; set BMEOS_SECRET to persist).
-_secret = os.environ.get("BMEOS_SECRET")
-if not _secret:
-    if auth.is_enabled():
-        _secret = os.urandom(32).hex()
-        logging.getLogger("app").warning(
-            "BMEOS_AUTH is on without BMEOS_SECRET; using an ephemeral session "
-            "key (logins won't survive a restart). Set BMEOS_SECRET to persist.")
-    else:
-        _secret = "dev-insecure-key"
-app.secret_key = _secret
+# Session signing key: BMEOS_SECRET, else a random key generated once and kept
+# in config.json. Never a fixed default -- the admin lock and logins live in the
+# session cookie, so a key anyone can read would let them forge an unlocked one.
+app.secret_key = config.secret_key()
 
 # Format a raw seconds duration in templates (used by the profile page, which
 # renders engine results directly rather than pre-formatted view rows).
 app.jinja_env.filters["format_secs"] = format_duration
+
+
+def _ordinal(n) -> str:
+    """1 -> 1st, 2 -> 2nd, 11 -> 11th, 23 -> 23rd."""
+    n = int(n)
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+app.jinja_env.filters["ordinal"] = _ordinal
 
 # Port-surface split (public vs admin) + admin unlock gate. Installed first so
 # its before_request guard runs before the login / open-event guards.
@@ -60,6 +64,74 @@ security.install(app)
 # after an event opens (below) -- never at import, so it can't create a stray DB
 # before any event file is connected.
 auth.install(app)
+
+
+# ---------------------------------------------------------------------------
+# Rendered-page cache for the read-only result views
+# ---------------------------------------------------------------------------
+# Live screens and phones reload these pages after every change, all at once,
+# and they render identically for everyone until the data changes again. So a
+# page is rendered once per db revision (see db.revision) and served from memory
+# until the next write; a burst of reloads costs one render, not one each.
+
+_page_cache: dict = {}
+_render_locks: dict = {}
+_page_cache_revision = None
+_page_cache_lock = threading.Lock()
+# Bound on cached variants per revision (different paths / query strings), so
+# junk query strings can't grow memory without limit.
+_PAGE_CACHE_MAX = 200
+
+
+def _page_key():
+    """Everything a cached page's HTML depends on besides the event data."""
+    user = auth.current_user() or {}
+    return (request.full_path, request.environ.get("SERVER_PORT", ""),
+            user.get("username"), user.get("role"), auth.is_enabled(),
+            config.admin_password_set(), si_reader.reader_enabled())
+
+
+def _cached(key, revision):
+    with _page_cache_lock:
+        return _page_cache.get(key) if _page_cache_revision == revision else None
+
+
+def cached_page(view):
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        global _page_cache_revision
+        # Read the revision BEFORE rendering: the page is then at least as new
+        # as its key, never older (a write mid-render just makes the next
+        # request miss).
+        revision = db.revision()
+        key = _page_key()
+        with _page_cache_lock:
+            if _page_cache_revision != revision:
+                _page_cache.clear()
+                _render_locks.clear()
+                _page_cache_revision = revision
+            hit = _page_cache.get(key)
+            render_lock = _render_locks.get(key)
+            if render_lock is None and len(_render_locks) < _PAGE_CACHE_MAX:
+                render_lock = _render_locks[key] = threading.Lock()
+        if hit is None and render_lock is None:
+            return view(*args, **kwargs)  # cache full this revision: just render
+        if hit is None:
+            # One render per page per revision: a reload burst waits for the
+            # first render instead of every request rendering the same page.
+            with render_lock:
+                hit = _cached(key, revision)
+                if hit is None:
+                    resp = make_response(view(*args, **kwargs))
+                    if resp.status_code != 200:
+                        return resp
+                    hit = (resp.get_data(), resp.mimetype)
+                    with _page_cache_lock:
+                        if _page_cache_revision == revision \
+                                and len(_page_cache) < _PAGE_CACHE_MAX:
+                            _page_cache[key] = hit
+        return Response(hit[0], mimetype=hit[1])
+    return wrapper
 
 
 @app.context_processor
@@ -74,6 +146,18 @@ _NO_EVENT_OK = ("/static/", "/api/events/", "/api/config")
 
 
 @app.before_request
+def _set_actor():
+    """Who the audit log credits for changes made by this request."""
+    user = auth.current_user()
+    if user:
+        store.set_actor(user["username"])
+    elif security.is_public_path(request.path) and request.path.startswith("/api/online-entry"):
+        store.set_actor("online entry")
+    else:
+        store.set_actor(f"console {request.remote_addr or ''}".strip())
+
+
+@app.before_request
 def _require_open_event():
     """With no event open, every operator page redirects to the start screen
     (and operator APIs answer 409), so the app always begins at event selection."""
@@ -81,7 +165,7 @@ def _require_open_event():
         return None
     p = request.path
     if (p in ("/start", "/favicon.ico", "/sw.js", "/manifest.json",
-              "/unlock", "/lock", "/config")
+              "/unlock", "/lock", "/config", "/login", "/logout")
             or p.startswith(_NO_EVENT_OK)):
         return None
     if p.startswith("/api/"):
@@ -116,15 +200,17 @@ STATUS_LABELS = {
     "dnf": "DNF",
     "dsq": "DSQ",
     "oot": "OOT",
+    "nc": "NC",
 }
-STATUS_ORDER = ["ok", "oot", "mp", "dnf", "dns", "dsq"]
+STATUS_ORDER = ["ok", "nc", "oot", "mp", "dnf", "dns", "dsq"]
 FLAGGED = ("mp", "dnf", "dns", "dsq")
 
 
 @app.context_processor
 def inject_event():
     """Make the open event's details available to every template."""
-    return {"event": store.EVENT}
+    # The real reader is switched on in Settings, not per event file.
+    return {"event": {**store.EVENT, "reader_enabled": si_reader.reader_enabled()}}
 
 
 def _status_label(status):
@@ -167,6 +253,7 @@ def _view_row(result):
         "finish": _clock(result.get("finish")),
         "points": result["points"],
         "missed_control": result.get("missed_control"),
+        "ignored": result.get("ignored_punches", 0),
         "splits": _format_splits(result["splits"]),
     }
 
@@ -246,18 +333,35 @@ def index():
     return render_template(
         "overview.html", active="overview", stats=stats,
         status_breakdown=status_breakdown, latest=latest, leaders=leaders,
-        reader_enabled=store.EVENT.get("reader_enabled"),
+        reader_enabled=si_reader.reader_enabled(),
         recent_reads=si_reader.recent_reads(),
     )
+
+
+def _vacant_rows():
+    """Unfilled start slots, shaped like result rows so the competitor list can
+    show them (click one to fill it with an on-the-day entry)."""
+    rows = []
+    for comp in store._competitors.values():
+        if not comp.get("vacant"):
+            continue
+        cls = store.get_class(comp["class_id"]) or {}
+        rows.append({"id": comp["id"], "position": None, "name": comp["name"],
+                     "club": "", "class": cls.get("name", ""), "si": comp["card_number"],
+                     "status": "vacant", "status_label": "Vacant", "is_ok": False,
+                     "manual": False, "time": None, "start": _clock(comp["start"]),
+                     "finish": None, "points": None, "missed_control": None, "splits": []})
+    return rows
 
 
 @app.route("/competitors")
 def competitors():
     rows = [r for c in _console_data() for r in c["rows"]]
+    rows.extend(_vacant_rows())
     rows.sort(key=lambda r: (r["class"], r["position"] is None, r["position"] or 0, r["name"]))
     return render_template(
         "competitors.html", active="competitors", rows=rows,
-        class_options=store.class_options(),
+        class_options=store.class_options(), course_options=store.course_options(),
         status_options=[{"value": s, "label": STATUS_LABELS[s]} for s in STATUS_ORDER],
     )
 
@@ -278,6 +382,8 @@ def classes():
             "kind": cls.get("kind", "individual"),
             "legs": cls.get("legs", 1),
             "fee": cls.get("fee", 0),
+            "fork_courses": ",".join(str(i) for i in cls.get("fork_courses") or []),
+            "restart": cls.get("restart") or "",
             "entries": len(rows),
             "finished": sum(1 for r in rows if r["time"] is not None),
             "flagged": sum(1 for r in rows if r["status"] in FLAGGED),
@@ -311,6 +417,7 @@ def courses():
                 "is_score": False,
                 "classes": item["classes"],
                 "count": len(course["controls"]),
+                "max_time": course.get("time_limit_minutes"),
                 "controls": [{"seq": i + 1, "code": code} for i, code in enumerate(course["controls"])],
             })
     return render_template("courses.html", active="courses", courses=view)
@@ -318,12 +425,59 @@ def courses():
 
 @app.route("/download")
 def download():
-    rows = [r for c in _console_data() for r in c["rows"] if r["finish"] is not None]
+    all_rows = [r for c in _console_data() for r in c["rows"]]
+    rows = [r for r in all_rows if r["finish"] is not None]
     rows.sort(key=lambda r: r["finish"], reverse=True)
-    return render_template("download.html", active="download", rows=rows, count=len(rows))
+    assignable = sorted(all_rows, key=lambda r: r["name"].lower())
+    return render_template("download.html", active="download", rows=rows, count=len(rows),
+                           unmatched=store.unmatched_reads(), assignable=assignable,
+                           readers=si_reader.reader_status())
+
+
+@app.route("/readout")
+def readout_page():
+    """Runner-facing readout screen: big result + OK / mispunch sound per read."""
+    return render_template("readout.html", active="download")
+
+
+@app.route("/api/readout/latest")
+def api_readout_latest():
+    """The last card read, with the runner's result, for the readout screen."""
+    read = si_reader.latest_read()
+    if read is None:
+        return jsonify(None)
+    out = {"seq": read["seq"], "time": read["time"], "ok": read["ok"],
+           "card_number": read["card_number"], "station": read["station"]}
+    comp = store.get_competitor(read["competitor_id"]) if read["competitor_id"] else None
+    result = store.result_for(comp["id"]) if comp else None
+    if comp and result:
+        row = _view_row(result)
+        out["runner"] = {"id": comp["id"], "name": row["name"], "club": row["club"],
+                         "class": row["class"], "status": row["status"],
+                         "status_label": row["status_label"], "time": row["time"],
+                         "position": row["position"], "missed_control": row["missed_control"],
+                         "ignored": row["ignored"], "hired": bool(comp.get("hired")),
+                         "card_returned": bool(comp.get("card_returned"))}
+    return jsonify(out)
+
+
+@app.route("/api/card-reads/<int:read_id>/assign", methods=["POST"])
+def api_assign_card_read(read_id):
+    """Attach a kept (unmatched) card read to a competitor."""
+    comp_id = store._as_int(_payload().get("competitor_id"), "Competitor", minimum=1)
+    comp = store.assign_card_read(read_id, comp_id)
+    events.publish("card_read", action="assign")
+    return jsonify({"ok": True, "competitor": comp})
+
+
+@app.route("/api/card-reads/<int:read_id>", methods=["DELETE"])
+def api_delete_card_read(read_id):
+    store.delete_card_read(read_id)
+    return jsonify({"ok": True})
 
 
 @app.route("/results")
+@cached_page
 def results():
     return render_template("results.html", active="results", classes=_console_data())
 
@@ -345,15 +499,28 @@ def _splits_data():
         }
         if is_score:
             item["rows"] = [_view_row(r) for r in entry["results"]]
-        else:
-            item["matrix"] = build_splits_matrix(
-                entry["results"], course["controls"], course.get("leg_lengths"))
-            item["length_m"] = course.get("length_m")
-        view.append(item)
+            view.append(item)
+            continue
+        # Forked classes: one splits table per course variant (legs of
+        # different forks aren't comparable column by column).
+        by_course: dict = {}
+        for r in entry["results"]:
+            by_course.setdefault(r.get("course_id", course["id"]), []).append(r)
+        for course_id in sorted(by_course, key=lambda c: (c != course["id"], c)):
+            variant = store.get_course(course_id) or course
+            part = dict(item)
+            if len(by_course) > 1:
+                part["name"] = f'{cls["name"]} · {variant["name"]}'
+                part["meta"] = store.course_meta(variant)
+            part["matrix"] = build_splits_matrix(
+                by_course[course_id], variant["controls"], variant.get("leg_lengths"))
+            part["length_m"] = variant.get("length_m")
+            view.append(part)
     return view
 
 
 @app.route("/splits")
+@cached_page
 def splits():
     return render_template("splits.html", active="splits", classes=_splits_data())
 
@@ -368,10 +535,12 @@ def slip(comp_id):
     if result is None:
         abort(404)
     return render_template("slip.html", row=_view_row(result),
-                           auto_print=request.args.get("print") == "1")
+                           auto_print=request.args.get("print") == "1",
+                           thermal=(config.get_str("slip_paper") or "80mm").lower() != "a4")
 
 
 @app.route("/live")
+@cached_page
 def live():
     """Projector-friendly live leaderboard (no operator chrome)."""
     return render_template("live.html", active="live", classes=_console_data())
@@ -392,6 +561,7 @@ def _club_archive():
 
 
 @app.route("/clubs")
+@cached_page
 def clubs():
     return render_template("clubs.html", active="clubs", clubs=_club_archive())
 
@@ -401,6 +571,7 @@ def clubs():
 # ---------------------------------------------------------------------------
 
 @app.route("/teams")
+@cached_page
 def teams_page():
     return render_template("teams.html", active="teams", classes=store.team_results())
 
@@ -434,11 +605,11 @@ def economy_page():
 
 
 @app.route("/speaker")
+@cached_page
 def speaker_page():
     """Commentator view: who's out on course, recent finishes."""
     rows = [r for c in _console_data() for r in c["rows"]]
-    out = [r for r in rows if r["start"] and not r["finish"]]
-    out.sort(key=lambda r: r["start"])
+    out = speaker.out_on_course(store.evaluate()[0])
     finished = [r for r in rows if r["finish"]]
     finished.sort(key=lambda r: r["finish"], reverse=True)
     return render_template("speaker.html", active="speaker",
@@ -464,14 +635,42 @@ def _startlist_data():
         classes.append({
             "name": cls["name"],
             "rows": [{"bib": c.get("bib"), "name": c["name"], "club": c.get("club") or "",
+                      "vacant": bool(c.get("vacant")),
                       "card": c.get("card_number") or "",
                       "start": _clock(c.get("start"))} for c in members],
         })
     return classes
 
 
+def _starters():
+    """Everyone with a start time, in start order (the starter's view)."""
+    rows = []
+    for cls in _startlist_data():
+        for r in cls["rows"]:
+            if r["start"]:
+                rows.append({**r, "class": cls["name"]})
+    rows.sort(key=lambda r: (r["start"], r["class"], r["name"]))
+    return rows
+
+
+@app.route("/starter")
+def starter_page():
+    """Start clock + who's up now and next, for the start official."""
+    return render_template("starter.html")
+
+
+@app.route("/api/starters")
+def api_starters():
+    return jsonify({"now": datetime.now().strftime("%H:%M:%S"), "starters": _starters()})
+
+
 @app.route("/export/startlist.pdf")
 def export_startlist_pdf():
+    if request.args.get("by") == "time":
+        data = pdf.start_list_by_time_pdf(_starters(), store.EVENT)
+        return Response(data, mimetype="application/pdf", headers={
+            "Content-Disposition":
+                f"attachment; filename={store.EVENT['slug']}-starters.pdf"})
     data = pdf.start_list_pdf(_startlist_data(), store.EVENT)
     return Response(data, mimetype="application/pdf", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-startlist.pdf"})
@@ -489,6 +688,77 @@ def export_bibs_pdf():
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-bibs.pdf"})
 
 
+@app.route("/draw")
+def draw_page():
+    """Start-list draw for chosen classes (random / club separation, vacants)."""
+    rows = []
+    for cls in store._classes_sorted():
+        members = store._competitors_in_class(cls["id"])
+        starts = sorted(c["start"] for c in members if c["start"] is not None)
+        rows.append({"id": cls["id"], "name": cls["name"],
+                     "course": (store.get_course(cls["course_id"]) or {}).get("name", ""),
+                     "runners": sum(1 for c in members if not c.get("vacant")),
+                     "vacants": sum(1 for c in members if c.get("vacant")),
+                     "undrawn": sum(1 for c in members if c["start"] is None),
+                     "first": _clock(starts[0]) if starts else "",
+                     "last": _clock(starts[-1]) if starts else ""})
+    return render_template("draw.html", active="draw", classes=rows,
+                           first_start=store.EVENT.get("first_start") or "10:00:00")
+
+
+@app.route("/api/draw", methods=["POST"])
+def api_draw():
+    data = _payload()
+    ids = [store._as_int(i, "Class", minimum=1) for i in (data.get("class_ids") or [])]
+    if not ids:
+        raise StoreError("Pick at least one class to draw")
+    outcome = draw.draw_classes(
+        ids, first_start=data.get("first_start"),
+        interval_seconds=store._as_int(data.get("interval_seconds"), "Interval", minimum=1),
+        method=str(data.get("method") or "club"),
+        vacants=store._as_int(data.get("vacants") or 0, "Vacant slots", minimum=0),
+        keep_existing=bool(data.get("keep_existing")),
+        stagger_shared_courses=bool(data.get("stagger", True)))
+    events.publish("competitor", action="draw")
+    return jsonify(outcome)
+
+
+@app.route("/audit")
+def audit_page():
+    """Every change to the event, newest first."""
+    return render_template("audit.html", active="audit", entries=store.audit_log())
+
+
+def _stage_paths(names) -> list[str]:
+    """Stage files chosen by filename, only from the events folder (never an
+    arbitrary path from the browser)."""
+    files = {e["filename"]: e["path"] for e in store.events_in_folder()}
+    return [files[n] for n in (names or []) if n in files]
+
+
+@app.route("/stages")
+def stages_page():
+    """Multi-day events: combined standings across stage files + chase starts."""
+    events_list = sorted(store.events_in_folder(), key=lambda e: (e["date_iso"], e["name"]))
+    chosen = request.args.getlist("stage")
+    combined = stages.combined_results(_stage_paths(chosen)) if chosen else None
+    return render_template("stages.html", active="stages", events=events_list,
+                           chosen=set(chosen), combined=combined)
+
+
+@app.route("/api/stages/chase", methods=["POST"])
+def api_chase_starts():
+    data = _payload()
+    paths = _stage_paths(data.get("stages"))
+    if store.current_event_path() in paths:
+        raise StoreError("Pick only the earlier stages, not the one that's open")
+    if not paths:
+        raise StoreError("Pick the earlier stages to base the chase start on")
+    count = stages.apply_chase_starts(paths, data.get("first_start"))
+    events.publish("competitor", action="chase")
+    return jsonify({"ok": True, "assigned": count})
+
+
 @app.route("/tools")
 def tools():
     """Import / export console."""
@@ -496,6 +766,7 @@ def tools():
 
 
 @app.route("/public/<slug>")
+@cached_page
 def public_results(slug):
     """Permanent public, read-only results page (no operator chrome)."""
     if slug != store.EVENT["slug"]:
@@ -521,7 +792,8 @@ def api_import_courses():
         courses = iofxml.parse_courses(_uploaded_text())
     except (ValueError, ET_ERROR) as err:
         raise StoreError(f"Could not read course file: {err}")
-    created = [store.create_course(c)["name"] for c in courses]
+    with store.batch():
+        created = [store.create_course(c)["name"] for c in courses]
     events.publish("course", action="import")
     return jsonify({"created": len(created), "names": created})
 
@@ -532,6 +804,30 @@ def api_import_members():
     return jsonify(runners.import_csv(_uploaded_text()))
 
 
+@app.route("/api/import/results", methods=["POST"])
+def api_import_results():
+    """Import a whole past event's results (IOF ResultList, e.g. from MeOS):
+    runners, their punches and times; missing classes/courses are created."""
+    try:
+        rows = iofxml.parse_resultlist(_uploaded_text())
+    except (ValueError, ET_ERROR) as err:
+        raise StoreError(f"Could not read result list: {err}")
+    outcome = importers.import_results(rows)
+    events.publish("competitor", action="import")
+    return jsonify(outcome)
+
+
+@app.route("/api/import/runners", methods=["POST"])
+def api_import_runners():
+    """Fill the shared runner database from an IOF CompetitorList (MeOS's
+    runner-database export) so entry autofill knows everyone."""
+    try:
+        rows = iofxml.parse_competitorlist(_uploaded_text())
+    except (ValueError, ET_ERROR) as err:
+        raise StoreError(f"Could not read competitor list: {err}")
+    return jsonify(runners.import_rows(rows))
+
+
 @app.route("/api/import/eventor", methods=["POST"])
 def api_import_eventor():
     """Import competitors from an Eventor IOF XML EntryList file."""
@@ -540,6 +836,18 @@ def api_import_eventor():
     except (ValueError, ET_ERROR) as err:
         raise StoreError(f"Could not read entry list: {err}")
     return jsonify(importers.import_competitors(rows))
+
+
+@app.route("/api/eventor/fetch", methods=["POST"])
+def api_eventor_fetch():
+    """Pull entries for an Eventor event straight from the Eventor API."""
+    try:
+        rows = eventor.fetch_entries(_payload().get("event_id"))
+    except eventor.EventorError as err:
+        raise StoreError(str(err))
+    outcome = importers.import_competitors(rows)
+    events.publish("competitor", action="import")
+    return jsonify(outcome)
 
 
 @app.route("/api/radio/punch", methods=["POST"])
@@ -593,7 +901,7 @@ def api_import_startlist():
 @app.route("/export/results.xml")
 def export_results_xml():
     classes, _ = store.evaluate()
-    xml = iofxml.export_results(classes, store.EVENT)
+    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses)
     return Response(xml, mimetype="application/xml", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-results.xml"})
 
@@ -631,6 +939,7 @@ def _entry_config():
                   "closeTime": config.get_str("entry_close")},
         "paypal": payments.paypal_config(),
         "prices": payments.prices(),
+        "paymentRequired": online_entry.payment_required(),
         "clubs": clubs,
         "networkAddress": None,
     }
@@ -710,42 +1019,37 @@ def entry_check():
     return jsonify({"entered": entered})
 
 
-@app.route("/submit-entry")
-def entry_submit():
-    """On-the-day entry: create the competitor directly in the chosen class.
-    Returns MeOS-style <Status>OK</Status> XML the entry page expects."""
-    card = (request.args.get("card") or "").strip()
-    try:
-        comp = store.create_competitor({
-            "name": (request.args.get("name") or "").strip(),
-            "club": (request.args.get("club") or "").strip(),
-            "class_id": request.args.get("class", type=int),
-            "card_number": card or None,
-        })
-        runners.record_competitor(comp)  # learn this person + their class
-        events.publish("competitor", action="entry")
-        xml = "<Answer><Status>OK</Status></Answer>"
-    except StoreError as err:
-        xml = f"<Answer><Status>Fail</Status><Info>{xml_escape(str(err))}</Info></Answer>"
-    return Response(xml, mimetype="application/xml")
+# Online entry (public): the entry page sends its cart here. The server checks
+# every entry, prices the cart itself and, when a fee is due, creates the PayPal
+# order; entries only become competitors once the payment is captured and
+# verified server-side (see online_entry.py). Never trust the browser's total.
+
+def _client_key():
+    """Who is asking, for rate limiting. Behind ngrok every request arrives from
+    loopback, so use the address ngrok appended (the last X-Forwarded-For hop)."""
+    addr = request.remote_addr or ""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded and (addr.startswith("127.") or addr == "::1"):
+        return forwarded.split(",")[-1].strip()
+    return addr
 
 
-@app.route("/log-entries", methods=["POST"])
-def entry_log():
-    data = _payload()
-    # Public endpoint: keep the receipt path from being a spam/DoS amplifier --
-    # validate the recipient and cap the (attacker-supplied) entries list. notify
-    # itself re-validates and parses numbers safely.
-    entries = data.get("entries")
-    data["entries"] = entries[:50] if isinstance(entries, list) else []
-    sent = notify.send_entry_receipt(data, store.EVENT)
-    return jsonify({"ok": True, "emailSent": bool(sent)})
+@app.route("/api/online-entry/order", methods=["POST"])
+def api_online_entry_order():
+    return jsonify(online_entry.start_order(_payload(), client_key=_client_key()))
+
+
+@app.route("/api/online-entry/capture", methods=["POST"])
+def api_online_entry_capture():
+    return jsonify(online_entry.capture_order(_payload().get("orderID"),
+                                              client_key=_client_key()))
 
 
 _STATUS_TO_ENTRY = {"dsq": "dq"}  # entry page uses 'dq'; others map 1:1
 
 
 @app.route("/get-results")
+@cached_page
 def entry_results():
     class_id = request.args.get("classId", type=int)
     classes, _ = store.evaluate()
@@ -802,7 +1106,21 @@ def api_create_entry():
 def entries_page():
     """Operator view of entries with the start-list draw."""
     return render_template("entries.html", active="entries",
-                           entries=entries_mod.list_entries())
+                           entries=entries_mod.list_entries(),
+                           orders=online_entry.list_orders())
+
+
+@app.route("/api/orders/<int:order_id>/reconcile", methods=["POST"])
+def api_reconcile_order(order_id):
+    """Ask PayPal what happened to an open order and finish it if it was paid."""
+    order = online_entry.reconcile_order(order_id)
+    return jsonify({"ok": True, "status": order["status"]})
+
+
+@app.route("/api/orders/<int:order_id>/refunded", methods=["POST"])
+def api_order_refunded(order_id):
+    online_entry.mark_refunded(order_id)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/entries/<int:entry_id>", methods=["DELETE"])
@@ -836,7 +1154,8 @@ def api_draw_startlist():
 def start():
     """Event selection: open an event file from the folder, or create a new one."""
     return render_template("start.html", events=store.events_in_folder(),
-                           folder=store.events_dir())
+                           folder=store.events_dir(),
+                           synced_folder=backups.in_synced_folder(store.events_dir()))
 
 
 @app.route("/setup")
@@ -850,7 +1169,55 @@ def setup():
         "out": sum(1 for r in rows if r["start"] and not r["finish"]),
     }
     return render_template("setup.html", active="setup", counts=counts,
-                           remote_url=remote.url(), remote_configured=remote.is_configured())
+                           remote_url=remote.url(), remote_configured=remote.is_configured(),
+                           backup=backups.status(), published=publish.status(),
+                           synced_folder=backups.in_synced_folder(store.events_dir()))
+
+
+def _published_files() -> dict:
+    """What publish.py pushes online: a self-contained results page (CSS
+    inlined, reloads itself each minute) and the IOF XML results."""
+    with open(os.path.join(app.root_path, "static", "style.css"), encoding="utf-8") as f:
+        css = f.read()
+    with app.test_request_context("/"):
+        html = render_template("public.html", classes=_console_data(), inline_css=css,
+                               published_at=datetime.now().strftime("%H:%M"))
+    classes, _ = store.evaluate()
+    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses)
+    return {"results.html": html.encode("utf-8"), "results.xml": xml.encode("utf-8")}
+
+
+publish.set_renderer(_published_files)
+
+
+@app.route("/api/publish/now", methods=["POST"])
+def api_publish_now():
+    if not publish.enabled():
+        return jsonify({"error": "Set a publish folder or FTP host in Settings first"}), 400
+    targets = publish.publish_now()
+    if not targets:
+        return jsonify({"error": publish.status()["error"] or "Nothing published"}), 400
+    return jsonify({"ok": True, "targets": targets})
+
+
+@app.route("/export/prizes.pdf")
+def export_prizes_pdf():
+    """Prize-giving list: the top places of every class."""
+    places = max(1, int(config.get("prize_places") or 3))
+    classes = [{"name": c["name"], "is_score": c["is_score"],
+                "rows": [r for r in c["rows"] if r["position"] and r["position"] <= places]}
+               for c in _console_data()]
+    data = pdf.prize_list_pdf([c for c in classes if c["rows"]], store.EVENT, places)
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-prizes.pdf"})
+
+
+@app.route("/api/backups/now", methods=["POST"])
+def api_backup_now():
+    written = backups.backup_now()
+    if not written:
+        return jsonify({"error": backups.status()["error"] or "Nothing to back up"}), 400
+    return jsonify({"ok": True, "files": written})
 
 
 @app.route("/api/events/new", methods=["POST"])
@@ -868,6 +1235,7 @@ def api_new_event():
             rows = importers.parse_startlist_csv(text)
         imported = importers.import_competitors(rows)
     auth.ensure_admin()  # seed the admin into the now-open event file (if auth on)
+    si_reader.start_all()  # no-op unless a real reader is configured
     return jsonify({"event": event, "imported": imported}), 201
 
 
@@ -875,6 +1243,7 @@ def api_new_event():
 def api_open_event():
     store.open_event(_payload().get("path", ""))
     auth.ensure_admin()
+    si_reader.start_all()  # no-op unless a real reader is configured
     return jsonify({"ok": True})
 
 
@@ -915,6 +1284,11 @@ def _payload():
 @app.errorhandler(StoreError)
 def _handle_store_error(err):
     return jsonify({"error": str(err)}), 400
+
+
+@app.errorhandler(online_entry.EntryError)
+def _handle_entry_error(err):
+    return jsonify({"error": str(err), "code": err.code}), 400
 
 
 # --- Competitors -----------------------------------------------------------
@@ -978,6 +1352,14 @@ def api_update_class(class_id):
     return jsonify({"class": cls})
 
 
+@app.route("/api/classes/<int:class_id>/forks", methods=["POST"])
+def api_assign_forks(class_id):
+    """Hand out the class's fork courses to its runners / relay legs."""
+    count = store.assign_forks(class_id)
+    events.publish("class", action="forks", id=class_id)
+    return jsonify({"ok": True, "assigned": count})
+
+
 @app.route("/api/classes/<int:class_id>", methods=["DELETE"])
 def api_delete_class(class_id):
     store.delete_class(class_id)
@@ -1022,20 +1404,39 @@ def api_delete_course(course_id):
 
 @app.route("/api/stream")
 def api_stream():
-    """SSE feed: pushes a line whenever the event data changes."""
+    """
+    SSE feed: pushes a line whenever the event data changes.
+
+    Each open stream holds one server worker thread, so streams are capped per
+    port (``events.MAX_STREAMS``); a browser over the cap gets 503 and live.js
+    falls back to polling ``/api/version``. A keep-alive comment every
+    ``events.KEEPALIVE`` seconds makes a closed tab fail its write, which frees
+    the thread instead of holding it until the next publish.
+    """
+    port = request.environ.get("SERVER_PORT", "")
+    q = events.subscribe(port)
+    if q is None:
+        return jsonify({"error": "Too many live connections; polling instead"}), 503
+
     def gen():
-        q = events.subscribe()
         try:
             # An initial comment opens the stream immediately for the browser.
             yield ": connected\n\n"
             while True:
-                payload = q.get()
-                yield f"data: {payload}\n\n"
+                payload = events.next_message(q)
+                yield f"data: {payload}\n\n" if payload else ": ping\n\n"
         finally:
-            events.unsubscribe(q)
+            events.unsubscribe(q, port)
 
     return Response(gen(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/version")
+def api_version():
+    """A counter that bumps on every change (live.js polls it when it can't
+    hold a stream open)."""
+    return jsonify({"version": events.version()})
 
 
 # ---------------------------------------------------------------------------
@@ -1054,17 +1455,12 @@ def api_reader_simulate():
     if data:
         card = store.coerce_card(data)
         auto = bool(data.get("auto"))
-        # Secondary station: forward the read to the primary instead of applying
-        # it locally (this instance may not even have an event open).
-        if network.is_secondary():
-            try:
-                outcome = network.push_card(card)
-            except Exception as err:  # network/HTTP failure -> report, don't 500
-                return jsonify({"ok": False,
-                                "error": f"primary unreachable: {err}"}), 502
-            return jsonify(outcome), (200 if outcome.get("ok") else 404)
+        # On a secondary station process_card forwards the read to the primary
+        # (this instance may not even have an event open).
         outcome = si_reader.simulate(card, station_id=card.get("station_id"),
                                      auto_create=auto or None)
+        if outcome.get("push_failed"):
+            return jsonify(outcome), 502
         return jsonify(outcome), (200 if outcome.get("ok") else 404)
     outcome = simulator.simulate_one()
     return jsonify(outcome)
@@ -1125,7 +1521,7 @@ def login():
         user = auth.verify(request.form.get("username"), request.form.get("password"))
         if user:
             auth.login_user(user)
-            return redirect(request.args.get("next") or url_for("index"))
+            return redirect(security.safe_next(request.args.get("next"), url_for("index")))
         return render_template("login.html", error="Invalid username or password"), 401
     return render_template("login.html", error=None)
 
@@ -1146,12 +1542,13 @@ def unlock():
     password is set in Settings). The unlock lives in a day-long session."""
     if not config.admin_password_set():
         return redirect(url_for("index"))
-    nxt = request.args.get("next") or url_for("index")
+    nxt = security.safe_next(request.args.get("next"), url_for("index"))
     if request.method == "POST":
         if config.check_admin_password(request.form.get("password", "")):
+            session.clear()  # fresh session on privilege change
             session.permanent = True
             session["admin_ok"] = True
-            return redirect(request.form.get("next") or nxt)
+            return redirect(security.safe_next(request.form.get("next"), nxt))
         return render_template("unlock.html", error="Incorrect password", next=nxt), 401
     return render_template("unlock.html", error=None, next=nxt)
 
@@ -1170,6 +1567,12 @@ def config_page():
                            groups=config.dashboard_values())
 
 
+@app.route("/api/serial-ports")
+def api_serial_ports():
+    """COM ports on this PC, for picking the SI station in Settings."""
+    return jsonify(si_reader.serial_ports())
+
+
 @app.route("/api/config", methods=["GET"])
 def api_get_config():
     return jsonify({"groups": config.dashboard_values()})
@@ -1178,8 +1581,14 @@ def api_get_config():
 @app.route("/api/config", methods=["POST"])
 def api_save_config():
     config.save(_payload())
+    # Reader on/off applies straight away (ports and LAN access need a restart).
+    if si_reader.reader_enabled():
+        if store.has_open_event():
+            si_reader.start_all()
+    else:
+        si_reader.stop()
     return jsonify({"ok": True,
-                    "note": "Port changes take effect after a restart."})
+                    "note": "Port and network changes take effect after a restart."})
 
 
 # ---------------------------------------------------------------------------
@@ -1202,7 +1611,7 @@ def api_sync_import():
 
 if __name__ == "__main__":
     # Card data is persisted in SQLite by the ``store`` module (loaded on import).
-    # The real SI reader only starts if the event has it enabled (BMEOS_READER);
+    # The real SI reader only starts if it's enabled in Settings (BMEOS_READER);
     # otherwise reads come from POST /api/reader/simulate. The reloader would
     # start the thread twice, so only start it in the main process.
     # With the debug reloader on, the serving process is the one where Werkzeug
@@ -1210,7 +1619,10 @@ if __name__ == "__main__":
     # twice. (No-op anyway unless the event has the reader enabled.)
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         si_reader.start_all()
+        backups.start()
+        publish.start()
     # The dev server is single-port (the full admin surface); the port split is
     # a launcher/production concern -- run launcher.py to serve both ports.
     # threaded=True so a long-lived SSE stream doesn't block other requests.
-    app.run(host="0.0.0.0", port=config.admin_port(), debug=True, threaded=True)
+    # Loopback only: the dev server has the debugger on and no port split.
+    app.run(host="127.0.0.1", port=config.admin_port(), debug=True, threaded=True)

@@ -2,30 +2,10 @@
 
 import os
 
-import pytest
-
 import app as appmod
 import config
 
 PUBLIC = "8800"   # config.public_port() default; the test client defaults to 80
-
-
-@pytest.fixture
-def cfg(tmp_path):
-    """Point config.json at a throwaway file for one test, isolated from the
-    rest of the suite (env restored + cache cleared on teardown so a password
-    set here can't gate other tests)."""
-    prev = os.environ.get("BMEOS_CONFIG")
-    os.environ["BMEOS_CONFIG"] = str(tmp_path / "config.json")
-    config.reload()
-    try:
-        yield config
-    finally:
-        if prev is None:
-            os.environ.pop("BMEOS_CONFIG", None)
-        else:
-            os.environ["BMEOS_CONFIG"] = prev
-        config.reload()
 
 
 # --- config.py -------------------------------------------------------------

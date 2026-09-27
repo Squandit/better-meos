@@ -32,7 +32,8 @@
         <tbody>
             {% for c in classes %}
             <tr data-class-row data-id="{{ c.id }}" data-name="{{ c.name }}" data-course-id="{{ c.course_id }}"
-                data-kind="{{ c.kind }}" data-legs="{{ c.legs }}" data-fee="{{ c.fee }}">
+                data-kind="{{ c.kind }}" data-legs="{{ c.legs }}" data-fee="{{ c.fee }}"
+                data-forks="{{ c.fork_courses }}" data-restart="{{ c.restart }}">
                 <td class="cell-name">{{ c.name }}{% if c.kind == 'relay' %} <span class="chip grey">relay</span>{% endif %}</td>
                 <td>{{ c.type }}</td>
                 <td class="dim">{{ c.course_name }} &middot; {{ c.meta }}</td>
@@ -41,6 +42,7 @@
                 <td class="num">{{ c.flagged }}</td>
                 <td style="text-align:right" class="row-actions">
                     <a class="chip" href="{{ url_for('results', _anchor='cls-' + c.name) }}">Results</a>
+                    {% if c.fork_courses %}<button type="button" class="btn btn-ghost btn-sm" data-assign-forks>Assign forks</button>{% endif %}
                     <button type="button" class="btn btn-ghost btn-sm" data-edit-class>Edit</button>
                     <button type="button" class="btn btn-danger-ghost btn-sm" data-delete-class>Delete</button>
                 </td>
@@ -83,6 +85,7 @@
                     <select name="kind">
                         <option value="individual">Individual</option>
                         <option value="relay">Relay</option>
+                        <option value="patrol">Patrol</option>
                     </select>
                 </label>
                 <label class="field">
@@ -93,7 +96,17 @@
                     <span class="field-label">Entry fee</span>
                     <input type="number" name="fee" inputmode="decimal" min="0" step="0.01" placeholder="0">
                 </label>
+                <label class="field">
+                    <span class="field-label">Relay restart <span class="hint">HH:MM:SS</span></span>
+                    <input type="text" name="restart" class="mono" placeholder="12:30:00">
+                </label>
             </div>
+            <label class="field field-wide">
+                <span class="field-label">Fork courses <span class="hint">optional; Ctrl-click to pick several, then "Assign forks"</span></span>
+                <select name="fork_courses" multiple size="4">
+                    {% for c in course_options %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </label>
         </div>
         <footer class="modal-foot">
             <span class="toolbar-spacer"></span>

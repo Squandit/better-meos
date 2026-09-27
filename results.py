@@ -1,6 +1,21 @@
-from datetime import datetime
+from bisect import bisect_left
+from datetime import datetime, timedelta
 
 from rules import RuleError, evaluate_formula
+
+
+# A time more than this far *before* the start can't be earlier in the same run:
+# it's after midnight. SI cards and typed times carry time of day only, so a
+# night event's 00:40 finish would otherwise sit 23 hours before its 23:30 start.
+MIDNIGHT_WRAP = timedelta(hours=12)
+
+
+def after_midnight(reference: datetime | None, t: datetime | None) -> datetime | None:
+    """``t`` moved to the next day when it is really after midnight relative to
+    ``reference`` (the run's start); unchanged otherwise."""
+    if reference is not None and t is not None and reference - t > MIDNIGHT_WRAP:
+        return t + timedelta(days=1)
+    return t
 
 
 def format_duration(seconds: int) -> str:
@@ -168,8 +183,9 @@ def build_splits_matrix(results: list[dict], controls: list[int],
         })
 
     def rank(sorted_times: list[int], value: int) -> int:
-        # 1-based rank; ties share the lower rank (1, 1, 3, ...).
-        return sum(1 for x in sorted_times if x < value) + 1
+        # 1-based rank; ties share the lower rank (1, 1, 3, ...). Binary search:
+        # a linear count here made the table quadratic in the class size.
+        return bisect_left(sorted_times, value) + 1
 
     leg_lengths = leg_lengths or []
     rows = []
@@ -217,6 +233,7 @@ STATUS_DNS = "dns"
 STATUS_DNF = "dnf"
 STATUS_DSQ = "dsq"
 STATUS_OOT = "oot"
+STATUS_NC = "nc"     # not competing: timed and shown, never ranked (manual only)
 
 
 def validate_linear(
@@ -314,6 +331,26 @@ def build_result(card: dict, course: dict) -> dict:
         if finish is not None or punches:
             start = course["mass_start"]
 
+    # Night events: a finish/punch "hours before the start" is after midnight.
+    if start is not None:
+        finish = after_midnight(start, finish)
+        punches = [(code, after_midnight(start, t)) for code, t in punches]
+        result["finish"] = finish
+
+    # A punch outside this run's start..finish window can't belong to it: it's
+    # left over on a card that wasn't cleared (SI keeps time of day only, so an
+    # earlier run's 10:15 reads as today's 10:15) and could turn an MP into OK.
+    before = len(punches)
+    check = after_midnight(start, card.get("check")) if start is not None else card.get("check")
+    if check is not None:
+        # Punched before the check station: from before the card was cleared.
+        punches = [(code, t) for code, t in punches if t >= check]
+    if start is not None:
+        punches = [(code, t) for code, t in punches
+                   if t >= start and (finish is None or t <= finish)]
+    # Shown at readout: a card with punches from another run wasn't cleared.
+    result["ignored_punches"] = before - len(punches)
+
     punched_codes = [code for code, _ in punches]
     # Kept on the result so the splits matrix can align punches to the course
     # order itself (it needs the raw punch sequence, not just punch-order splits).
@@ -332,6 +369,10 @@ def build_result(card: dict, course: dict) -> dict:
         if course["type"] == "linear":
             auto_status, missed = validate_linear(course["controls"], punched_codes)
             result["missed_control"] = missed
+            # Max time: a valid run over the limit is OverTime (unranked).
+            limit = course.get("time_limit_minutes")
+            if auto_status == STATUS_OK and limit and total_seconds > limit * 60:
+                auto_status = STATUS_OOT
 
         elif course["type"] == "score":
             auto_status = STATUS_OK

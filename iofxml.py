@@ -19,8 +19,14 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
+from results import aligned_splits
+
 NS = "http://www.orienteering.org/datastandard/3.0"
 _NS = {"i": NS}
+# Write IOF as the default namespace (<ResultList xmlns="...">) rather than an
+# ns0: prefix: equivalent XML, but some older orienteering tools only accept
+# the unprefixed form.
+ET.register_namespace("", NS)
 
 # Our internal status codes <-> IOF ResultStatus values.
 STATUS_TO_IOF = {
@@ -30,6 +36,7 @@ STATUS_TO_IOF = {
     "dnf": "DidNotFinish",
     "dsq": "Disqualified",
     "oot": "OverTime",
+    "nc": "NotCompeting",
 }
 IOF_TO_STATUS = {v: k for k, v in STATUS_TO_IOF.items()}
 
@@ -168,6 +175,69 @@ def parse_entrylist(source) -> list[dict]:
     return out
 
 
+def parse_resultlist(source) -> list[dict]:
+    """
+    Parse an IOF ``ResultList`` (e.g. exported from MeOS or another event
+    system) into runs: ``[{"name", "club", "class_name", "card_number",
+    "start", "finish", "status", "splits": [(code, seconds_from_start), ...]}]``.
+    Missing splits (status="Missing") are skipped: the run simply lacks that
+    punch, and our engine works out the mispunch itself.
+    """
+    root = _parse_root(source)
+    _require_v3(root, "ResultList")
+    out = []
+    for class_result in root.iter(f"{{{NS}}}ClassResult"):
+        cls = _find(class_result, "Class")
+        class_name = _text(cls, "Name", "").strip() if cls is not None else ""
+        for pr in _findall(class_result, "PersonResult"):
+            person = _find(pr, "Person")
+            org = _find(pr, "Organisation")
+            res = _find(pr, "Result")
+            if res is None:
+                continue
+            splits = []
+            for st in _findall(res, "SplitTime"):
+                code, secs = _text(st, "ControlCode"), _text(st, "Time")
+                if st.get("status") in ("Missing", "Additional") or not code or secs is None:
+                    continue
+                try:
+                    splits.append((int(code), int(float(secs))))
+                except ValueError:
+                    continue
+            card = _text(res, "ControlCard")
+            out.append({
+                "name": _split_name(person) if person is not None else "",
+                "club": (_text(org, "Name", "") or "").strip() if org is not None else "",
+                "class_name": class_name,
+                "card_number": int(card) if card and card.strip().isdigit() else None,
+                "start": _parse_iso(_text(res, "StartTime")),
+                "finish": _parse_iso(_text(res, "FinishTime")),
+                "status": IOF_TO_STATUS.get(_text(res, "Status", "OK"), "ok"),
+                "splits": splits,
+            })
+    return out
+
+
+def parse_competitorlist(source) -> list[dict]:
+    """
+    Parse an IOF ``CompetitorList`` (MeOS's runner-database export, Eventor's
+    club member lists) into ``[{"name", "club", "card_number"}]``.
+    """
+    root = _parse_root(source)
+    _require_v3(root, "CompetitorList")
+    out = []
+    for comp in root.iter(f"{{{NS}}}Competitor"):
+        person = _find(comp, "Person")
+        org = _find(comp, "Organisation")
+        card = _text(comp, "ControlCard")
+        out.append({
+            "name": _split_name(person) if person is not None else "",
+            "club": (_text(org, "Name", "") or "").strip() if org is not None else "",
+            "card_number": int(card) if card and card.strip().isdigit() else None,
+        })
+    return out
+
+
 def _parse_root(source):
     if isinstance(source, (bytes, bytearray)):
         return ET.fromstring(source)
@@ -191,7 +261,8 @@ def _parse_iso(text):
 # Export
 # ---------------------------------------------------------------------------
 
-def export_results(classes_eval: list[dict], event: dict) -> str:
+def export_results(classes_eval: list[dict], event: dict,
+                   courses: dict | None = None) -> str:
     """
     Build an IOF ``ResultList`` XML document from evaluated classes.
 
@@ -205,12 +276,21 @@ def export_results(classes_eval: list[dict], event: dict) -> str:
     })
     ev = ET.SubElement(root, f"{{{NS}}}Event")
     _sub(ev, "Name", event.get("name", ""))
+    if event.get("date_iso"):
+        start = ET.SubElement(ev, f"{{{NS}}}StartTime")
+        _sub(start, "Date", event["date_iso"])
 
     for entry in classes_eval:
         cls = entry["class"]
+        course = entry.get("course") or {}
         cr = ET.SubElement(root, f"{{{NS}}}ClassResult")
         class_el = ET.SubElement(cr, f"{{{NS}}}Class")
         _sub(class_el, "Name", cls["name"])
+        if course.get("name"):
+            course_el = ET.SubElement(cr, f"{{{NS}}}Course")
+            _sub(course_el, "Name", course["name"])
+            if course.get("length_m"):
+                _sub(course_el, "Length", str(course["length_m"]))
 
         for r in entry["results"]:
             pr = ET.SubElement(cr, f"{{{NS}}}PersonResult")
@@ -237,17 +317,34 @@ def export_results(classes_eval: list[dict], event: dict) -> str:
             if r.get("position") is not None:
                 _sub(res, "Position", str(r["position"]))
             _sub(res, "Status", STATUS_TO_IOF.get(r["status"], "OK"))
-            for s in r.get("splits", []):
-                if s["control"] == "F":
-                    continue
-                st = ET.SubElement(res, f"{{{NS}}}SplitTime")
-                _sub(st, "ControlCode", str(s["control"]))
-                _sub(st, "Time", str(s["cumulative_seconds"]))
+            own = (courses or {}).get(r.get("course_id"), course)  # forked runner
+            for code, secs in _split_times(r, own):
+                attrs = {"status": "Missing"} if secs is None else {}
+                st = ET.SubElement(res, f"{{{NS}}}SplitTime", attrs)
+                _sub(st, "ControlCode", str(code))
+                if secs is not None:
+                    _sub(st, "Time", str(secs))
             if r.get("card_number"):
                 _sub(res, "ControlCard", str(r["card_number"]))
 
     ET.indent(root)
     return ET.tostring(root, encoding="unicode", xml_declaration=True)
+
+
+def _split_times(r: dict, course: dict) -> list[tuple]:
+    """
+    SplitTimes as WinSplits / Routegadget expect them: one per course control
+    in course order (repeated controls included), a missed control as None
+    (exported with status="Missing"). Score courses have no fixed order, so
+    they list the punches as punched.
+    """
+    if course.get("type") == "linear" and r.get("start") is not None:
+        aligned = aligned_splits(r["start"], r.get("punches", []), r.get("finish"),
+                                 list(course.get("controls", [])))
+        return [(a["control"], a["cumulative_seconds"]) for a in aligned
+                if a["control"] != "F"]
+    return [(s["control"], s["cumulative_seconds"]) for s in r.get("splits", [])
+            if s["control"] != "F"]
 
 
 def _sub(parent, name, text):

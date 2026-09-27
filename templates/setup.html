@@ -52,6 +52,48 @@
     </script>
 </div></section>
 
+<div class="section-title">Online results</div>
+<section class="panel"><div class="panel-body">
+    <div class="ops-bar">
+        <span data-publish-status>{% if not published.enabled %}Off: set a publish folder or FTP host in <a href="{{ url_for('config_page') }}">Settings</a>.{% elif published.last_time %}Last published {{ published.last_time }}{% else %}Publishes automatically when results change.{% endif %}{% if published.error %} · <strong>{{ published.error }}</strong>{% endif %}</span>
+        <span class="toolbar-spacer"></span>
+        <button class="btn btn-soft" data-publish-now {% if not published.enabled %}disabled{% endif %}>Publish now</button>
+    </div>
+    <p class="tool-note">Writes a self-contained <code>results.html</code> (reloads itself every minute) and
+        <code>results.xml</code>{% if published.folder %} to <code>{{ published.folder }}</code>{% endif %}{% if published.ftp %} and uploads them to <code>{{ published.ftp }}</code>{% endif %}.</p>
+    <script>
+    document.querySelector("[data-publish-now]").addEventListener("click", function () {
+        var el = document.querySelector("[data-publish-status]");
+        el.textContent = "Publishing…";
+        fetch("/api/publish/now", { method: "POST" })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) { el.textContent = res.ok ? "Published just now" : (res.d.error || "Failed"); });
+    });
+    </script>
+</div></section>
+
+<div class="section-title">Backups</div>
+<section class="panel"><div class="panel-body">
+    <div class="ops-bar">
+        <span data-backup-status>{% if backup.last_time %}Last backup {{ backup.last_time }}{% else %}No backup yet this session{% endif %}{% if backup.error %} · <strong>{{ backup.error }}</strong>{% endif %}</span>
+        <span class="toolbar-spacer"></span>
+        <button class="btn btn-soft" data-backup-now>Back up now</button>
+    </div>
+    <p class="tool-note">Every few minutes (when something changed) the event is copied to
+        {% for f in backup.folders %}<code>{{ f }}</code>{% if not loop.last %} and {% endif %}{% endfor %}.
+        A backup is a normal event file: open it from the start page to recover.</p>
+    {% if synced_folder %}<p class="tool-note"><strong>Warning:</strong> the live event folder is inside OneDrive (or similar). Pause syncing during the event.</p>{% endif %}
+    <script>
+    document.querySelector("[data-backup-now]").addEventListener("click", function () {
+        var el = document.querySelector("[data-backup-status]");
+        el.textContent = "Backing up…";
+        fetch("/api/backups/now", { method: "POST" })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) { el.textContent = res.ok ? "Backed up just now" : (res.d.error || "Failed"); });
+    });
+    </script>
+</div></section>
+
 <div class="section-title">Run the event</div>
 <div class="setup-grid">
     <a class="setup-tile" href="{{ url_for('download') }}"><h4>Entry &amp; download</h4><p>Read cards / simulate downloads</p></a>

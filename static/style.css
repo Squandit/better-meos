@@ -41,6 +41,7 @@ body {
     display: flex; flex-direction: column;
     padding: 18px 14px;
     position: sticky; top: 0; height: 100vh;
+    overflow-y: auto;  /* the nav is taller than a laptop screen: scroll it */
 }
 .sidebar .brand { display: flex; align-items: center; gap: 11px; padding: 4px 6px 16px; }
 .sidebar .mark {
@@ -55,7 +56,7 @@ body {
 .nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .nav a {
     display: flex; align-items: center; gap: 11px;
-    padding: 9px 11px; border-radius: 9px;
+    padding: 7px 11px; border-radius: 9px;
     color: var(--sidebar-ink); text-decoration: none;
     font-size: 14px; font-weight: 500;
     border-left: 3px solid transparent;
@@ -121,6 +122,7 @@ body {
     padding: 4px 10px; border-radius: 999px; white-space: nowrap; font-weight: 600;
 }
 .chip.grey { color: var(--muted); background: #eef1f4; }
+.chip.red { color: #b8302f; background: #fbeaea; }
 
 /* ---- Stat tiles --------------------------------------------------------- */
 
@@ -175,6 +177,8 @@ td.dim { color: var(--muted); }
 .badge-dns { background: #8a96a3; }
 .badge-dsq { background: #9b2c4f; }
 .badge-oot { background: #7a5bd0; }
+.badge-nc { background: #5f6b78; }
+.badge-vacant { background: #b9c1ca; color: #1b2330; }
 
 /* ---- Results: per-class cards & expandable splits ----------------------- */
 
@@ -563,6 +567,12 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
     .slip-page { background: #fff; }
     .slip { box-shadow: none; margin: 0; max-width: none; }
     .slip-head .btn { display: none; }
+    /* 80 mm thermal roll: tighter type, no card chrome. */
+    .slip-thermal .slip { padding: 0; }
+    .slip-thermal .slip-head h1 { font-size: 13px; }
+    .slip-thermal .slip-runner h2 { font-size: 15px; }
+    .slip-thermal .slip-meta td, .slip-thermal .slip-splits td { font-size: 11px; padding: 2px 0; }
+    .slip-thermal .slip-splits th { font-size: 9px; }
 }
 
 /* ---- Live projector screen ---------------------------------------------- */
@@ -665,3 +675,5 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .config-field input[type="text"], .config-field input[type="number"], .config-field input[type="password"] { width: 100%; }
 .config-field input[type="checkbox"] { width: auto; }
 .config-field .hint { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+.start-warning { background: #fff5e6; color: #7a4a0f; border-radius: 8px; padding: 8px 10px; font-size: 13px; }

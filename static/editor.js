@@ -210,6 +210,7 @@
                 hired: field("hired") ? field("hired").checked : false,
                 team_id: field("team_id") ? field("team_id").value : "",
                 leg: field("leg") ? field("leg").value : "",
+                course_id: field("course_id") ? field("course_id").value : "",
                 punches: readPunches()
             };
         }
@@ -228,9 +229,13 @@
                 if (!teams || !teams.length) {
                     teamField.hidden = true; legField.hidden = true; return;
                 }
-                sel.innerHTML = '<option value="">— none —</option>' + teams.map(function (t) {
-                    return '<option value="' + t.id + '">' + t.name + '</option>';
-                }).join("");
+                sel.innerHTML = '<option value="">— none —</option>';
+                teams.forEach(function (t) {
+                    var opt = document.createElement("option");
+                    opt.value = t.id;
+                    opt.textContent = t.name;  // text, not HTML: names are user input
+                    sel.appendChild(opt);
+                });
                 if (selectedTeamId) { sel.value = selectedTeamId; }
                 teamField.hidden = false; legField.hidden = false;
             }).catch(function () {});
@@ -372,6 +377,7 @@
                 if (field("bib")) { field("bib").value = c.bib == null ? "" : c.bib; }
                 if (field("hired")) { field("hired").checked = !!c.hired; }
                 if (field("leg")) { field("leg").value = c.leg == null ? "" : c.leg; }
+                if (field("course_id")) { field("course_id").value = c.course_id == null ? "" : c.course_id; }
                 refreshTeams(c.class_id, c.team_id);
                 punchBody.innerHTML = "";
                 (c.punches || []).forEach(function (p) { addPunchRow(p.code, p.time); });
@@ -481,6 +487,11 @@
             if (form.elements.kind) { form.elements.kind.value = row.dataset.kind || "individual"; }
             if (form.elements.legs) { form.elements.legs.value = row.dataset.legs || "1"; }
             if (form.elements.fee) { form.elements.fee.value = row.dataset.fee || ""; }
+            form.elements.restart.value = row.dataset.restart || "";
+            var forks = (row.dataset.forks || "").split(",");
+            Array.prototype.forEach.call(form.elements.fork_courses.options, function (o) {
+                o.selected = forks.indexOf(o.value) !== -1;
+            });
             titleEl.textContent = "Edit class";
             openOverlay(modal);
         }
@@ -492,7 +503,10 @@
                 name: form.elements.name.value, course_id: form.elements.course_id.value,
                 kind: form.elements.kind ? form.elements.kind.value : "individual",
                 legs: form.elements.legs ? form.elements.legs.value : 1,
-                fee: form.elements.fee ? form.elements.fee.value : 0
+                fee: form.elements.fee ? form.elements.fee.value : 0,
+                restart: form.elements.restart.value,
+                fork_courses: Array.prototype.filter.call(form.elements.fork_courses.options,
+                    function (o) { return o.selected; }).map(function (o) { return o.value; })
             };
             var req = editId
                 ? api("PUT", "/api/classes/" + editId, payload)
@@ -505,6 +519,15 @@
         if (newBtn) { newBtn.addEventListener("click", openNew); }
 
         document.addEventListener("click", function (e) {
+            var forkBtn = e.target.closest("[data-assign-forks]");
+            if (forkBtn) {
+                var forkRow = forkBtn.closest("[data-class-row]");
+                if (!confirmAction("Assign fork courses in " + forkRow.dataset.name + "? Existing course choices in the class are replaced.")) { return; }
+                api("POST", "/api/classes/" + forkRow.dataset.id + "/forks")
+                    .then(function (d) { reloadWith("Assigned forks to " + d.assigned + " runners"); })
+                    .catch(function (err) { toast(err.message, "error"); });
+                return;
+            }
             var editBtn = e.target.closest("[data-edit-class]");
             if (editBtn) { openEdit(editBtn.closest("[data-class-row]")); return; }
             var delBtn = e.target.closest("[data-delete-class]");
@@ -600,6 +623,7 @@
         function applyTypeUI(type) {
             currentType = type;
             scoreOnly.hidden = type !== "score";
+            $$("[data-linear-only]", modal).forEach(function (el) { el.hidden = type === "score"; });
             linearHead.hidden = type === "score";
             scoreHead.hidden = type !== "score";
             heading.textContent = type === "score" ? "Controls & points" : "Controls (in order)";
@@ -639,12 +663,15 @@
                     .map(function (r) { return { code: r.code, points: r.points }; });
                 payload.time_limit_minutes = form.elements.time_limit_minutes.value;
                 payload.penalty_per_minute = form.elements.penalty_per_minute.value;
+                payload.score_formula = form.elements.score_formula.value;
             } else {
                 payload.controls = rows.filter(function (r) { return r.code !== ""; })
                     .map(function (r) { return r.code; });
                 payload.start_mode = form.elements.start_mode ? form.elements.start_mode.value : "clock";
                 payload.start_control = form.elements.start_control ? form.elements.start_control.value : "";
                 payload.length_m = form.elements.length_m ? form.elements.length_m.value : "";
+                payload.mass_start = form.elements.mass_start.value;
+                payload.time_limit_minutes = form.elements.max_time_minutes.value;  // max time
             }
             return payload;
         }
@@ -669,12 +696,15 @@
                 if (form.elements.start_mode) { form.elements.start_mode.value = c.start_mode || "clock"; }
                 if (form.elements.start_control) { form.elements.start_control.value = c.start_control == null ? "" : c.start_control; }
                 if (form.elements.length_m) { form.elements.length_m.value = c.length_m == null ? "" : c.length_m; }
+                form.elements.mass_start.value = c.mass_start || "";
+                form.elements.score_formula.value = c.score_formula || "";
                 applyTypeUI(c.type);
                 if (c.type === "score") {
                     form.elements.time_limit_minutes.value = c.time_limit_minutes == null ? "" : c.time_limit_minutes;
                     form.elements.penalty_per_minute.value = c.penalty_per_minute == null ? "" : c.penalty_per_minute;
                     rebuild("score", c.controls.map(function (ctl) { return { code: ctl.code, points: ctl.points }; }));
                 } else {
+                    form.elements.max_time_minutes.value = c.time_limit_minutes == null ? "" : c.time_limit_minutes;
                     rebuild("linear", c.controls.map(function (code) { return { code: code }; }));
                 }
                 titleEl.textContent = "Edit course";

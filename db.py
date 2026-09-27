@@ -22,15 +22,65 @@ server threads and the SI-reader thread, guarded by ``_lock``.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 
 DEFAULT_PATH = os.environ.get("BMEOS_DB", "meos.db")
 
 _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
+
+# Bumps on every write (and on open/close/restore). Anything derived from the
+# event data -- the store's evaluated results, cached result pages -- is valid
+# for exactly one revision, so this is the single cache-invalidation signal.
+_revision = 0
+# >0 while inside transaction(): writes are grouped into one commit.
+_tx_depth = 0
+
+
+def revision() -> int:
+    return _revision
+
+
+def mark_changed() -> None:
+    """Invalidate everything derived from the event data."""
+    global _revision
+    with _lock:
+        _revision += 1
+
+
+def _commit() -> None:
+    """Commit a write (deferred inside :func:`transaction`) and bump the revision."""
+    mark_changed()
+    if _tx_depth == 0:
+        _c().commit()
+
+
+@contextmanager
+def transaction():
+    """
+    Group many writes into one commit. Each commit is a disk sync, which on a
+    Windows/OneDrive disk costs milliseconds, so a 1500-runner import or bib
+    assignment committing row by row takes tens of seconds; batched it's one.
+
+    Always commits on exit, even after an error: the store's in-memory model
+    already holds every change made so far, and the file must match it.
+    Callers hold ``store._lock`` first (store -> db lock order).
+    """
+    global _tx_depth
+    with _lock:
+        _tx_depth += 1
+    try:
+        yield
+    finally:
+        with _lock:
+            _tx_depth -= 1
+            if _tx_depth == 0 and _conn is not None:
+                _conn.commit()
 
 
 SCHEMA = """
@@ -77,7 +127,9 @@ CREATE TABLE IF NOT EXISTS classes (
     course_id INTEGER NOT NULL,
     kind TEXT NOT NULL DEFAULT 'individual',     -- individual | relay
     legs INTEGER NOT NULL DEFAULT 1,             -- relay leg count
-    fee REAL NOT NULL DEFAULT 0
+    fee REAL NOT NULL DEFAULT 0,
+    fork_courses TEXT,                           -- comma-separated course ids (forking)
+    restart TEXT                                 -- relay mass restart HH:MM:SS
 );
 CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY,
@@ -102,6 +154,10 @@ CREATE TABLE IF NOT EXISTS competitors (
     hired INTEGER NOT NULL DEFAULT 0,            -- hire/rental card flag
     team_id INTEGER,                             -- relay team membership
     leg INTEGER,                                 -- relay leg number
+    vacant INTEGER NOT NULL DEFAULT 0,           -- drawn start slot, no runner yet
+    check_time TEXT,                             -- SI check punch (card cleared + checked)
+    card_returned INTEGER NOT NULL DEFAULT 0,    -- hire card handed back
+    course_id INTEGER,                           -- course override (forking); NULL = class's
     -- Backs store._check_card_unique at the DB level (NULLs are unconstrained,
     -- so hire-card competitors with no number are allowed).
     UNIQUE (event_id, card_number)
@@ -121,6 +177,8 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'operator',
     club TEXT
 );
+-- Legacy (unused since the runner DB moved to runners.db); kept so old files
+-- and the series_id FK stay valid.
 CREATE TABLE IF NOT EXISTS members (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -147,6 +205,47 @@ CREATE TABLE IF NOT EXISTS entries (
     -- read-then-insert dedupe race under threaded requests.
     UNIQUE (event_id, card_number)
 );
+-- Online (paid) entries from the entry page. One row per checkout; the cart is
+-- frozen here when the order is created, so what gets entered is what was paid
+-- for, never what the browser sends later. Amounts are exact decimal strings.
+CREATE TABLE IF NOT EXISTS online_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL,          -- created|capturing|paid|completed|needs_refund|
+                                   -- pending|rejected|superseded|failed|free|refunded
+    amount TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    email TEXT,
+    entries_json TEXT NOT NULL,    -- the validated cart
+    paypal_order_id TEXT UNIQUE,
+    capture_id TEXT,
+    captured_at TEXT,
+    capture_attempt INTEGER NOT NULL DEFAULT 0,  -- bumps after a decline
+    result_json TEXT,              -- per-entry outcome once entered
+    note TEXT
+);
+-- SI cards read at the download station that matched no competitor. Kept so
+-- the operator can attach the run to the right person later instead of making
+-- the runner read out again.
+CREATE TABLE IF NOT EXISTS card_reads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_number INTEGER NOT NULL,
+    read_at TEXT NOT NULL,
+    station_id TEXT,
+    start TEXT,
+    finish TEXT,
+    punches_json TEXT NOT NULL,
+    competitor_id INTEGER          -- set once assigned
+);
+-- Who changed what, for protests and "why is this runner MP?" questions.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT,
+    detail TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_courses_event ON courses(event_id);
 CREATE INDEX IF NOT EXISTS idx_entries_event ON entries(event_id);
 CREATE INDEX IF NOT EXISTS idx_classes_event ON classes(event_id);
@@ -172,6 +271,7 @@ def connect(path: str | None = None) -> sqlite3.Connection:
         _conn.executescript(SCHEMA)
         _migrate(_conn)
         _conn.commit()
+        mark_changed()
         return _conn
 
 
@@ -193,6 +293,12 @@ _MIGRATIONS = [
     ("competitors", "hired", "INTEGER NOT NULL DEFAULT 0"),
     ("competitors", "team_id", "INTEGER"),
     ("competitors", "leg", "INTEGER"),
+    ("competitors", "vacant", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "check_time", "TEXT"),
+    ("competitors", "card_returned", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "course_id", "INTEGER"),
+    ("classes", "fork_courses", "TEXT"),
+    ("classes", "restart", "TEXT"),
 ]
 
 
@@ -225,6 +331,7 @@ def close() -> None:
         if _conn is not None:
             _conn.close()
             _conn = None
+        mark_changed()
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +373,11 @@ def restore_from(src_path: str) -> None:
             if not {"events", "competitors"} <= tables:
                 raise ValueError("not a better-meos backup database")
             src.backup(_c())
+            # A backup from an older version lacks newer tables/columns.
+            _c().executescript(SCHEMA)
+            _migrate(_c())
+            _commit()
+            mark_changed()
         finally:
             src.close()
 
@@ -281,12 +393,6 @@ def _iso(value: datetime | None) -> str | None:
 # ---------------------------------------------------------------------------
 # Events
 # ---------------------------------------------------------------------------
-
-def is_empty() -> bool:
-    """True when no event has been created yet (fresh database)."""
-    with _lock:
-        row = _c().execute("SELECT COUNT(*) AS n FROM events").fetchone()
-        return row["n"] == 0
 
 
 def save_event(event: dict) -> None:
@@ -310,13 +416,7 @@ def save_event(event: dict) -> None:
              event.get("series_id"), event.get("first_start"),
              event.get("type", "linear")),
         )
-        _c().commit()
-
-
-def all_events() -> list[dict]:
-    with _lock:
-        rows = _c().execute("SELECT * FROM events ORDER BY date_iso, id").fetchall()
-        return [dict(r) for r in rows]
+        _commit()
 
 
 def get_event(event_id: int) -> dict | None:
@@ -342,45 +442,6 @@ def read_event_meta(path: str) -> dict | None:
             conn.close()
     except sqlite3.Error:
         return None
-
-
-def next_event_id() -> int:
-    with _lock:
-        row = _c().execute("SELECT MAX(id) AS m FROM events").fetchone()
-        return (row["m"] or 0) + 1
-
-
-# ---------------------------------------------------------------------------
-# Series
-# ---------------------------------------------------------------------------
-
-def save_series(series: dict) -> None:
-    # UPSERT, not REPLACE: replacing a series row would null out every event's
-    # series_id (events.series_id is ON DELETE SET NULL).
-    with _lock:
-        _c().execute(
-            "INSERT INTO series (id, name) VALUES (?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET name = excluded.name",
-            (series["id"], series["name"]))
-        _c().commit()
-
-
-def all_series() -> list[dict]:
-    with _lock:
-        rows = _c().execute("SELECT * FROM series ORDER BY name").fetchall()
-        return [dict(r) for r in rows]
-
-
-def get_series(series_id: int) -> dict | None:
-    with _lock:
-        row = _c().execute("SELECT * FROM series WHERE id = ?", (series_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def next_series_id() -> int:
-    with _lock:
-        row = _c().execute("SELECT MAX(id) AS m FROM series").fetchone()
-        return (row["m"] or 0) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -418,13 +479,13 @@ def save_course(event_id: int, course: dict) -> None:
                     "VALUES (?, ?, ?, NULL, ?)",
                     (course["id"], code, seq, length),
                 )
-        db.commit()
+        _commit()
 
 
 def delete_course(course_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM courses WHERE id = ?", (course_id,))
-        _c().commit()
+        _commit()
 
 
 # ---------------------------------------------------------------------------
@@ -434,18 +495,20 @@ def delete_course(course_id: int) -> None:
 def save_class(event_id: int, cls: dict) -> None:
     with _lock:
         _c().execute(
-            "INSERT OR REPLACE INTO classes (id, event_id, name, course_id, kind, legs, fee) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO classes (id, event_id, name, course_id, kind, legs, fee, "
+            "fork_courses, restart) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (cls["id"], event_id, cls["name"], cls["course_id"],
-             cls.get("kind", "individual"), cls.get("legs", 1), cls.get("fee", 0)),
+             cls.get("kind", "individual"), cls.get("legs", 1), cls.get("fee", 0),
+             ",".join(str(c) for c in cls.get("fork_courses") or []) or None,
+             cls.get("restart") or None),
         )
-        _c().commit()
+        _commit()
 
 
 def delete_class(class_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM classes WHERE id = ?", (class_id,))
-        _c().commit()
+        _commit()
 
 
 # ---------------------------------------------------------------------------
@@ -460,13 +523,13 @@ def save_team(event_id: int, team: dict) -> None:
             (team["id"], event_id, team["class_id"], team["name"], team.get("club"),
              team.get("bib"), _iso(team.get("start"))),
         )
-        _c().commit()
+        _commit()
 
 
 def delete_team(team_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM teams WHERE id = ?", (team_id,))
-        _c().commit()
+        _commit()
 
 
 # ---------------------------------------------------------------------------
@@ -480,12 +543,15 @@ def save_competitor(event_id: int, comp: dict) -> None:
         db.execute(
             """INSERT OR REPLACE INTO competitors
                (id, event_id, name, club, class_id, card_number, start, finish,
-                manual_status, bib, hired, team_id, leg)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                manual_status, bib, hired, team_id, leg, vacant, check_time,
+                card_returned, course_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
              comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
-             comp.get("team_id"), comp.get("leg")),
+             comp.get("team_id"), comp.get("leg"), 1 if comp.get("vacant") else 0,
+             _iso(comp.get("check")), 1 if comp.get("card_returned") else 0,
+             comp.get("course_id")),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -494,96 +560,24 @@ def save_competitor(event_id: int, comp: dict) -> None:
                 "VALUES (?, ?, ?, ?, ?)",
                 (comp["id"], p["code"], _iso(p["time"]), seq, p.get("station_id")),
             )
-        db.commit()
+        _commit()
 
 
 def delete_competitor(comp_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM competitors WHERE id = ?", (comp_id,))
-        _c().commit()
+        _commit()
 
-
-# ---------------------------------------------------------------------------
-# Load
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Users (optional auth)
 # ---------------------------------------------------------------------------
 
-def insert_user(username: str, password_hash: str, role: str, club: str | None) -> int:
+def legacy_users() -> list[dict]:
+    """Logins stored in this event file by older versions (auth.py moves them
+    into the shared database the first time the event is opened)."""
     with _lock:
-        cur = _c().execute(
-            "INSERT INTO users (username, password_hash, role, club) VALUES (?, ?, ?, ?)",
-            (username, password_hash, role, club))
-        _c().commit()
-        return cur.lastrowid
-
-
-def get_user(username: str) -> dict | None:
-    with _lock:
-        row = _c().execute("SELECT * FROM users WHERE username = ?",
-                           (username,)).fetchone()
-        return dict(row) if row else None
-
-
-def count_users() -> int:
-    with _lock:
-        return _c().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
-
-
-# ---------------------------------------------------------------------------
-# Members (the runner database powering the entry page)
-# ---------------------------------------------------------------------------
-
-def insert_member(member: dict) -> int:
-    with _lock:
-        cur = _c().execute(
-            "INSERT INTO members (name, club, card_number, type, email) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (member["name"], member.get("club"), member.get("card_number"),
-             member.get("type", "senior"), member.get("email")))
-        _c().commit()
-        return cur.lastrowid
-
-
-def all_members() -> list[dict]:
-    with _lock:
-        rows = _c().execute("SELECT * FROM members ORDER BY name").fetchall()
-        return [dict(r) for r in rows]
-
-
-def search_members(query: str, limit: int = 8) -> list[dict]:
-    with _lock:
-        rows = _c().execute(
-            "SELECT * FROM members WHERE LOWER(name) LIKE ? ORDER BY name LIMIT ?",
-            (f"%{query.lower()}%", limit)).fetchall()
-        return [dict(r) for r in rows]
-
-
-def find_member(name: str) -> dict | None:
-    with _lock:
-        row = _c().execute("SELECT * FROM members WHERE LOWER(name) = ?",
-                           (name.lower(),)).fetchone()
-        return dict(row) if row else None
-
-
-def delete_member(member_id: int) -> None:
-    with _lock:
-        _c().execute("DELETE FROM members WHERE id = ?", (member_id,))
-        _c().commit()
-
-
-def replace_members(members: list[dict]) -> None:
-    with _lock:
-        _c().execute("DELETE FROM members")
-        for m in members:
-            _c().execute(
-                "INSERT INTO members (name, club, card_number, type, email) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (m["name"], m.get("club"), m.get("card_number"),
-                 m.get("type", "senior"), m.get("email")))
-        _c().commit()
+        return [dict(r) for r in _c().execute("SELECT * FROM users ORDER BY id")]
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +596,7 @@ def insert_entry(event_id: int, entry: dict) -> int:
              1 if entry.get("paid") else 0, 1 if entry.get("late") else 0,
              entry.get("competitor_id"), entry.get("created_at")),
         )
-        _c().commit()
+        _commit()
         return cur.lastrowid
 
 
@@ -613,7 +607,7 @@ def update_entry(entry_id: int, **fields) -> None:
     with _lock:
         _c().execute(f"UPDATE entries SET {cols} WHERE id = ?",
                      (*fields.values(), entry_id))
-        _c().commit()
+        _commit()
 
 
 def all_entries(event_id: int) -> list[dict]:
@@ -632,7 +626,133 @@ def get_entry(entry_id: int) -> dict | None:
 def delete_entry(entry_id: int) -> None:
     with _lock:
         _c().execute("DELETE FROM entries WHERE id = ?", (entry_id,))
-        _c().commit()
+        _commit()
+
+
+# ---------------------------------------------------------------------------
+# Online orders (entry page payments)
+# ---------------------------------------------------------------------------
+
+def insert_order(order: dict) -> int:
+    with _lock:
+        cur = _c().execute(
+            """INSERT INTO online_orders
+               (created_at, status, amount, currency, email, entries_json, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (order["created_at"], order["status"], order["amount"], order["currency"],
+             order.get("email"), order["entries_json"], order.get("note")),
+        )
+        _commit()
+        return cur.lastrowid
+
+
+_ORDER_COLS = {"status", "paypal_order_id", "capture_id", "captured_at",
+               "capture_attempt", "result_json", "note"}
+
+
+def update_order(order_id: int, **fields) -> None:
+    if not fields:
+        return
+    unknown = set(fields) - _ORDER_COLS
+    if unknown:
+        raise ValueError(f"not an order column: {sorted(unknown)}")
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    with _lock:
+        _c().execute(f"UPDATE online_orders SET {cols} WHERE id = ?",
+                     (*fields.values(), order_id))
+        _commit()
+
+
+def get_order(order_id: int) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM online_orders WHERE id = ?",
+                           (order_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_order_by_paypal(paypal_order_id: str) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM online_orders WHERE paypal_order_id = ?",
+                           (paypal_order_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def all_orders() -> list[dict]:
+    with _lock:
+        rows = _c().execute("SELECT * FROM online_orders ORDER BY id DESC")
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Audit log
+# ---------------------------------------------------------------------------
+
+def insert_audit(actor: str, action: str, target: str, detail: str) -> None:
+    with _lock:
+        _c().execute(
+            "INSERT INTO audit_log (at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().isoformat(timespec="seconds"), actor, action, target, detail))
+        _commit()
+
+
+def audit_entries(limit: int = 1000) -> list[dict]:
+    with _lock:
+        rows = _c().execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Unmatched card reads
+# ---------------------------------------------------------------------------
+
+def insert_card_read(card: dict) -> int:
+    punches = [[code, _iso(t)] for code, t in card.get("punches", [])]
+    with _lock:
+        cur = _c().execute(
+            """INSERT INTO card_reads
+               (card_number, read_at, station_id, start, finish, punches_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (card["card_number"], datetime.now().isoformat(timespec="seconds"),
+             card.get("station_id"), _iso(card.get("start")), _iso(card.get("finish")),
+             json.dumps(punches)),
+        )
+        _commit()
+        return cur.lastrowid
+
+
+def _card_read_row(row) -> dict:
+    return {
+        "id": row["id"], "card_number": row["card_number"], "read_at": row["read_at"],
+        "station_id": row["station_id"], "start": _dt(row["start"]),
+        "finish": _dt(row["finish"]), "competitor_id": row["competitor_id"],
+        "punches": [(code, _dt(t)) for code, t in json.loads(row["punches_json"])],
+    }
+
+
+def get_card_read(read_id: int) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM card_reads WHERE id = ?", (read_id,)).fetchone()
+        return _card_read_row(row) if row else None
+
+
+def unmatched_card_reads() -> list[dict]:
+    with _lock:
+        rows = _c().execute(
+            "SELECT * FROM card_reads WHERE competitor_id IS NULL ORDER BY id DESC")
+        return [_card_read_row(r) for r in rows]
+
+
+def mark_card_read_assigned(read_id: int, competitor_id: int) -> None:
+    with _lock:
+        _c().execute("UPDATE card_reads SET competitor_id = ? WHERE id = ?",
+                     (competitor_id, read_id))
+        _commit()
+
+
+def delete_card_read(read_id: int) -> None:
+    with _lock:
+        _c().execute("DELETE FROM card_reads WHERE id = ?", (read_id,))
+        _commit()
 
 
 def load_event(event_id: int) -> dict:
@@ -716,6 +836,8 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "id": row["id"], "name": row["name"], "course_id": row["course_id"],
                 "kind": row["kind"] or "individual", "legs": row["legs"] or 1,
                 "fee": row["fee"] or 0,
+                "fork_courses": [int(x) for x in (row["fork_courses"] or "").split(",") if x],
+                "restart": row["restart"] or "",
             }
 
         teams: dict[int, dict] = {}
@@ -749,6 +871,10 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "hired": bool(row["hired"]),
                 "team_id": row["team_id"],
                 "leg": row["leg"],
+                "vacant": bool(row["vacant"]),
+                "check": _dt(row["check_time"]),
+                "card_returned": bool(row["card_returned"]),
+                "course_id": row["course_id"],
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),

@@ -278,6 +278,15 @@
           <input type="text" id="card" placeholder="e.g. 1234567" inputmode="numeric" pattern="[0-9]*">
         </div>
 
+        <div class="field" id="type-field" style="display:none">
+          <label>Entry type</label>
+          <select id="member-type">
+            <option value="senior">Senior</option>
+            <option value="junior">Junior</option>
+            <option value="concession">Concession</option>
+          </select>
+        </div>
+
         <div class="field">
           <label>Course</label>
           <select id="class">
@@ -371,12 +380,17 @@
 <script>
   const config = window.ENTRY_CONFIG;
   const prices = config.prices;
-  const FAMILY_CAP = config.prices.familyCap || 25;
+  // Display only; the server prices the cart. No cap configured = no cap.
+  const FAMILY_CAP = config.prices.familyCap > 0 ? config.prices.familyCap : Infinity;
 
   document.getElementById('event-name').textContent = config.event.name;
   document.getElementById('price-hint').textContent =
-    `Seniors $${prices.senior} · Juniors $${prices.junior} · Concession $${prices.concession || '?'} · Cap $${FAMILY_CAP}`;
-  document.getElementById('cap-amount').textContent = FAMILY_CAP;
+    (prices.chooseType
+      ? `Senior $${prices.senior} · Junior $${prices.junior} · Concession $${prices.concession}`
+      : `$${prices.senior} per person`)
+    + (prices.late ? ` · late entry +$${prices.late}` : '')
+    + (FAMILY_CAP !== Infinity ? ` · Family cap $${FAMILY_CAP}` : '');
+  document.getElementById('cap-amount').textContent = FAMILY_CAP !== Infinity ? FAMILY_CAP : '';
 
   if (config.paypal.sandbox) document.getElementById('sandbox-note').style.display = 'block';
 
@@ -397,7 +411,7 @@
   // Store courses for use in edit dropdowns
   let allCourses = [];
 
-  // Load courses from MeOS
+  // Load courses
   fetch('/get-classes')
     .then(r => r.text())
     .then(xml => {
@@ -422,7 +436,7 @@
     })
     .catch(() => {
       document.getElementById('class').innerHTML = '<option value="">-- Could not load courses --</option>';
-      showMsg('Could not connect to MeOS. Make sure MeOS is running.', 'error');
+      showMsg('Could not load the courses. Check your connection and reload.', 'error');
     });
 
   // Cart state
@@ -442,15 +456,25 @@
       el.className = 'fee-amount unset';
       return;
     }
-    const type = (currentMember && currentMember.type) || 'senior';
-    const price = prices[type] !== undefined ? prices[type] : prices['senior'];
-    el.textContent = `$${price.toFixed(2)} AUD (${type})`;
+    el.textContent = `$${getPersonPrice().toFixed(2)} ${config.paypal.currency}`;
     el.className = 'fee-amount';
   }
 
-  function getPersonPrice() {
-    const type = (currentMember && currentMember.type) || 'senior';
-    return prices[type] !== undefined ? prices[type] : prices['senior'];
+  // Entry types are only offered when the organiser trusts declared types;
+  // otherwise the server charges everyone the senior fee.
+  if (prices.chooseType) {
+    document.getElementById('type-field').style.display = '';
+    document.getElementById('member-type').addEventListener('change', updateFeeDisplay);
+  }
+  function memberType() {
+    return prices.chooseType ? document.getElementById('member-type').value : 'senior';
+  }
+  function getPersonPrice(type) {
+    // Mirrors the server's pricing (fee by type + late surcharge). Display
+    // only; the server decides what is charged.
+    const t = type || memberType();
+    const base = prices[t] !== undefined ? prices[t] : prices.senior;
+    return base + (prices.late || 0);
   }
 
   // Name autocomplete
@@ -630,12 +654,12 @@
       showMsg(`${name} is already in your cart.`, 'error'); return;
     }
 
-    // Check if already entered in MeOS
+    // Check if already entered
     showMsg('Checking entry status...', 'info');
     try {
       const check = await fetch('/check-entered?name=' + encodeURIComponent(name)).then(r => r.json());
       if (check.entered) {
-        showMsg(`${name} is already entered in MeOS for this event. Payment has not been taken.`, 'error');
+        showMsg(`${name} is already entered in this event. Payment has not been taken.`, 'error');
         return;
       }
     } catch (e) {
@@ -643,7 +667,8 @@
     }
 
     clearMsg();
-    cart.push({ name, club, card, classId: currentClassId, className: currentClassName, price: getPersonPrice() });
+    cart.push({ name, club, card, classId: currentClassId, className: currentClassName,
+                type: memberType(), price: getPersonPrice() });
     nameInp.value = '';
     document.getElementById('club').value = '';
     document.getElementById('card').value = '';
@@ -662,15 +687,49 @@
     }
   }
 
-  // PayPal
+  // Payment. The browser only sends who is entering; the server checks every
+  // entry, prices the cart, creates the PayPal order, then captures and
+  // verifies the payment before anyone is entered. Nothing here decides money.
+  function cartPayload() {
+    return cart.map(e => ({ name: e.name, club: e.club, card: e.card, classId: e.classId, type: e.type }));
+  }
+
+  function postJSON(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(r => r.json().catch(() => ({})).then(d => {
+      if (!r.ok || d.error) {
+        const err = new Error(d.error || 'Something went wrong. Please try again.');
+        err.code = d.code;
+        throw err;
+      }
+      return d;
+    }));
+  }
+
+  function emailOrWarn() {
+    const emailVal = document.getElementById('email').value.trim();
+    if (!emailVal || !emailVal.includes('@')) {
+      showMsg('Please enter a valid email address before paying.', 'error');
+      return null;
+    }
+    return emailVal;
+  }
+
   let paypalLoaded = false;
   function loadPayPalSDK() {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       if (paypalLoaded) { resolve(); return; }
-      const env = config.paypal.sandbox ? 'sandbox.' : '';
+      // One SDK URL for sandbox and live: PayPal picks the environment from
+      // the client id.
       const script = document.createElement('script');
-      script.src = `https://${env}paypal.com/sdk/js?client-id=${config.paypal.clientId}&currency=${config.paypal.currency}`;
+      script.src = 'https://www.paypal.com/sdk/js?client-id=' +
+        encodeURIComponent(config.paypal.clientId) +
+        '&currency=' + encodeURIComponent(config.paypal.currency) + '&intent=capture';
       script.onload = () => { paypalLoaded = true; resolve(); };
+      script.onerror = () => reject(new Error('Could not load PayPal'));
       document.head.appendChild(script);
     });
   }
@@ -679,146 +738,134 @@
     const container = document.getElementById('paypal-button-container');
     container.classList.remove('hidden');
     container.innerHTML = '';
+
+    if (!config.paymentRequired) {
+      // Free event: one button, the server enters everyone directly.
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-primary';
+      btn.textContent = 'Submit entries';
+      btn.addEventListener('click', () => {
+        clearMsg();
+        btn.disabled = true;
+        showLoading('Submitting entries...');
+        postJSON('/api/online-entry/order', { entries: cartPayload(), email: document.getElementById('email').value.trim() })
+          .then(d => showSuccess(d))
+          .catch(err => { hideLoading(); btn.disabled = false; showMsg(err.message, 'error'); });
+      });
+      container.appendChild(btn);
+      return;
+    }
+
+    if (!config.paypal.enabled) {
+      container.innerHTML = '<div class="info-msg error show">Online payment isn\'t set up for this event. Please enter on the day.</div>';
+      return;
+    }
+
     loadPayPalSDK().then(() => {
       paypal.Buttons({
         style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'pay' },
-        createOrder: function(data, actions) {
+        createOrder: function() {
           clearMsg();
-          const emailVal = document.getElementById('email').value.trim();
-          if (!emailVal || !emailVal.includes('@')) {
-            showMsg('Please enter a valid email address before paying.', 'error');
-            return false;
-          }
-          return actions.order.create({
-            purchase_units: [{
-              amount: { value: cartTotal().toFixed(2), currency_code: config.paypal.currency },
-              description: `${config.event.name} — ${cart.map(e => e.name).join(', ')}`
-            }]
-          });
+          const email = emailOrWarn();
+          if (!email) { return Promise.reject(new Error('email')); }
+          return postJSON('/api/online-entry/order', { entries: cartPayload(), email })
+            .then(d => d.orderID)
+            .catch(err => {
+              if (err.message !== 'email') { showMsg(err.message, 'error'); }
+              throw err;
+            });
         },
         onApprove: function(data, actions) {
-          return actions.order.capture().then(details => submitAllToMeOS(details));
+          showLoading('Confirming payment...');
+          return postJSON('/api/online-entry/capture', { orderID: data.orderID })
+            .then(d => showSuccess(d))
+            .catch(err => {
+              hideLoading();
+              showMsg(err.message, 'error');
+              // Declined card: PayPal lets the buyer pick another way to pay.
+              if (err.code === 'declined') { return actions.restart(); }
+            });
         },
         onError: function(err) {
-          showMsg('Payment failed. Please try again.', 'error');
+          if (err && err.message === 'email') { return; }
+          showMsg('Payment could not be started. You have not been charged; please try again.', 'error');
           console.error(err);
         }
       }).render('#paypal-button-container');
+    }).catch(() => {
+      showMsg('Could not load PayPal. Check your connection and try again.', 'error');
     });
   }
 
-  function submitAllToMeOS(paypalDetails) {
+  function showLoading(text) {
+    document.getElementById('loading-text').textContent = text;
+    document.getElementById('loading-overlay').classList.add('show');
+  }
+
+  function hideLoading() {
+    document.getElementById('loading-overlay').classList.remove('show');
+  }
+
+  // Render the server's confirmed outcome (never the browser's own guess).
+  function showSuccess(outcome) {
+    hideLoading();
     const email = document.getElementById('email').value.trim();
+    const results = outcome.results || [];
+    const money = n => `$${Number(n).toFixed(2)}`;
 
-    // Show loading overlay
-    const overlay = document.getElementById('loading-overlay');
-    document.getElementById('loading-text').textContent = 'Submitting entries to MeOS...';
-    overlay.classList.add('show');
-
-    const submitEntry = (entry, attempt) => {
-      const url = `/submit-entry?class=${entry.classId}&name=${encodeURIComponent(entry.name)}&club=${encodeURIComponent(entry.club)}&card=${encodeURIComponent(entry.card)}`;
-      return fetch(url).then(r => r.text()).then(xml => {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(xml, 'application/xml');
-        const status = doc.getElementsByTagName('Status')[0];
-        const ok = status && status.childNodes[0].nodeValue === 'OK';
-        const info = doc.getElementsByTagName('Info')[0];
-        if (!ok && attempt < 2) {
-          // Retry once after 5 seconds
-          document.getElementById('loading-text').textContent = `Retrying ${entry.name}...`;
-          return new Promise(resolve => setTimeout(() => resolve(submitEntry(entry, attempt + 1)), 5000));
-        }
-        return { name: entry.name, className: entry.className, price: entry.price, ok, detail: info ? info.childNodes[0].nodeValue : '' };
-      }).catch(() => {
-        if (attempt < 2) {
-          document.getElementById('loading-text').textContent = `Retrying ${entry.name}...`;
-          return new Promise(resolve => setTimeout(() => resolve(submitEntry(entry, attempt + 1)), 5000));
-        }
-        return { name: entry.name, className: entry.className, price: entry.price, ok: false, detail: 'Could not reach MeOS after 2 attempts' };
-      });
-    };
-
-    const promises = cart.map(entry => submitEntry(entry, 1));
-
-    Promise.all(promises).then(results => {
-      const total = cartTotal();
-      const raw = cartRawTotal();
-
-      // Log entry + get email status back
-      fetch('/log-entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entries: results,
-          total,
-          paypalId: paypalDetails.id,
-          email,
-          timestamp: new Date().toISOString()
-        })
-      })
-      .then(r => r.json())
-      .then(logResult => {
-        // Hide loading
-        overlay.classList.remove('show');
-
-        // Populate success card
-        document.getElementById('success-event-name').textContent = config.event.name;
-
-        const tbody = document.getElementById('success-table-body');
-        tbody.innerHTML = '';
-        results.forEach(r => {
-          const tr = document.createElement('tr');
-          tr.style.borderBottom = '1px solid var(--sand)';
-          tr.innerHTML = `
-            <td style="padding:5px 8px">${escHtml(r.name)}</td>
-            <td style="padding:5px 8px">${escHtml(r.className)}</td>
-            <td style="padding:5px 8px">$${r.price.toFixed(2)}</td>
-            <td style="padding:5px 8px;color:${r.ok ? 'var(--success)' : 'var(--error)'}">${r.ok ? '✓' : '⚠ ' + escHtml(r.detail)}</td>
-          `;
-          tbody.appendChild(tr);
-        });
-
-        document.getElementById('success-total').textContent = `Total paid: $${total.toFixed(2)} AUD`;
-        document.getElementById('paypal-ref').textContent = `PayPal reference: ${paypalDetails.id}`;
-
-        const capCharged = document.getElementById('cap-charged');
-        if (raw > FAMILY_CAP) {
-          capCharged.textContent = `Family cap applied — you saved $${(raw - total).toFixed(2)}`;
-          capCharged.style.display = 'block';
-        }
-
-        const emailConfirm = document.getElementById('email-confirm');
-        if (email) {
-          if (logResult.emailSent) {
-            emailConfirm.textContent = `✓ Confirmation sent to ${email}`;
-            emailConfirm.style.background = '#eafaf1';
-            emailConfirm.style.color = 'var(--success)';
-          } else {
-            emailConfirm.textContent = `⚠️ Email to ${email} could not be sent — screenshot this page as proof`;
-            emailConfirm.style.background = '#fff8e6';
-            emailConfirm.style.color = 'var(--bark)';
-          }
-          emailConfirm.style.display = 'block';
-        }
-
-        // Remember these names for results highlighting
-        results.forEach(r => myNames.add(r.name.toLowerCase()));
-
-        // Save successfully entered people to remembered
-        results.filter(r => r.ok).forEach(r => {
-          const member = { name: r.name, club: r.club || '', card: r.card || '', type: r.type || 'senior' };
-          addToRemembered(member);
-        });
-        renderRememberBanner();
-
-        document.getElementById('main-form').style.display = 'none';
-        document.getElementById('success-screen').classList.add('show');
-      })
-      .catch(() => {
-        overlay.classList.remove('show');
-        showMsg('Entries submitted but could not confirm. Check admin panel.', 'error');
-      });
+    document.getElementById('success-event-name').textContent = config.event.name;
+    const tbody = document.getElementById('success-table-body');
+    tbody.innerHTML = '';
+    results.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--sand)';
+      tr.innerHTML = `
+        <td style="padding:5px 8px">${escHtml(r.name)}</td>
+        <td style="padding:5px 8px">${escHtml(r.className)}</td>
+        <td style="padding:5px 8px">${money(r.price || 0)}</td>
+        <td style="padding:5px 8px;color:${r.ok ? 'var(--success)' : 'var(--error)'}">${r.ok ? '✓' : '⚠ ' + escHtml(r.detail) + ' (the organiser will refund this entry)'}</td>
+      `;
+      tbody.appendChild(tr);
     });
+
+    const paid = Number(outcome.total || 0);
+    document.getElementById('success-total').textContent = outcome.free
+      ? 'No payment needed'
+      : `Total paid: ${money(paid)} ${escHtml(outcome.currency || '')}`;
+    document.getElementById('paypal-ref').textContent = outcome.reference
+      ? `PayPal reference: ${outcome.reference}` : '';
+
+    const raw = results.reduce((sum, r) => sum + Number(r.price || 0), 0);
+    const capCharged = document.getElementById('cap-charged');
+    if (!outcome.free && raw > paid) {
+      capCharged.textContent = `Family cap applied — you saved ${money(raw - paid)}`;
+      capCharged.style.display = 'block';
+    }
+
+    const emailConfirm = document.getElementById('email-confirm');
+    if (email && !outcome.free) {
+      if (outcome.emailSent) {
+        emailConfirm.textContent = `✓ Receipt sent to ${email}`;
+        emailConfirm.style.background = '#eafaf1';
+        emailConfirm.style.color = 'var(--success)';
+      } else {
+        emailConfirm.textContent = `⚠️ A receipt email couldn't be sent to ${email}. Screenshot this page as proof.`;
+        emailConfirm.style.background = '#fff8e6';
+        emailConfirm.style.color = 'var(--bark)';
+      }
+      emailConfirm.style.display = 'block';
+    }
+
+    // Remember these names for results highlighting
+    results.forEach(r => myNames.add(r.name.toLowerCase()));
+    results.filter(r => r.ok).forEach(r => {
+      addToRemembered({ name: r.name, club: r.club || '', card: String(r.card || ''), type: 'senior' });
+    });
+    renderRememberBanner();
+
+    document.getElementById('main-form').style.display = 'none';
+    document.getElementById('success-screen').classList.add('show');
   }
 
   function resetForm() {
@@ -1008,7 +1055,7 @@
         }, REFRESH_INTERVAL);
       })
       .catch(() => {
-        document.getElementById('results-refresh-time').textContent = 'Could not reach MeOS';
+        document.getElementById('results-refresh-time').textContent = 'Could not reach the results server';
         clearTimeout(resultsRefreshTimer);
         resultsRefreshTimer = setTimeout(() => {
           loadResults();
@@ -1023,9 +1070,6 @@
 
   // Names entered this session (for "my result" highlighting)
   let myNames = new Set();
-
-  // Track after successful payment
-  const origSubmitAll = submitAllToMeOS;
 
   function renderResults(data) {
     const container = document.getElementById('results-container');
@@ -1270,12 +1314,12 @@
     // Check if already in cart
     if (cart.some(e => e.name.toLowerCase() === p.name.toLowerCase())) return;
 
-    // Check MeOS
+    // Check if already entered
     showMsg('Checking ' + p.name + '...', 'info');
     try {
       const check = await fetch('/check-entered?name=' + encodeURIComponent(p.name)).then(r => r.json());
       if (check.entered) {
-        showMsg(p.name + ' is already entered in MeOS.', 'error');
+        showMsg(p.name + ' is already entered in this event.', 'error');
         return;
       }
     } catch(e) {}
@@ -1298,7 +1342,7 @@
     el.textContent = text; el.className = `info-msg ${type} show`;
   }
   function clearMsg() { document.getElementById('msg').className = 'info-msg'; }
-  function escHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function escHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 </script>
 <div class="loading-overlay" id="loading-overlay">
   <div class="loading-spinner"></div>

@@ -17,6 +17,7 @@
         <section class="start-card">
             <h2>Open an event</h2>
             <p class="start-folder">Folder: <code>{{ folder }}</code></p>
+            {% if synced_folder %}<p class="start-warning">This folder is synced by OneDrive (or similar). The sync client can lock or duplicate a live event file mid-event: set <code>BMEOS_EVENTS_DIR</code> to a normal folder, or at least pause syncing during the event. Automatic backups go to a non-synced folder either way.</p>{% endif %}
             <ul class="event-list">
                 {% for e in events %}
                 <li class="event-item" data-path="{{ e.path }}" tabindex="0" role="button">

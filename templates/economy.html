@@ -35,4 +35,38 @@
         </tfoot>
     </table>
 </section>
+
+<section class="panel" data-hire>
+    <div class="panel-head">
+        <h4>Hire cards not returned</h4>
+        {% if economy.outstanding %}<span class="chip red">{{ economy.outstanding|length }} out</span>{% endif %}
+    </div>
+    <table class="table">
+        <thead><tr><th>Runner</th><th>Class</th><th style="width:110px">SI card</th>
+            <th style="width:110px">Status</th><th style="width:120px;text-align:right"></th></tr></thead>
+        <tbody>
+            {% for h in economy.outstanding %}
+            <tr data-id="{{ h.id }}">
+                <td class="cell-name">{{ h.name }}</td>
+                <td>{{ h['class'] }}</td>
+                <td class="mono">{{ h.card or '—' }}</td>
+                <td>{% if h.finished %}<span class="chip red">finished · chase up</span>{% else %}<span class="chip grey">still out</span>{% endif %}</td>
+                <td style="text-align:right"><button class="link-btn" data-returned>Returned</button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty">Every hire card is back.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+<script>
+document.querySelector("[data-hire]").addEventListener("click", function (e) {
+    if (!e.target.closest("[data-returned]")) { return; }
+    var row = e.target.closest("tr");
+    fetch("/api/competitors/" + row.dataset.id, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ card_returned: true })
+    }).then(function (r) { if (r.ok) { row.remove(); } });
+});
+</script>
 {% endblock %}

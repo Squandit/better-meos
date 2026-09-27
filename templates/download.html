@@ -12,14 +12,67 @@
     <button class="btn btn-primary" data-simulate>Simulate download</button>
     <label class="check"><input type="checkbox" data-autoprint> Auto-print splits</label>
     <span class="muted-count" data-sim-result></span>
+    <a class="btn btn-soft" href="{{ url_for('readout_page') }}" target="_blank" rel="noopener">Readout screen</a>
     <span class="toolbar-spacer"></span>
     <span class="muted-count">{{ count }} downloaded</span>
 </div>
 
+{% if unmatched %}
+<section class="panel" data-unmatched>
+    <div class="panel-head">
+        <h4>Unmatched cards</h4>
+        <span class="chip red">{{ unmatched|length }} waiting</span>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:150px">Read</th><th style="width:100px">SI card</th>
+                <th style="width:84px">Start</th><th style="width:84px">Finish</th>
+                <th class="num" style="width:80px">Punches</th><th>Whose run is it?</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in unmatched %}
+            <tr data-read-row data-id="{{ u.id }}">
+                <td class="mono dim">{{ u.read_at }}</td>
+                <td class="mono">{{ u.card_number }}</td>
+                <td class="mono">{{ u.start or '—' }}</td>
+                <td class="mono">{{ u.finish or '—' }}</td>
+                <td class="num">{{ u.punches }}</td>
+                <td>
+                    <select data-assign-to>
+                        <option value="">Choose competitor…</option>
+                        {% for r in assignable %}
+                        <option value="{{ r.id }}">{{ r.name }} ({{ r['class'] }}{% if r.si %}, SI {{ r.si }}{% endif %})</option>
+                        {% endfor %}
+                    </select>
+                    <button class="link-btn" data-assign>Assign</button>
+                    <button class="link-btn danger" data-discard>Discard</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="tool-note">These cards were read but no competitor has that card number. Assign the run
+        to the right person (their card number is updated to match), or just add the runner with this
+        card number in Competitors and the read is applied automatically.</p>
+</section>
+{% endif %}
+
 <section class="panel">
     <div class="panel-head">
         <h4>Finishes</h4>
-        <span class="chip grey">Reader {{ event.reader_port }} &middot; {{ 'live' if event.reader_enabled else 'simulated' }}</span>
+        {% if event.reader_enabled %}
+            {% for rd in readers %}
+            <span class="chip{% if rd.state != 'running' %} red{% endif %}" title="{{ rd.error }}">
+                {{ rd.station }} {{ rd.port }} &middot; {{ rd.state }}{% if rd.last_read %} &middot; last {{ rd.last_read }}{% endif %}
+            </span>
+            {% else %}
+            <span class="chip red">Reader enabled but not started</span>
+            {% endfor %}
+        {% else %}
+        <span class="chip grey">Reader off &middot; simulated</span>
+        {% endif %}
     </div>
     <table class="table">
         <thead>
@@ -42,6 +95,7 @@
                 <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
                 <td style="text-align:right">
                     {{ badge(r) }}
+                    {% if r.ignored %}<span class="chip red" title="Punches outside this run were ignored. Was the card cleared?">{{ r.ignored }} old punch{{ 'es' if r.ignored != 1 else '' }}</span>{% endif %}
                     <a class="link-btn" href="{{ url_for('slip', comp_id=r.id) }}?print=1" target="_blank" rel="noopener" onclick="event.stopPropagation()">Print</a>
                     {% if r.splits %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}
                 </td>
@@ -64,6 +118,32 @@
     toggle.addEventListener("change", function () {
         localStorage.setItem("bm-autoprint", toggle.checked ? "1" : "0");
     });
+
+    var unmatched = document.querySelector("[data-unmatched]");
+    if (unmatched) {
+        unmatched.addEventListener("click", function (e) {
+            var row = e.target.closest("[data-read-row]");
+            if (!row) { return; }
+            var req = null;
+            if (e.target.closest("[data-assign]")) {
+                var who = row.querySelector("[data-assign-to]").value;
+                if (!who) { window.alert("Choose who ran with this card first."); return; }
+                req = fetch("/api/card-reads/" + row.dataset.id + "/assign", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ competitor_id: who })
+                });
+            } else if (e.target.closest("[data-discard]")) {
+                if (!window.confirm("Discard this card read? The punches will be lost.")) { return; }
+                req = fetch("/api/card-reads/" + row.dataset.id, { method: "DELETE" });
+            }
+            if (!req) { return; }
+            req.then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+               .then(function (res) {
+                   if (!res.ok) { window.alert((res.d && res.d.error) || "Failed"); return; }
+                   window.location.reload();
+               });
+        });
+    }
 
     bar.querySelector("[data-simulate]").addEventListener("click", function () {
         out.textContent = "Reading…";

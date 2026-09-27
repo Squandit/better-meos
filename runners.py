@@ -32,6 +32,15 @@ CREATE TABLE IF NOT EXISTS run_history (
     PRIMARY KEY (card_number, class_name)
 );
 CREATE INDEX IF NOT EXISTS idx_runners_name ON runners(name);
+-- Operator logins (optional auth). Shared by every event, like the runners,
+-- so logging in works before an event is open and doesn't repeat per event.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'operator',
+    club TEXT
+);
 """
 
 
@@ -112,23 +121,27 @@ def record(card_number, name: str = "", club: str = "", class_name: str = "") ->
     if not card_number:
         return
     with _lock:
-        db = _c()
-        # Upsert identity (keep the latest non-empty name/club).
-        existing = db.execute("SELECT name, club FROM runners WHERE card_number = ?",
-                              (card_number,)).fetchone()
-        new_name = name or (existing["name"] if existing else "")
-        new_club = club or (existing["club"] if existing else "")
+        _record(_c(), card_number, name, club, class_name)
+        _c().commit()
+
+
+def _record(db, card_number, name: str, club: str, class_name: str) -> None:
+    """The upsert behind :func:`record`, without committing (caller holds _lock)."""
+    # Upsert identity (keep the latest non-empty name/club).
+    existing = db.execute("SELECT name, club FROM runners WHERE card_number = ?",
+                          (card_number,)).fetchone()
+    new_name = name or (existing["name"] if existing else "")
+    new_club = club or (existing["club"] if existing else "")
+    db.execute(
+        "INSERT INTO runners (card_number, name, club) VALUES (?, ?, ?) "
+        "ON CONFLICT(card_number) DO UPDATE SET name = excluded.name, "
+        "club = excluded.club",
+        (card_number, new_name, new_club))
+    if class_name:
         db.execute(
-            "INSERT INTO runners (card_number, name, club) VALUES (?, ?, ?) "
-            "ON CONFLICT(card_number) DO UPDATE SET name = excluded.name, "
-            "club = excluded.club",
-            (card_number, new_name, new_club))
-        if class_name:
-            db.execute(
-                "INSERT INTO run_history (card_number, class_name, count) VALUES (?, ?, 1) "
-                "ON CONFLICT(card_number, class_name) DO UPDATE SET count = count + 1",
-                (card_number, class_name))
-        db.commit()
+            "INSERT INTO run_history (card_number, class_name, count) VALUES (?, ?, 1) "
+            "ON CONFLICT(card_number, class_name) DO UPDATE SET count = count + 1",
+            (card_number, class_name))
 
 
 def record_competitor(comp: dict) -> None:
@@ -148,6 +161,7 @@ def import_csv(text: str) -> dict:
     import csv
     import io
     imported = skipped = 0
+    rows = []
     for raw in csv.DictReader(io.StringIO(text)):
         row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
         name = row.get("name") or " ".join(
@@ -159,7 +173,51 @@ def import_csv(text: str) -> dict:
         if card is None:
             skipped += 1  # no card -> can't key a runner record
             continue
-        record(card, name, row.get("club") or row.get("organisation") or "",
-               row.get("class") or "")
+        rows.append((card, name, row.get("club") or row.get("organisation") or "",
+                     row.get("class") or ""))
         imported += 1
+    with _lock:  # one commit for the whole roster, not one per runner
+        for card, name, club, class_name in rows:
+            _record(_c(), card, name, club, class_name)
+        _c().commit()
     return {"imported": imported, "skipped": skipped}
+
+
+def import_rows(rows: list[dict]) -> dict:
+    """Seed the runner database from ``[{"name", "club", "card_number"}]`` (an
+    IOF CompetitorList). Rows without a card are skipped: the DB is keyed by card."""
+    imported = skipped = 0
+    with _lock:
+        for row in rows:
+            card = row.get("card_number")
+            if not card:
+                skipped += 1
+                continue
+            _record(_c(), card, row.get("name", ""), row.get("club", ""), "")
+            imported += 1
+        _c().commit()
+    return {"imported": imported, "skipped": skipped}
+
+
+# ---------------------------------------------------------------------------
+# Logins (see auth.py)
+# ---------------------------------------------------------------------------
+
+def insert_user(username: str, password_hash: str, role: str, club: str | None) -> int:
+    with _lock:
+        cur = _c().execute(
+            "INSERT INTO users (username, password_hash, role, club) VALUES (?, ?, ?, ?)",
+            (username, password_hash, role, club))
+        _c().commit()
+        return cur.lastrowid
+
+
+def get_user(username: str) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        return dict(row) if row else None
+
+
+def count_users() -> int:
+    with _lock:
+        return _c().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]

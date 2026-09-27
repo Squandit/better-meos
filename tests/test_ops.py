@@ -4,6 +4,7 @@ from datetime import datetime
 
 import app as appmod
 import auth
+import runners
 import si_reader
 import store
 
@@ -38,7 +39,7 @@ def test_auth_disabled_by_default():
 
 def test_auth_gating_when_enabled(monkeypatch):
     monkeypatch.setenv("BMEOS_AUTH", "1")
-    if auth.verify("operator1", "secret") is None and store.db.get_user("operator1") is None:
+    if auth.verify("operator1", "secret") is None and runners.get_user("operator1") is None:
         auth.create_user("operator1", "secret")
 
     c = appmod.app.test_client()
@@ -60,7 +61,7 @@ def test_auth_gating_when_enabled(monkeypatch):
 
 def test_club_role_is_read_only(monkeypatch):
     monkeypatch.setenv("BMEOS_AUTH", "1")
-    if store.db.get_user("club1") is None:
+    if runners.get_user("club1") is None:
         auth.create_user("club1", "secret", role="club")
     c = appmod.app.test_client()
     c.post("/login", data={"username": "club1", "password": "secret"})
@@ -69,3 +70,31 @@ def test_club_role_is_read_only(monkeypatch):
     # mutations blocked for non-operator role
     r = c.post("/api/classes", json={"name": "X", "course_id": 1})
     assert r.status_code == 403
+
+
+def test_login_works_with_no_event_open(monkeypatch):
+    monkeypatch.setenv("BMEOS_AUTH", "1")
+    if runners.get_user("early") is None:
+        auth.create_user("early", "pw")
+    original = store.current_event_path()
+    store.close_event()
+    try:
+        c = appmod.app.test_client()
+        assert c.get("/start").status_code == 302              # -> login, not a loop
+        assert c.get("/login").status_code == 200
+        r = c.post("/login", data={"username": "early", "password": "pw"})
+        assert r.status_code == 302
+        assert c.get("/start").status_code == 200
+    finally:
+        store.open_event(original)
+
+
+def test_old_event_file_logins_are_adopted(monkeypatch):
+    import db
+    from werkzeug.security import generate_password_hash
+    monkeypatch.setenv("BMEOS_AUTH", "1")
+    db._c().execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                    ("legacy", generate_password_hash("old"), "operator"))
+    db._c().commit()
+    auth.ensure_admin()
+    assert auth.verify("legacy", "old") is not None

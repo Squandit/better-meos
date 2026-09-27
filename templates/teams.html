@@ -5,7 +5,9 @@
 {% block content %}
 <div class="page-head">
     <h3>Relay standings</h3>
-    <p>Team time is the sum of each leg runner's time; teams with any non-OK leg are unranked.
+    <p>Team time is the sum of each leg runner's time (a leg with no start of its own starts at the
+       previous leg's finish, or the class restart); [n] is the place on that leg. Teams with any
+       non-OK leg are unranked.
        Add a team below, then assign competitors to it (team + leg) in the competitor editor.</p>
 </div>
 
@@ -50,7 +52,7 @@ document.querySelector("[data-team-form]").addEventListener("submit", function (
             <tr>
                 <td style="text-align:center">{% if t.position %}{{ t.position }}{% else %}&ndash;{% endif %}</td>
                 <td><span class="cell-name">{{ t.team.name }}</span>{% if t.team.club %}<div class="cell-sub">{{ t.team.club }}</div>{% endif %}</td>
-                <td class="cell-sub">{% for leg in t.legs %}{{ leg.name }}{% if leg.status != 'ok' %} ({{ leg.status|upper }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+                <td class="cell-sub">{% for leg in t.legs %}{{ leg.name }}{% if leg.status != 'ok' %} ({{ leg.status|upper }}){% elif leg.seconds is not none %} {{ leg.seconds | format_secs }}{% if leg.place %} [{{ leg.place }}]{% endif %}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</td>
                 <td class="num strong">{% if t.total_seconds is not none %}{{ t.total_seconds | format_secs }}{% else %}&ndash;{% endif %}</td>
             </tr>
             {% else %}
