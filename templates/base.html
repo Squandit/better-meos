@@ -106,6 +106,11 @@
                 <p>{{ event.name }} &middot; {{ event.date }}</p>
             </div>
             <div class="topbar-right">
+                {% if page_has_settings(active) %}
+                <button type="button" class="icon-btn gear-btn" data-page-settings="{{ active }}" title="Settings for this page" aria-label="Settings for this page">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+                {% endif %}
                 <a class="topbar-user" href="{{ url_for('start') }}">Change event</a>
                 <span class="reader-pill{% if event.reader_enabled %} live{% endif %}" title="SI reader on {{ event.reader_port }}; the console runs on mock/simulated data unless the reader is enabled.">
                     <span class="dot"></span>SI reader {{ event.reader_port }} &middot; {{ 'live' if event.reader_enabled else 'simulated' }}
@@ -129,8 +134,24 @@
 
 {% block editor %}{% endblock %}
 
+<div class="settings-drawer" data-settings-drawer hidden>
+    <aside class="settings-drawer-panel" role="dialog" aria-label="Page settings">
+        <header class="settings-drawer-head">
+            <div>
+                <h3>Page settings</h3>
+                <p>Changes save as you make them. <a href="{{ url_for('config_page') }}">All settings</a></p>
+            </div>
+            <button type="button" class="icon-btn" data-settings-close aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </header>
+        <div class="settings-drawer-body" data-settings-body></div>
+    </aside>
+</div>
+
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 <script src="{{ url_for('static', filename='editor.js') }}"></script>
 <script src="{{ url_for('static', filename='live.js') }}"></script>
+<script src="{{ url_for('static', filename='settings.js') }}"></script>
 </body>
 </html>

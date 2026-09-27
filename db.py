@@ -46,6 +46,11 @@ def revision() -> int:
     return _revision
 
 
+def is_open() -> bool:
+    """True while an event file is connected (never auto-connects)."""
+    return _conn is not None
+
+
 def mark_changed() -> None:
     """Invalidate everything derived from the event data."""
     global _revision
@@ -236,6 +241,11 @@ CREATE TABLE IF NOT EXISTS card_reads (
     finish TEXT,
     punches_json TEXT NOT NULL,
     competitor_id INTEGER          -- set once assigned
+);
+-- Event-level settings (see settings_schema.py, scope "event"): JSON values.
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 -- Who changed what, for protests and "why is this runner MP?" questions.
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -681,6 +691,36 @@ def all_orders() -> list[dict]:
     with _lock:
         rows = _c().execute("SELECT * FROM online_orders ORDER BY id DESC")
         return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Event settings
+# ---------------------------------------------------------------------------
+
+def event_settings() -> dict:
+    """The open event's own settings, ``{key: value}`` (values JSON-decoded)."""
+    with _lock:
+        rows = _c().execute("SELECT key, value FROM settings").fetchall()
+    out = {}
+    for row in rows:
+        try:
+            out[row["key"]] = json.loads(row["value"])
+        except ValueError:
+            continue
+    return out
+
+
+def save_event_settings(values: dict, remove: list | tuple = ()) -> None:
+    """Upsert ``values`` and delete the keys in ``remove`` (back to defaults)."""
+    with _lock:
+        for key, value in values.items():
+            _c().execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, json.dumps(value)))
+        for key in remove:
+            _c().execute("DELETE FROM settings WHERE key = ?", (key,))
+        _commit()
 
 
 # ---------------------------------------------------------------------------

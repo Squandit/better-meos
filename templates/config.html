@@ -3,94 +3,59 @@
 {% block heading %}Settings{% endblock %}
 {% block content %}
 <div class="page-head">
-    <h3>Configuration</h3>
-    <p>Interchangeable values for this install. Saved to <code>config.json</code>
-       (gitignored). Blank fields fall back to environment variables.</p>
+    <h3>Settings</h3>
+    <p>Everything you can change, in one place. Changes save as you make them. Each page also has a
+       gear button with just its own settings. Computer settings are kept in <code>config.json</code>
+       on this PC; event settings are kept inside the event file.</p>
 </div>
 
-<form data-config-form>
-    {% for group in groups %}
-    <section class="panel">
-        <div class="panel-body">
-            <div class="section-title">{{ group.group }}</div>
-            {% for f in group.fields %}
-            <label class="config-field">
-                <span class="config-label">{{ f.label }}</span>
-                {% if f.type == "bool" %}
-                <input type="checkbox" data-key="{{ f.key }}" data-type="bool" {% if f.value %}checked{% endif %}>
-                {% elif f.type == "password" %}
-                <input type="password" data-key="{{ f.key }}" data-type="password"
-                       placeholder="{% if f.is_set %}•••••••• (set){% else %}not set{% endif %}" autocomplete="new-password">
-                {% elif f.type in ("int", "float") %}
-                <input type="number" data-key="{{ f.key }}" data-type="{{ f.type }}"
-                       step="{{ '0.01' if f.type == 'float' else '1' }}" value="{{ f.value if f.value is not none else '' }}">
-                {% else %}
-                <input type="text" data-key="{{ f.key }}" data-type="str" value="{{ f.value if f.value is not none else '' }}">
-                {% endif %}
-                {% if f.key == "reader_ports" %}
-                <span class="port-picker"><button type="button" class="btn btn-soft btn-sm" data-detect-ports>Detect SI stations</button>
-                    <span data-port-list class="hint"></span></span>
-                {% endif %}
-                {% if f.help %}<span class="hint">{{ f.help }}</span>{% endif %}
-            </label>
-            {% endfor %}
+<div class="settings-layout">
+    <nav class="settings-nav" data-settings-nav></nav>
+    <div class="settings-main">
+        <div class="settings-bar">
+            <input class="search" type="search" placeholder="Search settings…" data-settings-search aria-label="Search settings">
+            {% if event_open %}
+            <div class="seg" role="tablist" aria-label="Which values to edit">
+                <a class="seg-btn{% if target == 'event' %} active{% endif %}" href="{{ url_for('config_page') }}">This event</a>
+                <a class="seg-btn{% if target == 'computer' %} active{% endif %}" href="{{ url_for('config_page', target='computer') }}">Defaults for every event</a>
+            </div>
+            {% endif %}
         </div>
-    </section>
-    {% endfor %}
-
-    <div class="ops-bar">
-        <button class="btn" type="submit">Save settings</button>
-        <span class="toolbar-spacer"></span>
-        <span data-config-status class="tool-note"></span>
+        <p class="tool-note settings-scope-note">
+            {% if target == 'event' %}Showing what <strong>{{ event.name }}</strong> uses. Event settings you change here only affect this event.
+            {% else %}Showing the defaults on this computer. Event settings here apply to every event that hasn't set its own value.{% endif %}
+        </p>
+        <div data-settings-root></div>
     </div>
-</form>
+</div>
 
+<script type="application/json" data-settings-initial>{{ groups|tojson }}</script>
 <script>
 (function () {
-    var detect = document.querySelector("[data-detect-ports]");
-    if (detect) {
-        detect.addEventListener("click", function () {
-            var list = document.querySelector("[data-port-list]");
-            var input = document.querySelector('[data-key="reader_ports"]');
-            list.textContent = "Looking…";
-            fetch("/api/serial-ports").then(function (r) { return r.json(); }).then(function (ports) {
-                list.textContent = ports.length ? "" : "No serial ports found. Is the station plugged in?";
-                ports.forEach(function (p) {
-                    var b = document.createElement("button");
-                    b.type = "button"; b.className = "btn btn-ghost btn-sm";
-                    b.textContent = p.device + (p.likely_si ? " (SI station)" : "") + " · " + p.description;
-                    b.addEventListener("click", function () { input.value = p.device; });
-                    list.appendChild(b);
-                });
-            });
+    var root = document.querySelector("[data-settings-root]");
+    var target = {{ target|tojson }};
+    var initial = JSON.parse(document.querySelector("[data-settings-initial]").textContent);
+    var nav = document.querySelector("[data-settings-nav]");
+    function draw(groups) {
+        window.BMSettings.render(root, groups, {
+            target: target,
+            onChange: function (key, isReset) { if (isReset) { refresh(); } }
+        });
+        nav.innerHTML = "";
+        root.querySelectorAll(".set-group").forEach(function (section) {
+            var a = document.createElement("a");
+            a.href = "#" + section.id;
+            a.textContent = section.querySelector(".set-group-title").textContent;
+            nav.appendChild(a);
         });
     }
-    var form = document.querySelector("[data-config-form]");
-    var status = document.querySelector("[data-config-status]");
-    form.addEventListener("submit", function (e) {
-        e.preventDefault();
-        var payload = {};
-        form.querySelectorAll("[data-key]").forEach(function (input) {
-            var type = input.dataset.type;
-            if (type === "bool") {
-                payload[input.dataset.key] = input.checked;
-            } else if (type === "password") {
-                if (input.value) { payload[input.dataset.key] = input.value; }  // blank = keep
-            } else {
-                payload[input.dataset.key] = input.value;
-            }
-        });
-        status.textContent = "Saving…";
-        fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload) })
-            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-            .then(function (res) {
-                if (!res.ok) { status.textContent = (res.d && res.d.error) || "Could not save"; return; }
-                status.textContent = "Saved. " + (res.d.note || "");
-                form.querySelectorAll('[data-type="password"]').forEach(function (p) { p.value = ""; });
-            })
-            .catch(function () { status.textContent = "Could not save"; });
-    });
+    function refresh() {
+        window.BMSettings.load({ target: target, q: search.value }).then(function (d) { draw(d.groups); });
+    }
+    var search = document.querySelector("[data-settings-search]");
+    var timer = null;
+    search.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(refresh, 200); });
+    window.addEventListener("load", function () { draw(initial); });
 })();
 </script>
 {% endblock %}

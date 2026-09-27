@@ -42,6 +42,7 @@ def cfg(tmp_path):
     prev = os.environ.get("BMEOS_CONFIG")
     os.environ["BMEOS_CONFIG"] = str(tmp_path / "config.json")
     config.reload()
+    _clear_event_settings()
     online_entry.reset_rate_limits()
     try:
         yield config
@@ -51,7 +52,16 @@ def cfg(tmp_path):
         else:
             os.environ["BMEOS_CONFIG"] = prev
         config.reload()
+        _clear_event_settings()
         online_entry.reset_rate_limits()
+
+
+def _clear_event_settings():
+    """Event-scoped settings live in the (shared) test event file: wipe them so
+    a fee or display option set by one test can't leak into the next."""
+    import db
+    if db.is_open():
+        db.save_event_settings({}, list(db.event_settings()))
 
 
 def pytest_sessionfinish(session, exitstatus):

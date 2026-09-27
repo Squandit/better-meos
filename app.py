@@ -137,7 +137,8 @@ def cached_page(view):
 @app.context_processor
 def inject_user():
     return {"current_user": auth.current_user(), "auth_enabled": auth.is_enabled(),
-            "admin_lock_enabled": config.admin_password_set()}
+            "admin_lock_enabled": config.admin_password_set(),
+            "page_has_settings": config.page_has_settings}
 
 
 # Paths reachable with no event open (the start page + its actions + assets +
@@ -1561,10 +1562,53 @@ def lock():
 
 @app.route("/config")
 def config_page():
-    """Settings dashboard: edit the interchangeable values (PayPal, ngrok, SMTP,
-    fees, ports, admin password) -> config.json."""
-    return render_template("config.html", active="config",
-                           groups=config.dashboard_values())
+    """The master Settings page: every setting, searchable, for this event or
+    as the defaults kept on this computer."""
+    target = "computer" if request.args.get("target") == "computer" \
+        or not store.has_open_event() else "event"
+    return render_template("config.html", active="config", target=target,
+                           groups=config.settings_view(target=target),
+                           event_open=store.has_open_event())
+
+
+def _settings_response(target: str, page: str | None = None, query: str = ""):
+    return jsonify({"groups": config.settings_view(page=page, target=target, query=query),
+                    "target": target, "event_open": store.has_open_event(),
+                    "event_name": store.EVENT.get("name", "")})
+
+
+@app.route("/api/settings", methods=["GET"])
+def api_get_settings():
+    target = request.args.get("target") or "event"
+    if target not in ("event", "computer"):
+        raise StoreError("target must be event or computer")
+    return _settings_response(target, request.args.get("page") or None,
+                              request.args.get("q", ""))
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_save_settings():
+    data = _payload()
+    target = data.get("target") or "auto"
+    if target not in ("auto", "event", "computer"):
+        raise StoreError("target must be auto, event or computer")
+    values = data.get("values") if isinstance(data.get("values"), dict) else {}
+    reset = data.get("reset") if isinstance(data.get("reset"), list) else []
+    try:
+        config.save(values, target=target, reset=[str(k) for k in reset])
+    except config.SettingError as err:
+        raise StoreError(str(err))
+    _after_settings_change()
+    return jsonify({"ok": True})
+
+
+def _after_settings_change():
+    """Apply settings that take effect straight away (the reader on/off)."""
+    if si_reader.reader_enabled():
+        if store.has_open_event():
+            si_reader.start_all()
+    else:
+        si_reader.stop()
 
 
 @app.route("/api/serial-ports")
@@ -1580,13 +1624,12 @@ def api_get_config():
 
 @app.route("/api/config", methods=["POST"])
 def api_save_config():
-    config.save(_payload())
+    try:
+        config.save(_payload())
+    except config.SettingError as err:
+        raise StoreError(str(err))
     # Reader on/off applies straight away (ports and LAN access need a restart).
-    if si_reader.reader_enabled():
-        if store.has_open_event():
-            si_reader.start_all()
-    else:
-        si_reader.stop()
+    _after_settings_change()
     return jsonify({"ok": True,
                     "note": "Port and network changes take effect after a restart."})
 
