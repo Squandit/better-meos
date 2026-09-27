@@ -123,3 +123,66 @@ def test_iof_startlist_import():
     outcome = importers.import_competitors(rows)
     assert outcome["created"] == 1
     assert store.find_by_card(8501234)["club"] == "XMLOC"
+
+
+def test_results_round_trip_through_iof_xml():
+    """Export this event's results, import them into a fresh event, and the
+    engine recomputes the same statuses and times (the MeOS migration path)."""
+    import io
+    import iofxml
+    import store
+    import app as appmod
+    c = appmod.app.test_client()
+    xml = c.get("/export/results.xml").get_data()
+    # Score classes can't round-trip: IOF results don't describe score courses
+    # (import the CourseData first for those).
+    before = {(r["name"], r["status"], r["total_seconds"])
+              for e in store.evaluate()[0] if e["course"]["type"] == "linear"
+              for r in e["results"]}
+    original = store.current_event_path()
+    try:
+        store.new_event({"name": "Imported", "date": store.EVENT["date_iso"]})
+        r = c.post("/api/import/results", data={"file": (io.BytesIO(xml), "r.xml")},
+                   content_type="multipart/form-data")
+        body = r.get_json()
+        assert r.status_code == 200 and body["created"] > 0 and body["new_classes"]
+        after = {(r["name"], r["status"], r["total_seconds"])
+                 for e in store.evaluate()[0] for r in e["results"]}
+        # Runners with a start round-trip exactly (DNS rows carry no splits).
+        timed = {x for x in before if x[2] is not None}
+        assert timed <= after
+    finally:
+        store.open_event(original)
+
+
+def test_missed_control_exported_as_missing_split():
+    from datetime import datetime
+    import iofxml
+    from results import build_result
+    d = datetime(2026, 5, 17)
+    course = {"id": 1, "name": "C", "type": "linear", "controls": [31, 32, 33]}
+    card = {"id": 1, "name": "Miss Me", "class": "M", "start": d.replace(hour=10),
+            "punches": [(31, d.replace(hour=10, minute=5)), (33, d.replace(hour=10, minute=15))],
+            "finish": d.replace(hour=10, minute=20)}
+    res = build_result(card, {"type": "linear", "controls": [31, 32, 33]})
+    xml = iofxml.export_results([{"class": {"name": "M"}, "course": course, "results": [res]}],
+                                {"name": "E", "date_iso": "2026-05-17"})
+    assert '<SplitTime status="Missing">' in xml and "<ControlCode>32</ControlCode>" in xml
+    assert "ns0:" not in xml and 'xmlns="http://www.orienteering.org/datastandard/3.0"' in xml
+
+
+def test_competitorlist_fills_runner_db():
+    import io
+    import app as appmod
+    import runners
+    xml = b"""<?xml version="1.0"?>
+<CompetitorList xmlns="http://www.orienteering.org/datastandard/3.0" iofVersion="3.0">
+  <Competitor><Person><Name><Family>Lind</Family><Given>Karin</Given></Name></Person>
+    <Organisation><Name>OK Linne</Name></Organisation><ControlCard>7654321</ControlCard></Competitor>
+  <Competitor><Person><Name><Family>NoCard</Family><Given>Ned</Given></Name></Person></Competitor>
+</CompetitorList>"""
+    r = appmod.app.test_client().post(
+        "/api/import/runners", data={"file": (io.BytesIO(xml), "c.xml")},
+        content_type="multipart/form-data")
+    assert r.get_json() == {"imported": 1, "skipped": 1}
+    assert runners.lookup(7654321)["name"] == "Karin Lind"

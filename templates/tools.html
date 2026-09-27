@@ -52,9 +52,10 @@
         <button class="btn" type="submit">Import members</button>
         <span class="tool-result" data-result></span>
     </form>
-    <p class="tool-note">The roster the <a href="{{ url_for('enter') }}" target="_blank" rel="noopener">entry page</a>
-        looks people up in. Columns: <code>name, club, card, type, email</code>
-        (type = senior / junior / concession). Re-import replaces by name (merge).</p>
+    <p class="tool-note">The runner database the <a href="{{ url_for('enter') }}" target="_blank" rel="noopener">entry page</a>
+        and the editor autofill from. Columns: <code>name</code> (or <code>first</code> + <code>last</code>),
+        <code>club</code>, <code>card</code>, optional <code>class</code>. Keyed by SI card: rows without a
+        card are skipped, re-importing a card updates it.</p>
 </section>
 
 <section class="panel">
@@ -66,6 +67,29 @@
     </form>
     <p class="tool-note">CSV columns: <code>name, club, class, card, start</code>
         (start as <code>HH:MM:SS</code>). Classes must already exist.</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>Import results (IOF XML ResultList)</h4></div>
+    <form class="tool-form" data-upload="/api/import/results">
+        <input type="file" name="file" accept=".xml" required>
+        <button class="btn" type="submit">Import results</button>
+        <span class="tool-result" data-result></span>
+    </form>
+    <p class="tool-note">Bring a past event across from MeOS (or anything that exports IOF XML 3.0 results):
+        runners, times and punches are recreated and re-checked here. Import the courses first for exact
+        courses; otherwise each missing class gets a course built from its winner's splits.</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>Import runner database (IOF XML CompetitorList)</h4></div>
+    <form class="tool-form" data-upload="/api/import/runners">
+        <input type="file" name="file" accept=".xml" required>
+        <button class="btn" type="submit">Import runners</button>
+        <span class="tool-result" data-result></span>
+    </form>
+    <p class="tool-note">MeOS's runner database export (or an Eventor member list). Fills card → name/club
+        autofill for every future event.</p>
 </section>
 
 <section class="panel">
@@ -81,7 +105,7 @@
 <section class="panel">
     <div class="panel-head"><h4>Restore from backup</h4></div>
     <form class="tool-form" data-upload="/api/restore" data-reload="1">
-        <input type="file" name="file" accept=".db" required>
+        <input type="file" name="file" accept=".db,.bmeos" required>
         <button class="btn danger" type="submit">Restore (overwrites current event)</button>
         <span class="tool-result" data-result></span>
     </form>

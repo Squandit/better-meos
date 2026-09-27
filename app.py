@@ -793,6 +793,30 @@ def api_import_members():
     return jsonify(runners.import_csv(_uploaded_text()))
 
 
+@app.route("/api/import/results", methods=["POST"])
+def api_import_results():
+    """Import a whole past event's results (IOF ResultList, e.g. from MeOS):
+    runners, their punches and times; missing classes/courses are created."""
+    try:
+        rows = iofxml.parse_resultlist(_uploaded_text())
+    except (ValueError, ET_ERROR) as err:
+        raise StoreError(f"Could not read result list: {err}")
+    outcome = importers.import_results(rows)
+    events.publish("competitor", action="import")
+    return jsonify(outcome)
+
+
+@app.route("/api/import/runners", methods=["POST"])
+def api_import_runners():
+    """Fill the shared runner database from an IOF CompetitorList (MeOS's
+    runner-database export) so entry autofill knows everyone."""
+    try:
+        rows = iofxml.parse_competitorlist(_uploaded_text())
+    except (ValueError, ET_ERROR) as err:
+        raise StoreError(f"Could not read competitor list: {err}")
+    return jsonify(runners.import_rows(rows))
+
+
 @app.route("/api/import/eventor", methods=["POST"])
 def api_import_eventor():
     """Import competitors from an Eventor IOF XML EntryList file."""
@@ -854,7 +878,7 @@ def api_import_startlist():
 @app.route("/export/results.xml")
 def export_results_xml():
     classes, _ = store.evaluate()
-    xml = iofxml.export_results(classes, store.EVENT)
+    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses)
     return Response(xml, mimetype="application/xml", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-results.xml"})
 

@@ -172,3 +172,19 @@ def import_csv(text: str) -> dict:
             _record(_c(), card, name, club, class_name)
         _c().commit()
     return {"imported": imported, "skipped": skipped}
+
+
+def import_rows(rows: list[dict]) -> dict:
+    """Seed the runner database from ``[{"name", "club", "card_number"}]`` (an
+    IOF CompetitorList). Rows without a card are skipped: the DB is keyed by card."""
+    imported = skipped = 0
+    with _lock:
+        for row in rows:
+            card = row.get("card_number")
+            if not card:
+                skipped += 1
+                continue
+            _record(_c(), card, row.get("name", ""), row.get("club", ""), "")
+            imported += 1
+        _c().commit()
+    return {"imported": imported, "skipped": skipped}
