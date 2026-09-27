@@ -301,3 +301,24 @@ def test_batch_commits_once(monkeypatch):
     n = other.execute("SELECT COUNT(*) FROM competitors WHERE name LIKE 'Batch %'").fetchone()[0]
     other.close()
     assert n == 5
+
+
+# --- Audit log ------------------------------------------------------------------
+
+def test_audit_log_records_who_changed_what(cfg):
+    c = appmod.app.test_client()
+    cid = store.class_options()[0]["id"]
+    comp = store.create_competitor({"name": "Audit Ann", "class_id": cid,
+                                    "card_number": 9900001})
+    c.put(f"/api/competitors/{comp['id']}", json={"manual_status": "dsq"})
+    si_reader.process_card({"card_number": 9900001, "finish": _dt(12, 0),
+                            "punches": [(31, _dt(11, 50))]})
+    log = store.audit_log(20)
+    edit = next(e for e in log if e["action"] == "competitor edited"
+                and "Audit Ann" in e["target"])
+    assert "status: (blank) -> dsq" in edit["detail"]
+    assert edit["actor"].startswith("console")
+    read = next(e for e in log if e["action"] == "card read" and "Audit Ann" in e["target"])
+    assert read["actor"] == "SI reader (main)"
+    page = c.get("/audit").get_data(as_text=True)
+    assert "Audit Ann" in page and "competitor edited" in page

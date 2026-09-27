@@ -232,6 +232,15 @@ CREATE TABLE IF NOT EXISTS card_reads (
     punches_json TEXT NOT NULL,
     competitor_id INTEGER          -- set once assigned
 );
+-- Who changed what, for protests and "why is this runner MP?" questions.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT,
+    detail TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_courses_event ON courses(event_id);
 CREATE INDEX IF NOT EXISTS idx_entries_event ON entries(event_id);
 CREATE INDEX IF NOT EXISTS idx_classes_event ON classes(event_id);
@@ -670,6 +679,24 @@ def get_order_by_paypal(paypal_order_id: str) -> dict | None:
 def all_orders() -> list[dict]:
     with _lock:
         rows = _c().execute("SELECT * FROM online_orders ORDER BY id DESC")
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Audit log
+# ---------------------------------------------------------------------------
+
+def insert_audit(actor: str, action: str, target: str, detail: str) -> None:
+    with _lock:
+        _c().execute(
+            "INSERT INTO audit_log (at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().isoformat(timespec="seconds"), actor, action, target, detail))
+        _commit()
+
+
+def audit_entries(limit: int = 1000) -> list[dict]:
+    with _lock:
+        rows = _c().execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
 
 

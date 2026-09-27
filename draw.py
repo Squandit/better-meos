@@ -117,6 +117,10 @@ def draw_classes(class_ids: list[int], *, first_start: str, interval_seconds: in
             for offset, cls in enumerate(lane):
                 summary.append(_draw_one(cls, first + step * offset, cycle, method,
                                          vacants, keep_existing, rng))
+        store._audit("start list drawn", ", ".join(s["class"] for s in summary),
+                     f"{method}, first {first_start}, every {interval_seconds}s"
+                     + (f", {vacants} vacant per class" if vacants else "")
+                     + (", late entries only" if keep_existing else ""))
     return {"classes": sorted(summary, key=lambda s: s["class"].lower())}
 
 

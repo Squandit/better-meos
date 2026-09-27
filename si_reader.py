@@ -86,6 +86,11 @@ def process_card(card: dict, *, station_id: str | None = None,
         card = {**card, "station_id": station_id}
     if auto_create is None:
         auto_create = AUTO_CREATE
+    with store.acting_as(f"SI reader ({station_id or 'main'})"):
+        return _process_card(card, station_id, auto_create)
+
+
+def _process_card(card: dict, station_id: str | None, auto_create: bool) -> dict:
     when = datetime.now().strftime("%H:%M:%S")
     if network.is_secondary():
         # A secondary station holds no event: forward the read to the primary.

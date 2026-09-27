@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Change log{% endblock %}
+{% block heading %}Change log{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Change log</h3>
+    <p>Every change to this event, newest first: who did it, and what changed. Kept inside the event file.</p>
+</div>
+<div data-filter>
+    <div class="toolbar">
+        <input class="search" type="search" placeholder="Filter by name, SI, action or who…" aria-label="Filter changes">
+        <span class="muted-count"><span data-count>{{ entries|length }}</span> of {{ entries|length }} shown</span>
+    </div>
+    <section class="panel">
+        <table class="table">
+            <thead>
+                <tr><th style="width:150px">When</th><th style="width:160px">Who</th>
+                    <th style="width:170px">What</th><th>Target</th><th>Details</th></tr>
+            </thead>
+            <tbody>
+                {% for e in entries %}
+                <tr>
+                    <td class="mono dim">{{ e.at.replace("T", " ") }}</td>
+                    <td class="dim">{{ e.actor }}</td>
+                    <td>{{ e.action }}</td>
+                    <td class="cell-name">{{ e.target }}</td>
+                    <td class="dim">{{ e.detail }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="empty">No changes recorded yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

@@ -134,6 +134,18 @@ _NO_EVENT_OK = ("/static/", "/api/events/", "/api/config")
 
 
 @app.before_request
+def _set_actor():
+    """Who the audit log credits for changes made by this request."""
+    user = auth.current_user()
+    if user:
+        store.set_actor(user["username"])
+    elif security.is_public_path(request.path) and request.path.startswith("/api/online-entry"):
+        store.set_actor("online entry")
+    else:
+        store.set_actor(f"console {request.remote_addr or ''}".strip())
+
+
+@app.before_request
 def _require_open_event():
     """With no event open, every operator page redirects to the start screen
     (and operator APIs answer 409), so the app always begins at event selection."""
@@ -627,6 +639,12 @@ def api_draw():
         stagger_shared_courses=bool(data.get("stagger", True)))
     events.publish("competitor", action="draw")
     return jsonify(outcome)
+
+
+@app.route("/audit")
+def audit_page():
+    """Every change to the event, newest first."""
+    return render_template("audit.html", active="audit", entries=store.audit_log())
 
 
 @app.route("/tools")

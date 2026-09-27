@@ -86,6 +86,62 @@ class StoreError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Audit log: who changed what (see /audit)
+# ---------------------------------------------------------------------------
+
+# Who is acting on this thread: set per request by app.py, per read by the SI
+# reader, per checkout by online entry. Thread-local because requests and the
+# reader thread run concurrently.
+_actor = threading.local()
+
+
+def set_actor(name: str | None) -> None:
+    _actor.name = name
+
+
+def current_actor() -> str:
+    return getattr(_actor, "name", None) or "system"
+
+
+@contextmanager
+def acting_as(name: str):
+    previous = getattr(_actor, "name", None)
+    _actor.name = name
+    try:
+        yield
+    finally:
+        _actor.name = previous
+
+
+def _fmt(value) -> str:
+    if isinstance(value, datetime):
+        return format_clock(value)
+    if isinstance(value, list):
+        return f"{len(value)} punches"
+    return "" if value is None else str(value)
+
+
+def _audit(action: str, target: str, detail: str = "") -> None:
+    db.insert_audit(current_actor(), action, target, detail)
+
+
+def _changes(before: dict, fields: dict, names: dict | None = None) -> str:
+    """'status: '' -> dsq; finish: 10:49:53 -> 10:50:10' for the changed keys."""
+    parts = []
+    for key, new in fields.items():
+        old = before.get(key)
+        if old == new:
+            continue
+        label = (names or {}).get(key, key.replace("_", " "))
+        parts.append(f"{label}: {_fmt(old) or '(blank)'} -> {_fmt(new) or '(blank)'}")
+    return "; ".join(parts)
+
+
+def audit_log(limit: int = 1000) -> list[dict]:
+    return db.audit_entries(limit)
+
+
+# ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 
@@ -698,6 +754,7 @@ def assign_bibs(start: int = 1) -> int:
             c["bib"] = n
             db.save_competitor(_active_event_id, c)
             n += 1
+        _audit("bibs assigned", "all competitors", f"{start} to {n - 1}")
         return n - start
 
 
@@ -842,8 +899,12 @@ def create_competitor(data: dict) -> dict:
             team_id=fields.get("team_id"),
             leg=fields.get("leg"),
         )
-        _apply_pending_read(_competitors[cid])
-        return competitor_json(_competitors[cid])
+        comp = _competitors[cid]
+        _audit("competitor added", _who(comp),
+               f"class {_classes[comp['class_id']]['name']}"
+               + (f", SI {comp['card_number']}" if comp["card_number"] else ""))
+        _apply_pending_read(comp)
+        return competitor_json(comp)
 
 
 def update_competitor(comp_id: int, data: dict) -> dict:
@@ -859,8 +920,16 @@ def update_competitor(comp_id: int, data: dict) -> dict:
             fields["vacant"] = False
         if "card_number" in fields:
             _check_card_unique(fields["card_number"], ignore=comp_id)
+        shown = dict(fields)
+        if "class_id" in shown:
+            shown["class_id"] = _classes[shown["class_id"]]["name"]
+        before = dict(comp, class_id=_classes[comp["class_id"]]["name"])
+        detail = _changes(before, shown, {"class_id": "class", "card_number": "SI",
+                                          "manual_status": "status"})
         comp.update(fields)
         db.save_competitor(_active_event_id, comp)
+        if detail:
+            _audit("competitor edited", _who(comp), detail)
         if card_changed:
             _apply_pending_read(comp)
         return competitor_json(comp)
@@ -870,8 +939,10 @@ def delete_competitor(comp_id: int) -> None:
     with _lock:
         if comp_id not in _competitors:
             raise StoreError("That competitor no longer exists")
-        del _competitors[comp_id]
+        comp = _competitors.pop(comp_id)
         db.delete_competitor(comp_id)
+        _audit("competitor deleted", _who(comp),
+               f"class {_classes.get(comp['class_id'], {}).get('name', '?')}")
 
 
 # ---------------------------------------------------------------------------
@@ -902,6 +973,7 @@ def create_class(data: dict) -> dict:
         legs = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
         fee = _as_float(data.get("fee"), "Fee")
         cid = _insert_class(name=name, course_id=course_id, kind=kind, legs=legs, fee=fee)
+        _audit("class added", name, f"course {_courses[course_id]['name']}")
         return dict(_classes[cid])
 
 
@@ -910,6 +982,7 @@ def update_class(class_id: int, data: dict) -> dict:
         cls = _classes.get(class_id)
         if cls is None:
             raise StoreError("That class no longer exists")
+        before = dict(cls)
         if "name" in data:
             name = _clean_str(data.get("name"), "Class name", required=True)
             _check_unique_class_name(name, ignore=class_id)
@@ -926,6 +999,9 @@ def update_class(class_id: int, data: dict) -> dict:
         if "fee" in data:
             cls["fee"] = _as_float(data.get("fee"), "Fee")
         db.save_class(_active_event_id, cls)
+        detail = _changes(before, cls, {"course_id": "course id"})
+        if detail:
+            _audit("class edited", cls["name"], detail)
         return dict(cls)
 
 
@@ -942,6 +1018,7 @@ def delete_class(class_id: int) -> None:
             )
         del _classes[class_id]
         db.delete_class(class_id)
+        _audit("class deleted", cls["name"])
 
 
 # ---------------------------------------------------------------------------
@@ -1021,6 +1098,7 @@ def create_course(data: dict) -> dict:
             score_formula=fields.get("score_formula"),
             leg_lengths=fields.get("leg_lengths") or [],
         )
+        _audit("course added", fields["name"], f"{len(fields['controls'])} controls")
         return course_json(_courses[cid])
 
 
@@ -1030,8 +1108,13 @@ def update_course(course_id: int, data: dict) -> dict:
         if course is None:
             raise StoreError("That course no longer exists")
         fields = _validated_course_fields(data)
+        detail = _changes(course, {k: v for k, v in fields.items() if k != "controls"})
+        if fields["controls"] != course["controls"]:
+            detail = "; ".join(p for p in (detail, "controls changed") if p)
         course.update(fields)
         db.save_course(_active_event_id, course)
+        if detail:
+            _audit("course edited", course["name"], detail)
         return course_json(course)
 
 
@@ -1048,6 +1131,7 @@ def delete_course(course_id: int) -> None:
             )
         del _courses[course_id]
         db.delete_course(course_id)
+        _audit("course deleted", course["name"])
 
 
 # ---------------------------------------------------------------------------
@@ -1137,6 +1221,7 @@ def add_radio_punch(card_number: int, code: int, time: datetime,
         comp["punches"].append({"code": code, "time": time, "station_id": station_id})
         comp["punches"].sort(key=lambda p: p["time"])
         db.save_competitor(_active_event_id, comp)
+        _audit("radio punch", _who(comp), f"control {code} at {format_clock(time)}")
         return comp
 
 
@@ -1173,6 +1258,8 @@ def apply_card_read(card: dict) -> dict:
         if comp is None:
             raise StoreError(f"No competitor registered for SI card {number}")
         _apply_card(comp, card)
+        _audit("card read", _who(comp), f"{len(card.get('punches', []))} punches"
+               + (f", finish {format_clock(card['finish'])}" if card.get("finish") else ""))
         return competitor_json(comp)
 
 
@@ -1182,7 +1269,10 @@ def apply_card_read(card: dict) -> dict:
 
 def record_unmatched_read(card: dict) -> int:
     """Keep a read that matched nobody, so the runner needn't read out again."""
-    return db.insert_card_read(card)
+    read_id = db.insert_card_read(card)
+    _audit("unmatched card kept", f"SI {card.get('card_number')}",
+           f"{len(card.get('punches', []))} punches")
+    return read_id
 
 
 def unmatched_reads() -> list[dict]:
@@ -1217,14 +1307,22 @@ def assign_card_read(read_id: int, comp_id: int) -> dict:
             comp["card_number"] = number
         _apply_card(comp, read)
         db.mark_card_read_assigned(read_id, comp_id)
+        _audit("card read assigned", _who(comp), f"SI {number}")
         return competitor_json(comp)
 
 
 def delete_card_read(read_id: int) -> None:
     with _lock:
-        if db.get_card_read(read_id) is None:
+        read = db.get_card_read(read_id)
+        if read is None:
             raise StoreError("That card read no longer exists")
         db.delete_card_read(read_id)
+        _audit("card read discarded", f"SI {read['card_number']}",
+               f"{len(read['punches'])} punches")
+
+
+def _who(comp: dict) -> str:
+    return f"{comp['name']}" + (f" (SI {comp['card_number']})" if comp.get("card_number") else "")
 
 
 def _apply_pending_read(comp: dict) -> None:
@@ -1237,6 +1335,7 @@ def _apply_pending_read(comp: dict) -> None:
         if read["card_number"] == number:
             _apply_card(comp, read)
             db.mark_card_read_assigned(read["id"], comp["id"])
+            _audit("kept card read applied", _who(comp), f"SI {number}")
             return
 
 
@@ -1451,6 +1550,7 @@ def restore(backup_path: str) -> None:
         except (ValueError, sqlite3.Error) as err:
             raise StoreError(f"Could not restore backup: {err}")
         _load_active()
+        _audit("event restored from backup", EVENT.get("name", ""))
 
 
 # No event is opened on import: the app starts at the event-selection page and
