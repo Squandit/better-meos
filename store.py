@@ -24,6 +24,7 @@ from datetime import date, datetime
 import db
 import rules
 from results import (
+    MIDNIGHT_WRAP,
     build_result,
     mock_classes,
     rank_results,
@@ -792,7 +793,10 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
     # Cross-field: finish must not precede start.
     start = out.get("start", current["start"] if current else None)
     finish = out.get("finish", current["finish"] if current else None)
-    if start is not None and finish is not None and finish < start:
+    # A finish up to 12 h "before" the start is a mistake; further back it's
+    # after midnight (night event) and the engine rolls it to the next day.
+    if start is not None and finish is not None and finish < start \
+            and start - finish <= MIDNIGHT_WRAP:
         raise StoreError("Finish time is before the start time")
 
     return out

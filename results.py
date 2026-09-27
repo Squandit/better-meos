@@ -1,7 +1,21 @@
 from bisect import bisect_left
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from rules import RuleError, evaluate_formula
+
+
+# A time more than this far *before* the start can't be earlier in the same run:
+# it's after midnight. SI cards and typed times carry time of day only, so a
+# night event's 00:40 finish would otherwise sit 23 hours before its 23:30 start.
+MIDNIGHT_WRAP = timedelta(hours=12)
+
+
+def after_midnight(reference: datetime | None, t: datetime | None) -> datetime | None:
+    """``t`` moved to the next day when it is really after midnight relative to
+    ``reference`` (the run's start); unchanged otherwise."""
+    if reference is not None and t is not None and reference - t > MIDNIGHT_WRAP:
+        return t + timedelta(days=1)
+    return t
 
 
 def format_duration(seconds: int) -> str:
@@ -315,6 +329,12 @@ def build_result(card: dict, course: dict) -> dict:
     elif course.get("start_mode") == "mass" and course.get("mass_start") is not None:
         if finish is not None or punches:
             start = course["mass_start"]
+
+    # Night events: a finish/punch "hours before the start" is after midnight.
+    if start is not None:
+        finish = after_midnight(start, finish)
+        punches = [(code, after_midnight(start, t)) for code, t in punches]
+        result["finish"] = finish
 
     # A punch outside this run's start..finish window can't belong to it: it's
     # left over on a card that wasn't cleared (SI keeps time of day only, so an

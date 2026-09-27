@@ -164,3 +164,32 @@ def test_splits_matrix_recovers_after_missed_middle_control():
     assert cells[1]["missing"] is True    # 102 skipped
     assert cells[2]["missing"] is False   # 103 still recorded
     assert cells[2]["cum"] == "20:00"
+
+
+def test_night_event_crosses_midnight():
+    from datetime import datetime
+    from results import build_result
+    d = datetime(2026, 5, 17)
+    course = {"type": "linear", "controls": [31, 32]}
+    card = {"name": "Night Owl", "class": "N",
+            "start": d.replace(hour=23, minute=30),
+            "punches": [(31, d.replace(hour=23, minute=50)), (32, d.replace(hour=0, minute=15))],
+            "finish": d.replace(hour=0, minute=40)}
+    res = build_result(card, course)
+    assert res["status"] == "ok"
+    assert res["total_seconds"] == 70 * 60
+    assert [s["leg_seconds"] for s in res["splits"]] == [1200, 1500, 1500]
+
+
+def test_store_accepts_finish_after_midnight():
+    import store
+    cid = store.class_options()[0]["id"]
+    comp = store.create_competitor({"name": "Late Night", "class_id": cid,
+                                    "start": "23:30:00", "finish": "00:40:00"})
+    assert store.result_for(comp["id"])["total_seconds"] == 70 * 60
+    try:
+        store.create_competitor({"name": "Typo", "class_id": cid,
+                                 "start": "10:30:00", "finish": "10:00:00"})
+        assert False, "a finish half an hour before the start is still an error"
+    except store.StoreError:
+        pass
