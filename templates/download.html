@@ -12,6 +12,7 @@
     <button class="btn btn-primary" data-simulate>Simulate download</button>
     <label class="check"><input type="checkbox" data-autoprint> Auto-print splits</label>
     <span class="muted-count" data-sim-result></span>
+    <a class="btn btn-soft" href="{{ url_for('readout_page') }}" target="_blank" rel="noopener">Readout screen</a>
     <span class="toolbar-spacer"></span>
     <span class="muted-count">{{ count }} downloaded</span>
 </div>
@@ -94,6 +95,7 @@
                 <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
                 <td style="text-align:right">
                     {{ badge(r) }}
+                    {% if r.ignored %}<span class="chip red" title="Punches outside this run were ignored. Was the card cleared?">{{ r.ignored }} old punch{{ 'es' if r.ignored != 1 else '' }}</span>{% endif %}
                     <a class="link-btn" href="{{ url_for('slip', comp_id=r.id) }}?print=1" target="_blank" rel="noopener" onclick="event.stopPropagation()">Print</a>
                     {% if r.splits %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}
                 </td>

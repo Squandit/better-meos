@@ -322,3 +322,69 @@ def test_audit_log_records_who_changed_what(cfg):
     assert read["actor"] == "SI reader (main)"
     page = c.get("/audit").get_data(as_text=True)
     assert "Audit Ann" in page and "competitor edited" in page
+
+
+# --- Readout desk -----------------------------------------------------------------
+
+def test_readout_latest_and_hire_card_return():
+    c = appmod.app.test_client()
+    cid = store.class_options()[0]["id"]
+    comp = store.create_competitor({"name": "Hire Hana", "class_id": cid,
+                                    "card_number": 9910001, "hired": True,
+                                    "start": "10:00:00"})
+    si_reader.process_card({"card_number": 9910001, "finish": _dt(10, 40),
+                            "punches": [(31, _dt(10, 10))]})
+    d = c.get("/api/readout/latest").get_json()
+    assert d["runner"]["name"] == "Hire Hana" and d["runner"]["hired"] is True
+    assert any(h["id"] == comp["id"] for h in store.economy_summary()["outstanding"])
+    c.put(f"/api/competitors/{comp['id']}", json={"card_returned": True})
+    assert all(h["id"] != comp["id"] for h in store.economy_summary()["outstanding"])
+    assert c.get("/readout").status_code == 200
+
+
+def test_punches_before_check_are_ignored_and_counted():
+    course = {"type": "linear", "controls": [31, 32]}
+    card = {"name": "Check", "class": "M", "start": _dt(10, 0), "finish": _dt(10, 40),
+            "check": _dt(9, 55),
+            "punches": [(31, _dt(9, 30)), (32, _dt(10, 20))]}
+    res = results.build_result(card, course)
+    assert res["status"] == "mp" and res["ignored_punches"] == 1
+
+
+def test_reader_loop_ignores_card_removed_events(monkeypatch):
+    import sys
+    import threading
+    import types
+    reads = []
+
+    class FakeStation:
+        def __init__(self, port):
+            self.events = [("in", 9920001), ("out", None)]
+            self.sicard = None
+
+        def poll_sicard(self):
+            if not self.events:
+                stop.set()
+                return False
+            kind, number = self.events.pop(0)
+            self.sicard = number if kind == "in" else None
+            return True
+
+        def read_sicard(self):
+            if self.sicard is None:
+                raise RuntimeError("No card in the device.")
+            return {"card_number": self.sicard, "start": None, "finish": _dt(10, 30),
+                    "check": None, "clear": None, "punches": []}
+
+        def ack_sicard(self):
+            reads.append("ack")
+
+        def disconnect(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "sportident",
+                        types.SimpleNamespace(SIReaderReadout=FakeStation))
+    monkeypatch.setattr(si_reader, "PUNCH_SYSTEM", "sportident")
+    stop = threading.Event()
+    si_reader._run("COM9", "test", stop)     # must not raise on the removal event
+    assert reads == ["ack"]

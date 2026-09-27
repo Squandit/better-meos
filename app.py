@@ -241,6 +241,7 @@ def _view_row(result):
         "finish": _clock(result.get("finish")),
         "points": result["points"],
         "missed_control": result.get("missed_control"),
+        "ignored": result.get("ignored_punches", 0),
         "splits": _format_splits(result["splits"]),
     }
 
@@ -417,6 +418,33 @@ def download():
     return render_template("download.html", active="download", rows=rows, count=len(rows),
                            unmatched=store.unmatched_reads(), assignable=assignable,
                            readers=si_reader.reader_status())
+
+
+@app.route("/readout")
+def readout_page():
+    """Runner-facing readout screen: big result + OK / mispunch sound per read."""
+    return render_template("readout.html", active="download")
+
+
+@app.route("/api/readout/latest")
+def api_readout_latest():
+    """The last card read, with the runner's result, for the readout screen."""
+    read = si_reader.latest_read()
+    if read is None:
+        return jsonify(None)
+    out = {"seq": read["seq"], "time": read["time"], "ok": read["ok"],
+           "card_number": read["card_number"], "station": read["station"]}
+    comp = store.get_competitor(read["competitor_id"]) if read["competitor_id"] else None
+    result = store.result_for(comp["id"]) if comp else None
+    if comp and result:
+        row = _view_row(result)
+        out["runner"] = {"id": comp["id"], "name": row["name"], "club": row["club"],
+                         "class": row["class"], "status": row["status"],
+                         "status_label": row["status_label"], "time": row["time"],
+                         "position": row["position"], "missed_control": row["missed_control"],
+                         "ignored": row["ignored"], "hired": bool(comp.get("hired")),
+                         "card_returned": bool(comp.get("card_returned"))}
+    return jsonify(out)
 
 
 @app.route("/api/card-reads/<int:read_id>/assign", methods=["POST"])

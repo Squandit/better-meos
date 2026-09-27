@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Readout</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body.readout { margin: 0; min-height: 100vh; display: grid; place-items: center;
+                       background: #10171f; color: #fff; font-family: system-ui, sans-serif; }
+        .ro-card { width: min(900px, 92vw); text-align: center; }
+        .ro-status { font-size: clamp(64px, 14vw, 180px); font-weight: 800; line-height: 1; }
+        .ro-status.ok { color: #3ddc84; }
+        .ro-status.bad { color: #ff5a4f; }
+        .ro-name { font-size: clamp(28px, 5vw, 56px); font-weight: 700; margin-top: 12px; }
+        .ro-sub { font-size: clamp(18px, 2.6vw, 28px); color: #b8c2cc; margin-top: 6px; }
+        .ro-time { font-size: clamp(36px, 7vw, 84px); font-variant-numeric: tabular-nums; margin-top: 18px; }
+        .ro-note { margin-top: 22px; font-size: clamp(20px, 3vw, 34px); padding: 12px 18px;
+                   border-radius: 12px; background: #3a2a10; color: #ffd27a; display: inline-block; }
+        .ro-note button { margin-left: 14px; font-size: 18px; }
+        .ro-idle { color: #6f7b87; font-size: 28px; }
+        .ro-sound { position: fixed; bottom: 14px; right: 16px; color: #6f7b87; font-size: 14px; }
+    </style>
+</head>
+<body class="readout">
+<div class="ro-card" data-card><p class="ro-idle">Waiting for the first card…</p></div>
+<label class="ro-sound"><input type="checkbox" data-sound checked> Sound</label>
+<script>
+(function () {
+    var card = document.querySelector("[data-card]");
+    var soundBox = document.querySelector("[data-sound]");
+    var lastSeq = null;
+    var audio = null;
+
+    function tone(freq, start, length) {
+        var osc = audio.createOscillator(), gain = audio.createGain();
+        osc.frequency.value = freq; osc.connect(gain); gain.connect(audio.destination);
+        gain.gain.setValueAtTime(0.25, audio.currentTime + start);
+        gain.gain.setValueAtTime(0, audio.currentTime + start + length);
+        osc.start(audio.currentTime + start); osc.stop(audio.currentTime + start + length);
+    }
+    function beep(ok) {
+        if (!soundBox.checked) { return; }
+        try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+        if (ok) { tone(1300, 0, 0.12); tone(1300, 0.18, 0.12); } else { tone(220, 0, 0.9); }
+    }
+    // Browsers only allow sound after a click on the page.
+    document.addEventListener("click", function () {
+        try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    });
+
+    function el(tag, cls, text) {
+        var n = document.createElement(tag);
+        if (cls) { n.className = cls; }
+        if (text !== undefined) { n.textContent = text; }
+        return n;
+    }
+
+    function render(d) {
+        card.innerHTML = "";
+        if (!d.runner) {
+            card.appendChild(el("div", "ro-status bad", "UNKNOWN CARD"));
+            card.appendChild(el("div", "ro-name", "SI " + d.card_number));
+            card.appendChild(el("div", "ro-sub", "Not registered: go to the entry desk"));
+            return false;
+        }
+        var r = d.runner, ok = r.status === "ok";
+        card.appendChild(el("div", "ro-status " + (ok ? "ok" : "bad"), ok ? "OK" : r.status_label));
+        card.appendChild(el("div", "ro-name", r.name));
+        card.appendChild(el("div", "ro-sub", [r["class"], r.club].filter(Boolean).join(" · ")));
+        if (r.time) {
+            card.appendChild(el("div", "ro-time", r.time + (r.position ? "   #" + r.position : "")));
+        }
+        if (r.missed_control) {
+            card.appendChild(el("div", "ro-sub", "Missed control " + r.missed_control));
+        }
+        if (r.ignored) {
+            card.appendChild(el("div", "ro-note", r.ignored + " old punches ignored: card not cleared?"));
+        }
+        if (r.hired && !r.card_returned) {
+            var note = el("div", "ro-note", "HIRE CARD: collect it");
+            var btn = el("button", "btn", "Returned");
+            btn.addEventListener("click", function () {
+                fetch("/api/competitors/" + r.id, { method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ card_returned: true }) })
+                    .then(function (res) { if (res.ok) { note.remove(); } });
+            });
+            note.appendChild(btn);
+            card.appendChild(note);
+        }
+        return ok;
+    }
+
+    function refresh(withSound) {
+        fetch("/api/readout/latest", { cache: "no-store" })
+            .then(function (res) { return res.json(); })
+            .then(function (d) {
+                if (!d || d.seq === lastSeq) { return; }
+                var first = lastSeq === null;
+                lastSeq = d.seq;
+                var ok = render(d);
+                if (withSound && !first) { beep(ok); }
+            });
+    }
+
+    refresh(false);
+    var source = new EventSource("/api/stream");
+    source.onmessage = function (e) {
+        var data = {};
+        try { data = JSON.parse(e.data); } catch (err) { return; }
+        if (data.kind === "card_read" || data.kind === "card_unknown") { refresh(true); }
+    };
+    source.onerror = function () {
+        if (source.readyState === EventSource.CLOSED) { setInterval(function () { refresh(true); }, 3000); }
+    };
+})();
+</script>
+</body>
+</html>

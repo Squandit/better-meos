@@ -322,6 +322,7 @@ def _engine_card(comp: dict, classes: dict | None = None) -> dict:
         "finish": comp["finish"],
         "punches": [(p["code"], p["time"]) for p in comp["punches"]],
         "manual_status": comp["manual_status"] or None,
+        "check": comp.get("check"),
     }
 
 
@@ -740,7 +741,13 @@ def economy_summary() -> dict:
             hire_total += hired
             rows.append({"class": cls["name"], "entries": len(members),
                          "fee": fee, "subtotal": subtotal, "hired": hired})
-        return {"rows": rows, "total_fees": grand_fee, "hire_cards": hire_total}
+        outstanding = sorted(
+            ({"id": c["id"], "name": c["name"], "card": c["card_number"],
+              "class": _classes[c["class_id"]]["name"], "finished": c["finish"] is not None}
+             for c in _competitors.values() if c.get("hired") and not c.get("card_returned")),
+            key=lambda r: r["name"].lower())
+        return {"rows": rows, "total_fees": grand_fee, "hire_cards": hire_total,
+                "outstanding": outstanding}
 
 
 def assign_bibs(start: int = 1) -> int:
@@ -777,6 +784,7 @@ def competitor_json(comp: dict) -> dict:
         "manual_status": comp["manual_status"] or "",
         "bib": comp.get("bib"),
         "hired": bool(comp.get("hired")),
+        "card_returned": bool(comp.get("card_returned")),
         "team_id": comp.get("team_id"),
         "leg": comp.get("leg"),
         "vacant": bool(comp.get("vacant")),
@@ -850,6 +858,8 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         out["bib"] = _as_int(data.get("bib"), "Bib", minimum=1, allow_blank=True)
     if has("hired"):
         out["hired"] = bool(data.get("hired"))
+    if has("card_returned"):
+        out["card_returned"] = bool(data.get("card_returned"))
     if has("team_id"):
         team_id = _as_int(data.get("team_id"), "Team", minimum=1, allow_blank=True)
         if team_id is not None and team_id not in _teams:
@@ -1236,6 +1246,7 @@ def _apply_card(comp: dict, card: dict) -> None:
         comp["start"] = card["start"]
     if card.get("finish") is not None:
         comp["finish"] = card["finish"]
+    comp["check"] = card.get("check")  # a new read replaces the old check too
     db.save_competitor(_active_event_id, comp)
 
 

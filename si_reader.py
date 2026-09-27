@@ -51,6 +51,7 @@ _start_lock = threading.Lock()
 # A small ring buffer of recent downloads, for the operator dashboard.
 _recent: deque = deque(maxlen=25)
 _recent_lock = threading.Lock()
+_read_seq = 0
 
 
 def recent_reads() -> list[dict]:
@@ -116,7 +117,8 @@ def _process_card(card: dict, station_id: str | None, auto_create: bool) -> dict
             except StoreError as err2:
                 err = err2
             else:
-                _remember(when, comp["name"], comp["card_number"], station_id, ok=True)
+                _remember(when, comp["name"], comp["card_number"], station_id, ok=True,
+                          competitor_id=comp["id"])
                 events.publish("card_read", station_id=station_id)
                 return {"ok": True, "competitor": comp, "auto_created": True}
         log.warning("unmatched card %s: %s", card.get("card_number"), err)
@@ -133,15 +135,25 @@ def _process_card(card: dict, station_id: str | None, auto_create: bool) -> dict
         return {"ok": False, "error": str(err), "card_number": card.get("card_number"),
                 "read_id": read_id}
 
-    _remember(when, comp["name"], comp["card_number"], station_id, ok=True)
+    _remember(when, comp["name"], comp["card_number"], station_id, ok=True,
+              competitor_id=comp["id"])
     events.publish("card_read", station_id=station_id)
     return {"ok": True, "competitor": comp}
 
 
-def _remember(when, name, card_number, station_id, *, ok):
+def _remember(when, name, card_number, station_id, *, ok, competitor_id=None):
+    global _read_seq
     with _recent_lock:
-        _recent.append({"time": when, "name": name, "card_number": card_number,
-                        "station": station_id or "main", "ok": ok})
+        _read_seq += 1
+        _recent.append({"seq": _read_seq, "time": when, "name": name,
+                        "card_number": card_number, "station": station_id or "main",
+                        "ok": ok, "competitor_id": competitor_id})
+
+
+def latest_read() -> dict | None:
+    """The most recent read (for the readout screen)."""
+    with _recent_lock:
+        return dict(_recent[-1]) if _recent else None
 
 
 def simulate(card: dict, *, station_id: str | None = None,
@@ -174,6 +186,7 @@ def _card_from_si(data: dict, station_id: str | None) -> dict:
         "card_number": data.get("card_number"),
         "start": _on_event_date(data.get("start")),
         "finish": _on_event_date(data.get("finish")),
+        "check": _on_event_date(data.get("check")),
         "punches": [(code, _on_event_date(t)) for code, t in data.get("punches", [])],
         "station_id": station_id,
     }

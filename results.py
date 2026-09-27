@@ -340,9 +340,16 @@ def build_result(card: dict, course: dict) -> dict:
     # A punch outside this run's start..finish window can't belong to it: it's
     # left over on a card that wasn't cleared (SI keeps time of day only, so an
     # earlier run's 10:15 reads as today's 10:15) and could turn an MP into OK.
+    before = len(punches)
+    check = after_midnight(start, card.get("check")) if start is not None else card.get("check")
+    if check is not None:
+        # Punched before the check station: from before the card was cleared.
+        punches = [(code, t) for code, t in punches if t >= check]
     if start is not None:
         punches = [(code, t) for code, t in punches
                    if t >= start and (finish is None or t <= finish)]
+    # Shown at readout: a card with punches from another run wasn't cleared.
+    result["ignored_punches"] = before - len(punches)
 
     punched_codes = [code for code, _ in punches]
     # Kept on the result so the splits matrix can align punches to the course

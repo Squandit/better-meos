@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS competitors (
     team_id INTEGER,                             -- relay team membership
     leg INTEGER,                                 -- relay leg number
     vacant INTEGER NOT NULL DEFAULT 0,           -- drawn start slot, no runner yet
+    check_time TEXT,                             -- SI check punch (card cleared + checked)
+    card_returned INTEGER NOT NULL DEFAULT 0,    -- hire card handed back
     -- Backs store._check_card_unique at the DB level (NULLs are unconstrained,
     -- so hire-card competitors with no number are allowed).
     UNIQUE (event_id, card_number)
@@ -289,6 +291,8 @@ _MIGRATIONS = [
     ("competitors", "team_id", "INTEGER"),
     ("competitors", "leg", "INTEGER"),
     ("competitors", "vacant", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "check_time", "TEXT"),
+    ("competitors", "card_returned", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -531,12 +535,14 @@ def save_competitor(event_id: int, comp: dict) -> None:
         db.execute(
             """INSERT OR REPLACE INTO competitors
                (id, event_id, name, club, class_id, card_number, start, finish,
-                manual_status, bib, hired, team_id, leg, vacant)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                manual_status, bib, hired, team_id, leg, vacant, check_time,
+                card_returned)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
              comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
-             comp.get("team_id"), comp.get("leg"), 1 if comp.get("vacant") else 0),
+             comp.get("team_id"), comp.get("leg"), 1 if comp.get("vacant") else 0,
+             _iso(comp.get("check")), 1 if comp.get("card_returned") else 0),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -869,6 +875,8 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "team_id": row["team_id"],
                 "leg": row["leg"],
                 "vacant": bool(row["vacant"]),
+                "check": _dt(row["check_time"]),
+                "card_returned": bool(row["card_returned"]),
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),
