@@ -12,6 +12,7 @@
         .ro-status { font-size: clamp(64px, 14vw, 180px); font-weight: 800; line-height: 1; }
         .ro-status.ok { color: #3ddc84; }
         .ro-status.bad { color: #ff5a4f; }
+        .ro-status.ro-long { font-size: clamp(44px, 8vw, 110px); }
         .ro-name { font-size: clamp(28px, 5vw, 56px); font-weight: 700; margin-top: 12px; }
         .ro-sub { font-size: clamp(18px, 2.6vw, 28px); color: #b8c2cc; margin-top: 6px; }
         .ro-time { font-size: clamp(36px, 7vw, 84px); font-variant-numeric: tabular-nums; margin-top: 18px; }
@@ -59,7 +60,7 @@
     function render(d) {
         card.innerHTML = "";
         if (!d.runner) {
-            card.appendChild(el("div", "ro-status bad", "UNKNOWN CARD"));
+            card.appendChild(el("div", "ro-status bad ro-long", "UNKNOWN CARD"));
             card.appendChild(el("div", "ro-name", "SI " + d.card_number));
             card.appendChild(el("div", "ro-sub", "Not registered: go to the entry desk"));
             return false;
