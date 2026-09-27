@@ -14,6 +14,8 @@ Stack:
 - sportident PyPI library for SI card reader on COM5
 
 Key conventions:
+- Git: commit and push straight to main. Only use a separate branch for a
+  feature that might break something (and say so); the owner merges those.
 - Timestamps use Python datetime objects, not seconds since midnight
 - Mock SI card data lives in MOCK_CARD_DATA dict for hardware-free development
 - Long-term project, prioritise correctness and readability over cleverness
