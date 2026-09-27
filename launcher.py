@@ -14,6 +14,8 @@ A request is routed to the right surface by the port it arrived on (see
 
 from __future__ import annotations
 
+import os
+import sys
 import threading
 import webbrowser
 
@@ -23,7 +25,15 @@ PUBLIC_THREADS = 32
 ADMIN_THREADS = 24
 
 
+def _use_exe_folder() -> None:
+    """In the packaged exe, keep config.json, events/ and runners.db next to
+    the exe, whatever folder a shortcut launched it from."""
+    if getattr(sys, "frozen", False):
+        os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
+
+
 def main() -> None:
+    _use_exe_folder()
     import app as appmod
     import config
     import si_reader
