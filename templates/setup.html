@@ -14,6 +14,63 @@
     <div class="stat"><div class="label">Still out</div><div class="value">{{ counts.out }}</div><div class="sub">entered, not downloaded</div></div>
 </div>
 
+{% macro checklist(items) -%}
+<ul class="checklist">
+    {% for i in items %}
+    <li class="check-{{ i.state }}">
+        <span class="check-mark" aria-hidden="true">{{ "✓" if i.state == "ok" else ("!" if i.state == "warn" else "✕") }}</span>
+        <span class="check-text">{{ i.text }}</span>
+        {% if i.action == "out" %}<button class="link-btn" data-close-out="dns" data-confirm-out>All accounted for: mark the rest DNS</button>{% endif %}
+        {% if i.action == "dns" %}<button class="link-btn" data-close-out="dns">Mark them DNS</button>{% endif %}
+        {% if i.action == "backup" %}<button class="link-btn" data-backup-now>Back up now</button>{% endif %}
+        {% if i.href and i.state != "ok" %}<a class="link-btn" href="{{ i.href }}">Fix</a>{% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{%- endmacro %}
+
+<div class="checklist-grid">
+    <section class="panel">
+        <div class="panel-head"><h4>Race day checklist</h4>
+            {% set open_before = race_day|rejectattr("state", "equalto", "ok")|list|length %}
+            <span class="chip{% if open_before %} red{% endif %}">{{ "all good" if not open_before else open_before ~ " to look at" }}</span></div>
+        <div class="panel-body">{{ checklist(race_day) }}</div>
+    </section>
+    <section class="panel">
+        <div class="panel-head"><h4>After the event</h4>
+            {% set open_after = close_out|rejectattr("state", "equalto", "ok")|list|length %}
+            <span class="chip{% if open_after %} grey{% endif %}">{{ "all done" if not open_after else open_after ~ " left" }}</span></div>
+        <div class="panel-body">{{ checklist(close_out) }}<p class="tool-result" data-close-out-result></p></div>
+    </section>
+</div>
+<script>
+(function () {
+    var out = document.querySelector("[data-close-out-result]");
+    function post(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(body || {}) })
+            .then(function (r) { return r.json().then(function (d) { if (!r.ok) { throw new Error(d.error || "Failed"); } return d; }); });
+    }
+    document.querySelectorAll("[data-close-out]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var sure = btn.hasAttribute("data-confirm-out")
+                ? "Only do this once every runner still listed as out is known to be safe or never started.\n\nMark everyone without a result as DNS?"
+                : "Mark everyone without a result as DNS?";
+            if (!window.confirm(sure)) { return; }
+            post("/api/close-out/remaining", { status: btn.dataset.closeOut })
+                .then(function (d) { out.textContent = "Marked " + d.count + " as DNS"; setTimeout(function () { location.reload(); }, 600); })
+                .catch(function (err) { out.textContent = err.message; });
+        });
+    });
+    document.querySelectorAll("[data-backup-now]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            post("/api/backups/now").then(function () { location.reload(); })
+                .catch(function (err) { out.textContent = err.message; });
+        });
+    });
+})();
+</script>
+
 <div class="section-title">Set up the event</div>
 <div class="setup-grid">
     <a class="setup-tile" href="{{ url_for('courses') }}"><h4>Courses</h4><p>Control sequences &amp; geometry</p></a>

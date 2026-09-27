@@ -1,0 +1,11 @@
+<p class="dim" style="margin:0 0 8px">{{ w.data.phase }}</p>
+{% if w.data['items'] %}
+<ul class="alert-list">
+    {% for i in w.data['items'] %}
+    <li class="alert-{{ 'bad' if i.state == 'bad' else 'warn' }}"><span>{{ i.text }}</span>{% if i.href %}<a class="link-btn" href="{{ i.href }}">Fix →</a>{% endif %}</li>
+    {% endfor %}
+</ul>
+{% else %}
+<p class="dash-ok">Everything on the list is done.</p>
+{% endif %}
+<a class="link-btn" href="{{ url_for('setup') }}">Full checklist →</a>

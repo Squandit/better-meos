@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 import backups
+import checklist
 import config
 import display
 import online_entry
@@ -195,6 +196,14 @@ def _quick_actions(ctx) -> dict:
     return {"publish_enabled": publish.enabled()}
 
 
+def _checklist(ctx) -> dict:
+    """Open items only: race day until the first finish, then close-out."""
+    finished = any(r["finish"] for r in ctx["rows"])
+    items = checklist.close_out() if finished else checklist.race_day()
+    return {"phase": "After the event" if finished else "Race day",
+            "items": [i for i in items if i["state"] != "ok"][:6]}
+
+
 def _notes(ctx) -> dict:
     return {"text": config.get_str("dashboard_notes")}
 
@@ -291,6 +300,9 @@ WIDGETS: list[Widget] = [
            _changes),
     Widget("notes", "Notes", "A notepad kept with this event (handover notes, radio "
            "channels, who's on which desk).", "small", _notes),
+    Widget("checklist", "Checklist", "What's still to do: the race-day checklist before the "
+           "start, then the close-out one (who hasn't read out, cards, money).", "small",
+           _checklist),
 ]
 BY_ID = {w.id: w for w in WIDGETS}
 

@@ -969,3 +969,17 @@ td.owing { color: #b8302f; font-weight: 700; }
 .palette-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--surface);
     padding: 10px 16px; border-radius: 10px; z-index: 95; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
 @media (max-width: 700px) { .palette-trigger span, .palette-trigger kbd { display: none; } }
+
+/* ---- Checklists (Setup) ------------------------------------------------------- */
+.checklist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0 6px; }
+.checklist-grid .panel + .panel { margin-top: 0; }
+.checklist { list-style: none; margin: 0; padding: 0; }
+.checklist li { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.checklist li:last-child { border-bottom: 0; }
+.check-mark { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; color: #fff; }
+.check-ok .check-mark { background: #2f9e62; }
+.check-warn .check-mark { background: #e08a1e; }
+.check-bad .check-mark { background: #c0392b; }
+.check-text { flex: 1; min-width: 200px; }
+.check-ok .check-text { color: var(--muted); }
+.check-bad .check-text { font-weight: 600; }

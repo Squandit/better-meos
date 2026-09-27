@@ -12,6 +12,7 @@ from flask import (Flask, render_template, request, jsonify, abort, Response,
 
 import auth
 import backups
+import checklist
 import config
 import controls as controls_mod
 import dashboard
@@ -1248,6 +1249,7 @@ def setup():
         "out": sum(1 for r in rows if r["start"] and not r["finish"]),
     }
     return render_template("setup.html", active="setup", counts=counts,
+                           race_day=checklist.race_day(), close_out=checklist.close_out(),
                            remote_url=remote.url(), remote_configured=remote.is_configured(),
                            backup=backups.status(), published=publish.status(),
                            synced_folder=backups.in_synced_folder(store.events_dir()))
@@ -1268,6 +1270,14 @@ def _published_files() -> dict:
 
 
 publish.set_renderer(_published_files)
+
+
+@app.route("/api/close-out/remaining", methods=["POST"])
+def api_close_out_remaining():
+    """Give everyone with no result yet DNS or DNF (after the close-out check)."""
+    count = checklist.mark_remaining(str(_payload().get("status") or ""))
+    events.publish("competitor", action="close-out")
+    return jsonify({"ok": True, "count": count})
 
 
 @app.route("/api/publish/now", methods=["POST"])
