@@ -105,6 +105,9 @@ SCHEMA: list[Setting] = [
       "Which widgets show, in what order and size (set with Customise).",
       hidden=True),
     S("dashboard_notes", "Notes", "text", "", "Home screen", "", scope="event", hidden=True),
+    S("control_config", "Control statuses", "json", "", "Readout & printing",
+      "Per control code: bad / optional / no timing, and alternate codes (Controls page).",
+      scope="event", hidden=True, inherit=False),
     S("overdue_after_minutes", "Overdue after (minutes)", "int", 0, "Home screen",
       "Flag runners still out after this long when their course has no max time "
       "(0 = only use max times).", scope="event", pages=("overview", "speaker"),

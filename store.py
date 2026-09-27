@@ -21,10 +21,13 @@ import threading
 from contextlib import contextmanager
 from datetime import date, datetime, time as dtime
 
+import config
 import db
 import rules
 from results import (
     MIDNIGHT_WRAP,
+    linear_course_rules,
+    parse_control_config,
     build_result,
     mock_classes,
     rank_results,
@@ -293,8 +296,37 @@ def _coerce_linear_controls(raw) -> list[int]:
 # Engine adapters: turn store records into the shapes results.py expects
 # ---------------------------------------------------------------------------
 
-def engine_course(course: dict) -> dict:
-    """Convert a stored course into the dict the results engine consumes."""
+def control_config() -> dict:
+    """The open event's control statuses, parsed (``{}`` with no event open)."""
+    if not db.is_open():
+        return {}
+    return parse_control_config(config.get("control_config"))
+
+
+def split_controls(course: dict) -> tuple[list[int], list]:
+    """The controls that get a split column (every one but a bad control) and
+    the leg length to each (a bad control's leg merged into the next)."""
+    if course["type"] != "linear":
+        return [], []
+    ctl = control_config()
+    raw = course.get("leg_lengths") or []
+    codes, lengths, carry, known = [], [], 0, True
+    for i, code in enumerate(course["controls"]):
+        length = raw[i] if i < len(raw) else None
+        if ctl.get(code, {}).get("status") == "bad":
+            carry, known = carry + (length or 0), known and length is not None
+            continue
+        codes.append(code)
+        lengths.append(length + carry if length is not None and known else None)
+        carry, known = 0, True
+    return codes, lengths
+
+
+def engine_course(course: dict, control_rules: dict | None = None) -> dict:
+    """Convert a stored course into the dict the results engine consumes.
+    ``control_rules`` are the event's control statuses (see
+    results.parse_control_config); None means the open event's."""
+    ctl = control_rules if control_rules is not None else control_config()
     if course["type"] == "score":
         return {
             "type": "score",
@@ -302,10 +334,13 @@ def engine_course(course: dict) -> dict:
             "time_limit_minutes": course["time_limit_minutes"],
             "penalty_per_minute": course["penalty_per_minute"],
             "score_formula": course.get("score_formula") or None,
+            "alternates": linear_course_rules([c["code"] for c in course["controls"]],
+                                              ctl)["alternates"],
         }
     return {
         "type": "linear",
         "controls": list(course["controls"]),
+        **linear_course_rules(list(course["controls"]), ctl),
         "time_limit_minutes": course.get("time_limit_minutes"),  # max time
         "start_mode": course.get("start_mode", "clock"),
         "start_control": course.get("start_control"),
@@ -546,9 +581,12 @@ def get_competitor(comp_id: int) -> dict | None:
     return _competitors.get(comp_id)
 
 
-def _evaluate_model(courses: dict, classes: dict,
-                    competitors: dict) -> tuple[list[dict], dict[int, dict]]:
-    """Run a (courses, classes, competitors) model through the engine."""
+def _evaluate_model(courses: dict, classes: dict, competitors: dict,
+                    control_rules: dict | None = None) -> tuple[list[dict], dict[int, dict]]:
+    """Run a (courses, classes, competitors) model through the engine.
+    ``control_rules``: that event's control statuses (None = the open event's)."""
+    if control_rules is None:
+        control_rules = control_config()
     out = []
     by_id: dict[int, dict] = {}
     by_class: dict[int, list] = {}
@@ -564,7 +602,7 @@ def _evaluate_model(courses: dict, classes: dict,
             # A forked runner (course override) is judged on their own course.
             cid = comp.get("course_id") if comp.get("course_id") in courses else course["id"]
             if cid not in engine_courses:
-                engine_courses[cid] = engine_course(courses[cid])
+                engine_courses[cid] = engine_course(courses[cid], control_rules)
             return cid, engine_courses[cid]
 
         members = by_class.get(cls["id"], [])

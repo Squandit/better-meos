@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Controls{% endblock %}
+{% block heading %}Controls{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Controls</h3>
+    <p>Every control on the event's courses and what happened at it. A broken or missing unit? Set it to
+       <strong>Bad</strong> and nobody needs it; results update straight away. A replacement unit with another
+       number? Add its code as an alternate.</p>
+</div>
+
+<section class="panel">
+    <div class="table-scroll">
+    <table class="table controls-table" data-controls>
+        <thead>
+            <tr>
+                <th style="width:70px">Code</th>
+                <th>On courses</th>
+                <th class="num" style="width:80px">Punched</th>
+                <th class="num" style="width:110px">Missed</th>
+                <th style="width:150px">First – last punch</th>
+                <th class="num" style="width:90px">Typical leg</th>
+                <th style="width:200px">Status</th>
+                <th style="width:150px">Alternate codes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in report.controls %}
+            <tr data-code="{{ c.code }}" class="{{ 'ctl-' + c.status }}{% if c.missed_pct >= 50 and c.needed >= 3 %} ctl-alarm{% endif %}">
+                <td class="mono strong">{{ c.code }}</td>
+                <td class="dim">{{ c.courses|join(", ") }}</td>
+                <td class="num">{{ c.punched }}</td>
+                <td class="num">{% if c.missed %}<span class="{{ 'missed-hot' if c.missed_pct >= 50 else '' }}">{{ c.missed }} of {{ c.needed }}</span>{% else %}<span class="dim">0</span>{% endif %}</td>
+                <td class="mono dim">{% if c.first %}{{ c.first }} – {{ c.last }}{% endif %}</td>
+                <td class="num mono">{{ c.median_leg|format_secs if c.median_leg is not none else "" }}</td>
+                <td>
+                    <select data-status aria-label="Status of control {{ c.code }}">
+                        {% for s in report.statuses %}<option value="{{ s }}"{% if s == c.status %} selected{% endif %}>{{ report.labels[s] }}</option>{% endfor %}
+                    </select>
+                </td>
+                <td><input data-alternates class="mono" value="{{ c.alternates|join(', ') }}" placeholder="e.g. 131" aria-label="Alternate codes for {{ c.code }}"></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="empty">No courses yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="tool-note" data-control-result></p>
+</section>
+
+{% if report.unknown %}
+<section class="panel">
+    <div class="panel-head"><h4>Punched, but not on any course</h4><span class="chip grey">{{ report.unknown|length }}</span></div>
+    <div class="panel-body">
+        <p class="tool-note">Often a spare unit put out in place of a broken one: add its code as an alternate above.
+           Otherwise these are extra punches and are ignored.</p>
+        <div class="status-chips">
+            {% for u in report.unknown %}<span class="chip grey mono">{{ u.code }} · {{ u.punches }} punch{{ "es" if u.punches != 1 }}</span>{% endfor %}
+        </div>
+    </div>
+</section>
+{% endif %}
+
+<script>
+(function () {
+    var table = document.querySelector("[data-controls]");
+    var out = document.querySelector("[data-control-result]");
+    if (!table) { return; }
+    function save(row) {
+        var body = { status: row.querySelector("[data-status]").value,
+                     alternates: row.querySelector("[data-alternates]").value };
+        out.textContent = "Saving…";
+        fetch("/api/controls/" + row.dataset.code, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+        }).then(function (r) {
+            return r.json().then(function (d) {
+                if (!r.ok) { throw new Error(d.error || "Could not save"); }
+                out.textContent = "Control " + row.dataset.code + " saved. Results updated.";
+                row.className = "ctl-" + d.control.status;
+            });
+        }).catch(function (err) { out.textContent = err.message; });
+    }
+    table.addEventListener("change", function (e) {
+        var row = e.target.closest("tr[data-code]");
+        if (row) { save(row); }
+    });
+    table.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && e.target.matches("[data-alternates]")) {
+            e.preventDefault();
+            e.target.blur();
+        }
+    });
+})();
+</script>
+{% endblock %}

@@ -13,6 +13,7 @@ from flask import (Flask, render_template, request, jsonify, abort, Response,
 import auth
 import backups
 import config
+import controls as controls_mod
 import dashboard
 import db
 import display
@@ -348,6 +349,21 @@ def _unmatched_with_hints() -> list[dict]:
     return out
 
 
+@app.route("/controls")
+def controls_page():
+    """Control statuses (bad / optional / no timing / alternates) and what
+    happened at each control."""
+    return render_template("controls.html", active="controls", report=controls_mod.report())
+
+
+@app.route("/api/controls/<int:code>", methods=["POST"])
+def api_update_control(code):
+    data = _payload()
+    saved = controls_mod.update(code, str(data.get("status") or "ok"), data.get("alternates"))
+    events.publish("competitor", action="control")
+    return jsonify({"ok": True, "control": saved})
+
+
 @app.route("/download")
 def download():
     all_rows = [r for c in display.console_data() for r in c["rows"]]
@@ -456,9 +472,8 @@ def _splits_data():
             if len(by_course) > 1:
                 part["name"] = f'{cls["name"]} · {variant["name"]}'
                 part["meta"] = store.course_meta(variant)
-            part["matrix"] = build_splits_matrix(
-                by_course[course_id], variant["controls"], variant.get("leg_lengths"),
-                fmt=fmt)
+            codes, lengths = store.split_controls(variant)
+            part["matrix"] = build_splits_matrix(by_course[course_id], codes, lengths, fmt=fmt)
             part["length_m"] = variant.get("length_m")
             view.append(part)
     return view
@@ -869,7 +884,8 @@ def api_import_startlist():
 @app.route("/export/results.xml")
 def export_results_xml():
     classes, _ = store.evaluate()
-    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses)
+    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses,
+                                split_controls=store.split_controls)
     return Response(xml, mimetype="application/xml", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-results.xml"})
 
@@ -1154,7 +1170,8 @@ def _published_files() -> dict:
                                show_splits=config.get("results_show_splits"),
                                published_at=datetime.now().strftime("%H:%M"))
     classes, _ = store.evaluate()
-    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses)
+    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses,
+                                split_controls=store.split_controls)
     return {"results.html": html.encode("utf-8"), "results.xml": xml.encode("utf-8")}
 
 

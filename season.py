@@ -30,6 +30,7 @@ import config
 import db
 import display
 import store
+from results import parse_control_config
 
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
@@ -78,10 +79,12 @@ def load(path: str) -> dict | None:
     data = db.load_event_file(path)
     if data is None:
         return None
-    evaluated, _ = store._evaluate_model(data["courses"], data["classes"], data["competitors"])
+    settings = db.read_event_settings(path)
+    evaluated, _ = store._evaluate_model(
+        data["courses"], data["classes"], data["competitors"],
+        parse_control_config(settings.get("control_config")))
     event = {"path": path, "name": data["meta"]["name"], "date_iso": data["meta"]["date_iso"],
-             "settings": db.read_event_settings(path), "classes": _classes_of(evaluated),
-             "open": False}
+             "settings": settings, "classes": _classes_of(evaluated), "open": False}
     with _cache_lock:
         _cache[path] = (mtime, event)
     return event

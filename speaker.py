@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import store
 from results import aligned_splits, format_split
 
 
@@ -29,7 +30,7 @@ def out_on_course(evaluated: list[dict]) -> list[dict]:
         course = entry["course"]
         results = entry["results"]
         linear = course["type"] == "linear"
-        controls = list(course["controls"]) if linear else []
+        controls = store.split_controls(course)[0] if linear else []
         finished_ok = sorted(r["total_seconds"] for r in results
                              if r["status"] == "ok" and r["total_seconds"] is not None)
         leader = finished_ok[0] if finished_ok else None

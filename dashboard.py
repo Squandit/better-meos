@@ -218,7 +218,7 @@ def mp_hotspots(evaluated: list[dict], limit: int = 8) -> list[dict]:
         course = entry["course"]
         if course["type"] != "linear":
             continue
-        codes = list(course["controls"])
+        codes = store.engine_course(course)["required"]     # bad / optional don't count
         for r in entry["results"]:
             if r.get("start") is None or r.get("finish") is None:
                 continue

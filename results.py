@@ -240,6 +240,59 @@ STATUS_NC = "nc"     # not competing: timed and shown, never ranked (manual only
 STATUS_PENDING = "pending"
 
 
+# Control statuses (as in MeOS), set per control code for the whole event.
+CONTROL_OK = "ok"
+CONTROL_BAD = "bad"              # broken or missing unit: nobody needs it
+CONTROL_OPTIONAL = "optional"    # may be skipped
+CONTROL_NO_TIMING = "no_timing"  # the leg to it isn't timed (road crossing, drinks)
+CONTROL_STATUSES = (CONTROL_OK, CONTROL_BAD, CONTROL_OPTIONAL, CONTROL_NO_TIMING)
+
+
+def parse_control_config(raw) -> dict[int, dict]:
+    """
+    The event's control settings as ``{code: {"status", "alternates"}}``.
+
+    Stored as JSON with string keys; anything unreadable is skipped rather than
+    breaking every result. ``alternates`` are other codes that count as this
+    control (a replacement unit with a different number).
+    """
+    out: dict[int, dict] = {}
+    if not isinstance(raw, dict):
+        return out
+    for key, value in raw.items():
+        try:
+            code = int(key)
+        except (TypeError, ValueError):
+            continue
+        value = value if isinstance(value, dict) else {}
+        status = value.get("status") if value.get("status") in CONTROL_STATUSES else CONTROL_OK
+        alternates = []
+        for alt in value.get("alternates") or []:
+            try:
+                alt = int(alt)
+            except (TypeError, ValueError):
+                continue
+            if alt != code and alt not in alternates:
+                alternates.append(alt)
+        if status != CONTROL_OK or alternates:
+            out[code] = {"status": status, "alternates": alternates}
+    return out
+
+
+def linear_course_rules(controls: list[int], rules: dict[int, dict]) -> dict:
+    """What a linear course asks of runners once control statuses apply:
+    ``required`` (in order, for OK/MP), ``timed`` (split columns: all but bad
+    controls), ``no_timing`` codes, and ``alternates`` (punched code -> the
+    course control it stands for)."""
+    status = {c: rules.get(c, {}).get("status", CONTROL_OK) for c in controls}
+    return {
+        "required": [c for c in controls if status[c] not in (CONTROL_BAD, CONTROL_OPTIONAL)],
+        "timed": [c for c in controls if status[c] != CONTROL_BAD],
+        "no_timing": sorted({c for c in controls if status[c] == CONTROL_NO_TIMING}),
+        "alternates": {alt: c for c in set(controls) for alt in rules.get(c, {}).get("alternates", [])},
+    }
+
+
 def validate_linear(
     required: list[int],
     punched: list[int],
@@ -320,6 +373,10 @@ def build_result(card: dict, course: dict) -> dict:
     start = card.get("start")
     finish = card.get("finish")
     punches = card.get("punches") or []
+    # A replacement unit's code counts as the control it replaced.
+    alternates = course.get("alternates")
+    if alternates:
+        punches = [(alternates.get(code, code), t) for code, t in punches]
 
     # Free / punch start: take the start time from a start-control punch rather
     # than the clock, and drop that punch so it isn't treated as a control leg.
@@ -382,8 +439,20 @@ def build_result(card: dict, course: dict) -> dict:
         result["splits"] = calculate_splits(start, punches, finish)
 
         if course["type"] == "linear":
-            auto_status, missed = validate_linear(course["controls"], punched_codes)
+            required = course.get("required", course["controls"])
+            auto_status, missed = validate_linear(required, punched_codes)
             result["missed_control"] = missed
+            if course.get("no_timing"):
+                # Legs to a no-timing control don't count towards the time.
+                untimed = sum(
+                    cell["leg_seconds"]
+                    for cell in aligned_splits(start, punches, finish,
+                                               course.get("timed", course["controls"]))[:-1]
+                    if cell["control"] in course["no_timing"] and cell["leg_seconds"] is not None)
+                if untimed:
+                    total_seconds -= untimed
+                    result["total_seconds"] = total_seconds
+                    result["untimed_seconds"] = untimed
             # Max time: a valid run over the limit is OverTime (unranked).
             limit = course.get("time_limit_minutes")
             if auto_status == STATUS_OK and limit and total_seconds > limit * 60:

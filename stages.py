@@ -21,7 +21,7 @@ from datetime import timedelta
 
 import db
 import store
-from results import format_duration
+from results import format_duration, parse_control_config
 
 
 def _identity(name: str, club: str, card) -> tuple:
@@ -38,7 +38,8 @@ def _evaluate_file(path: str) -> dict | None:
     if data is None:
         return None
     _, by_id = store._evaluate_model(
-        data["courses"], data["classes"], data["competitors"])
+        data["courses"], data["classes"], data["competitors"],
+        parse_control_config(db.read_event_settings(path).get("control_config")))
     return {"meta": data["meta"], "classes": data["classes"],
             "competitors": data["competitors"], "by_id": by_id}
 

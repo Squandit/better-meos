@@ -264,13 +264,14 @@ def _parse_iso(text):
 # ---------------------------------------------------------------------------
 
 def export_results(classes_eval: list[dict], event: dict,
-                   courses: dict | None = None) -> str:
+                   courses: dict | None = None, split_controls=None) -> str:
     """
     Build an IOF ``ResultList`` XML document from evaluated classes.
 
     ``classes_eval`` is ``store.evaluate()[0]`` -- a list of
     ``{"class", "course", "results"}`` with results already ranked. Returns the
-    XML as a unicode string (with declaration).
+    XML as a unicode string (with declaration). ``split_controls(course)``
+    gives the controls that get a SplitTime (default: all of the course's).
     """
     root = ET.Element(f"{{{NS}}}ResultList", {
         "iofVersion": "3.0",
@@ -323,7 +324,7 @@ def export_results(classes_eval: list[dict], event: dict,
                 status = "Inactive"
             _sub(res, "Status", status)
             own = (courses or {}).get(r.get("course_id"), course)  # forked runner
-            for code, secs in _split_times(r, own):
+            for code, secs in _split_times(r, own, split_controls):
                 attrs = {"status": "Missing"} if secs is None else {}
                 st = ET.SubElement(res, f"{{{NS}}}SplitTime", attrs)
                 _sub(st, "ControlCode", str(code))
@@ -336,7 +337,7 @@ def export_results(classes_eval: list[dict], event: dict,
     return ET.tostring(root, encoding="unicode", xml_declaration=True)
 
 
-def _split_times(r: dict, course: dict) -> list[tuple]:
+def _split_times(r: dict, course: dict, split_controls=None) -> list[tuple]:
     """
     SplitTimes as WinSplits / Routegadget expect them: one per course control
     in course order (repeated controls included), a missed control as None
@@ -344,8 +345,8 @@ def _split_times(r: dict, course: dict) -> list[tuple]:
     they list the punches as punched.
     """
     if course.get("type") == "linear" and r.get("start") is not None:
-        aligned = aligned_splits(r["start"], r.get("punches", []), r.get("finish"),
-                                 list(course.get("controls", [])))
+        codes = split_controls(course)[0] if split_controls else list(course.get("controls", []))
+        aligned = aligned_splits(r["start"], r.get("punches", []), r.get("finish"), codes)
         return [(a["control"], a["cumulative_seconds"]) for a in aligned
                 if a["control"] != "F"]
     return [(s["control"], s["cumulative_seconds"]) for s in r.get("splits", [])

@@ -329,8 +329,8 @@ def slip_view(comp_id: int) -> dict | None:
     if course["type"] == "linear" and result.get("start") is not None:
         same = [r for r in entry["results"]
                 if r.get("course_id", entry["course"]["id"]) == course["id"]]
-        matrix = build_splits_matrix(same, list(course["controls"]),
-                                     course.get("leg_lengths"), fmt=lambda x: fmt(x) or "")
+        codes, lengths = store.split_controls(course)
+        matrix = build_splits_matrix(same, codes, lengths, fmt=lambda x: fmt(x) or "")
         mine = next((r for r in matrix["rows"] if r["id"] == comp_id), None)
         if mine is not None:
             view["legs"] = [{"n": i + 1 if leg["code"] != "F" else "F",
