@@ -15,8 +15,11 @@ a = Analysis(
     binaries=[],
     # Bundle the templates + static assets (entry page, images, sw.js, css/js).
     datas=[('templates', 'templates'), ('static', 'static')],
-    # Runtime-served deps + ones imported lazily that PyInstaller can't see.
-    hiddenimports=['waitress', 'pyngrok'],
+    # Runtime-served deps + ones imported lazily (inside functions) that
+    # PyInstaller's import scan can't see. Missing sportident/serial here means
+    # the real SI reader fails only in the exe, only on the day.
+    hiddenimports=['waitress', 'pyngrok', 'pyngrok.ngrok',
+                   'sportident', 'serial', 'serial.tools.list_ports', 'stripe'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
