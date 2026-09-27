@@ -232,6 +232,11 @@ def _run(port: str, station_id: str, stop_event: threading.Event) -> None:
     try:
         while not stop_event.is_set():
             if si.poll_sicard():
+                # poll_sicard also reports a card being *removed*; reading
+                # then raises "No card in the device", which used to look like
+                # a reader failure and force a reconnect after every runner.
+                if si.sicard is None:
+                    continue
                 data = si.read_sicard()
                 outcome = process_card(_card_from_si(data, station_id),
                                        station_id=station_id)
