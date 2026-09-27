@@ -349,7 +349,7 @@ def competitors():
     rows.sort(key=lambda r: (r["class"], r["position"] is None, r["position"] or 0, r["name"]))
     return render_template(
         "competitors.html", active="competitors", rows=rows,
-        class_options=store.class_options(),
+        class_options=store.class_options(), course_options=store.course_options(),
         status_options=[{"value": s, "label": STATUS_LABELS[s]} for s in STATUS_ORDER],
     )
 
@@ -370,6 +370,8 @@ def classes():
             "kind": cls.get("kind", "individual"),
             "legs": cls.get("legs", 1),
             "fee": cls.get("fee", 0),
+            "fork_courses": ",".join(str(i) for i in cls.get("fork_courses") or []),
+            "restart": cls.get("restart") or "",
             "entries": len(rows),
             "finished": sum(1 for r in rows if r["time"] is not None),
             "flagged": sum(1 for r in rows if r["status"] in FLAGGED),
@@ -485,11 +487,23 @@ def _splits_data():
         }
         if is_score:
             item["rows"] = [_view_row(r) for r in entry["results"]]
-        else:
-            item["matrix"] = build_splits_matrix(
-                entry["results"], course["controls"], course.get("leg_lengths"))
-            item["length_m"] = course.get("length_m")
-        view.append(item)
+            view.append(item)
+            continue
+        # Forked classes: one splits table per course variant (legs of
+        # different forks aren't comparable column by column).
+        by_course: dict = {}
+        for r in entry["results"]:
+            by_course.setdefault(r.get("course_id", course["id"]), []).append(r)
+        for course_id in sorted(by_course, key=lambda c: (c != course["id"], c)):
+            variant = store.get_course(course_id) or course
+            part = dict(item)
+            if len(by_course) > 1:
+                part["name"] = f'{cls["name"]} · {variant["name"]}'
+                part["meta"] = store.course_meta(variant)
+            part["matrix"] = build_splits_matrix(
+                by_course[course_id], variant["controls"], variant.get("leg_lengths"))
+            part["length_m"] = variant.get("length_m")
+            view.append(part)
     return view
 
 
@@ -1221,6 +1235,14 @@ def api_update_class(class_id):
     cls = store.update_class(class_id, _payload())
     events.publish("class", action="update", id=class_id)
     return jsonify({"class": cls})
+
+
+@app.route("/api/classes/<int:class_id>/forks", methods=["POST"])
+def api_assign_forks(class_id):
+    """Hand out the class's fork courses to its runners / relay legs."""
+    count = store.assign_forks(class_id)
+    events.publish("class", action="forks", id=class_id)
+    return jsonify({"ok": True, "assigned": count})
 
 
 @app.route("/api/classes/<int:class_id>", methods=["DELETE"])

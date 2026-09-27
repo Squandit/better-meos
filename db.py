@@ -127,7 +127,9 @@ CREATE TABLE IF NOT EXISTS classes (
     course_id INTEGER NOT NULL,
     kind TEXT NOT NULL DEFAULT 'individual',     -- individual | relay
     legs INTEGER NOT NULL DEFAULT 1,             -- relay leg count
-    fee REAL NOT NULL DEFAULT 0
+    fee REAL NOT NULL DEFAULT 0,
+    fork_courses TEXT,                           -- comma-separated course ids (forking)
+    restart TEXT                                 -- relay mass restart HH:MM:SS
 );
 CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY,
@@ -155,6 +157,7 @@ CREATE TABLE IF NOT EXISTS competitors (
     vacant INTEGER NOT NULL DEFAULT 0,           -- drawn start slot, no runner yet
     check_time TEXT,                             -- SI check punch (card cleared + checked)
     card_returned INTEGER NOT NULL DEFAULT 0,    -- hire card handed back
+    course_id INTEGER,                           -- course override (forking); NULL = class's
     -- Backs store._check_card_unique at the DB level (NULLs are unconstrained,
     -- so hire-card competitors with no number are allowed).
     UNIQUE (event_id, card_number)
@@ -293,6 +296,9 @@ _MIGRATIONS = [
     ("competitors", "vacant", "INTEGER NOT NULL DEFAULT 0"),
     ("competitors", "check_time", "TEXT"),
     ("competitors", "card_returned", "INTEGER NOT NULL DEFAULT 0"),
+    ("competitors", "course_id", "INTEGER"),
+    ("classes", "fork_courses", "TEXT"),
+    ("classes", "restart", "TEXT"),
 ]
 
 
@@ -489,10 +495,12 @@ def delete_course(course_id: int) -> None:
 def save_class(event_id: int, cls: dict) -> None:
     with _lock:
         _c().execute(
-            "INSERT OR REPLACE INTO classes (id, event_id, name, course_id, kind, legs, fee) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO classes (id, event_id, name, course_id, kind, legs, fee, "
+            "fork_courses, restart) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (cls["id"], event_id, cls["name"], cls["course_id"],
-             cls.get("kind", "individual"), cls.get("legs", 1), cls.get("fee", 0)),
+             cls.get("kind", "individual"), cls.get("legs", 1), cls.get("fee", 0),
+             ",".join(str(c) for c in cls.get("fork_courses") or []) or None,
+             cls.get("restart") or None),
         )
         _commit()
 
@@ -536,13 +544,14 @@ def save_competitor(event_id: int, comp: dict) -> None:
             """INSERT OR REPLACE INTO competitors
                (id, event_id, name, club, class_id, card_number, start, finish,
                 manual_status, bib, hired, team_id, leg, vacant, check_time,
-                card_returned)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                card_returned, course_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
              comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
              comp.get("team_id"), comp.get("leg"), 1 if comp.get("vacant") else 0,
-             _iso(comp.get("check")), 1 if comp.get("card_returned") else 0),
+             _iso(comp.get("check")), 1 if comp.get("card_returned") else 0,
+             comp.get("course_id")),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -841,6 +850,8 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "id": row["id"], "name": row["name"], "course_id": row["course_id"],
                 "kind": row["kind"] or "individual", "legs": row["legs"] or 1,
                 "fee": row["fee"] or 0,
+                "fork_courses": [int(x) for x in (row["fork_courses"] or "").split(",") if x],
+                "restart": row["restart"] or "",
             }
 
         teams: dict[int, dict] = {}
@@ -877,6 +888,7 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "vacant": bool(row["vacant"]),
                 "check": _dt(row["check_time"]),
                 "card_returned": bool(row["card_returned"]),
+                "course_id": row["course_id"],
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),

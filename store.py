@@ -419,17 +419,19 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
     return cid
 
 
-def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0) -> int:
+def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0,
+                  fork_courses=None, restart="") -> int:
     cid = _next_id("class")
     _classes[cid] = {"id": cid, "name": name, "course_id": course_id,
-                     "kind": kind, "legs": legs, "fee": fee}
+                     "kind": kind, "legs": legs, "fee": fee,
+                     "fork_courses": fork_courses or [], "restart": restart or ""}
     db.save_class(_active_event_id, _classes[cid])
     return cid
 
 
 def _insert_competitor(*, name, club, class_id, card_number, start, finish,
                        punches, manual_status, bib=None, hired=False,
-                       team_id=None, leg=None, vacant=False) -> int:
+                       team_id=None, leg=None, vacant=False, course_id=None) -> int:
     cid = _next_id("competitor")
     _competitors[cid] = {
         "id": cid,
@@ -446,6 +448,7 @@ def _insert_competitor(*, name, club, class_id, card_number, start, finish,
         "team_id": team_id,
         "leg": leg,
         "vacant": vacant,
+        "course_id": course_id,
     }
     db.save_competitor(_active_event_id, _competitors[cid])
     return cid
@@ -537,9 +540,22 @@ def _evaluate_model(courses: dict, classes: dict,
         by_class.setdefault(comp["class_id"], []).append(comp)
     for cls in sorted(classes.values(), key=lambda c: c["name"].lower()):
         course = courses[cls["course_id"]]
-        ecourse = engine_course(course)
+        engine_courses = {}
+
+        def course_of(comp):
+            # A forked runner (course override) is judged on their own course.
+            cid = comp.get("course_id") if comp.get("course_id") in courses else course["id"]
+            if cid not in engine_courses:
+                engine_courses[cid] = engine_course(courses[cid])
+            return cid, engine_courses[cid]
+
         members = by_class.get(cls["id"], [])
-        results_in = [build_result(_engine_card(c, classes), ecourse) for c in members]
+        results_in = []
+        for comp in members:
+            cid, ecourse = course_of(comp)
+            res = build_result(_engine_card(comp, classes), ecourse)
+            res["course_id"] = cid
+            results_in.append(res)
         ranked = rank_results(results_in).get(cls["name"], [])
         for r in ranked:
             by_id[r["id"]] = r
@@ -621,7 +637,7 @@ def delete_team(team_id: int) -> None:
 
 
 def _relay_team(team: dict, members: list[dict], course: dict | None,
-                by_id: dict) -> dict:
+                by_id: dict, restart: datetime | None = None) -> dict:
     """
     A relay team's result: legs run in sequence, time is their sum, valid only
     when every leg is OK.
@@ -629,7 +645,9 @@ def _relay_team(team: dict, members: list[dict], course: dict | None,
     Relay runners rarely have a start of their own: leg 1 goes at the team's
     start (or the course's mass start) and every later leg starts when the
     previous runner finishes (the changeover). So a leg with no recorded start
-    is timed from the previous leg's finish. Only leg 1 uses a mass start.
+    is timed from the previous leg's finish, or from the class's mass restart
+    when the previous runner hadn't finished by then. Only leg 1 uses a mass
+    start. Forked legs are judged on the runner's own course.
     """
     legs = []
     total = 0
@@ -637,26 +655,45 @@ def _relay_team(team: dict, members: list[dict], course: dict | None,
     prev_finish = None
     for i, m in enumerate(members):
         res = by_id.get(m["id"])
-        if course is not None:
-            ecourse = engine_course(course)
+        leg_course = _courses.get(m.get("course_id")) or course
+        if leg_course is not None:
+            ecourse = engine_course(leg_course)
             card = _engine_card(m)
             if card["start"] is None:
-                card["start"] = prev_finish if i > 0 else team.get("start")
+                if i == 0:
+                    card["start"] = team.get("start")
+                elif restart is not None and (prev_finish is None or prev_finish > restart):
+                    card["start"] = restart
+                else:
+                    card["start"] = prev_finish
             if i > 0 and ecourse.get("start_mode") == "mass":
                 ecourse = {**ecourse, "start_mode": "clock"}
             res = build_result(card, ecourse)
         leg_ok = res is not None and res["status"] == "ok" \
             and res["total_seconds"] is not None
-        legs.append({"name": m["name"], "leg": m.get("leg"),
+        legs.append({"name": m["name"], "leg": m.get("leg") or i + 1,
                      "seconds": res["total_seconds"] if res else None,
-                     "status": res["status"] if res else "dns"})
+                     "status": res["status"] if res else "dns", "place": None})
         if leg_ok:
             total += res["total_seconds"]
         else:
             ok = False
-        prev_finish = m["finish"]
+        prev_finish = res["finish"] if res and res.get("finish") else m["finish"]
     return {"team": team, "legs": legs,
             "total_seconds": total if ok else None, "ok": ok}
+
+
+def _rank_legs(teams: list[dict]) -> None:
+    """Place every OK leg among the same leg of the other teams (leg results)."""
+    by_leg: dict[int, list[dict]] = {}
+    for t in teams:
+        for leg in t["legs"]:
+            if leg["status"] == "ok" and leg["seconds"] is not None:
+                by_leg.setdefault(leg["leg"], []).append(leg)
+    for legs in by_leg.values():
+        times = sorted(l["seconds"] for l in legs)
+        for leg in legs:
+            leg["place"] = times.index(leg["seconds"]) + 1
 
 
 def _patrol_team(team: dict, members: list[dict], course: dict) -> dict:
@@ -709,7 +746,11 @@ def team_results() -> list[dict]:
                 if kind == "patrol" and course is not None:
                     teams.append(_patrol_team(team, members, course))
                 else:
-                    teams.append(_relay_team(team, members, course, by_id))
+                    restart = parse_clock(cls.get("restart"), "Restart") \
+                        if cls.get("restart") else None
+                    teams.append(_relay_team(team, members, course, by_id, restart))
+            if kind == "relay":
+                _rank_legs(teams)
             ranked = sorted((t for t in teams if t["ok"]),
                             key=lambda t: t["total_seconds"])
             for i, t in enumerate(ranked):
@@ -788,6 +829,7 @@ def competitor_json(comp: dict) -> dict:
         "team_id": comp.get("team_id"),
         "leg": comp.get("leg"),
         "vacant": bool(comp.get("vacant")),
+        "course_id": comp.get("course_id"),
         "punches": [
             {"code": p["code"], "time": format_clock(p["time"])}
             for p in comp["punches"]
@@ -867,6 +909,11 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         out["team_id"] = team_id
     if has("leg"):
         out["leg"] = _as_int(data.get("leg"), "Leg", minimum=1, allow_blank=True)
+    if has("course_id"):
+        course_id = _as_int(data.get("course_id"), "Course", minimum=1, allow_blank=True)
+        if course_id is not None and course_id not in _courses:
+            raise StoreError("That course no longer exists")
+        out["course_id"] = course_id
 
     # Cross-field: finish must not precede start.
     start = out.get("start", current["start"] if current else None)
@@ -908,6 +955,7 @@ def create_competitor(data: dict) -> dict:
             hired=fields.get("hired", False),
             team_id=fields.get("team_id"),
             leg=fields.get("leg"),
+            course_id=fields.get("course_id"),
         )
         comp = _competitors[cid]
         _audit("competitor added", _who(comp),
@@ -972,6 +1020,67 @@ def _class_kind(value) -> str:
     return kind
 
 
+def _fork_courses(raw) -> list[int]:
+    """Fork variants for a class: course ids (list or comma string)."""
+    if raw in (None, ""):
+        return []
+    items = raw if isinstance(raw, list) else str(raw).split(",")
+    out = []
+    for item in items:
+        if str(item).strip() == "":
+            continue
+        course_id = _as_int(item, "Fork course", minimum=1)
+        if course_id not in _courses:
+            raise StoreError("A fork course no longer exists")
+        if course_id not in out:
+            out.append(course_id)
+    return out
+
+
+def _restart(raw) -> str:
+    text = _clean_str(raw, "Restart")
+    if text:
+        parse_clock(text, "Restart")  # validate HH:MM:SS
+    return text
+
+
+def assign_forks(class_id: int) -> int:
+    """
+    Hand out the class's fork courses.
+
+    Individuals: in start order, fork 1, 2, 3, 1, 2, ... Relays / patrols: team
+    t (by bib, then name) runs leg l on fork (t + l) mod n, so every team runs
+    every fork once over n legs and neighbouring teams split up on each leg.
+    Returns how many runners got a course.
+    """
+    with batch():
+        cls = _classes.get(class_id)
+        if cls is None:
+            raise StoreError("That class no longer exists")
+        forks = cls.get("fork_courses") or []
+        if not forks:
+            raise StoreError(f"{cls['name']} has no fork courses set")
+        members = [c for c in _competitors_in_class(class_id) if not c.get("vacant")]
+        assigned = 0
+        if cls.get("kind") in ("relay", "patrol"):
+            teams = sorted(teams_in_class(class_id),
+                           key=lambda t: (t.get("bib") or 10**9, t["name"].lower()))
+            index = {t["id"]: i for i, t in enumerate(teams)}
+            for comp in members:
+                if comp.get("team_id") in index:
+                    leg = (comp.get("leg") or 1) - 1
+                    update_competitor(comp["id"], {
+                        "course_id": forks[(index[comp["team_id"]] + leg) % len(forks)]})
+                    assigned += 1
+        else:
+            members.sort(key=lambda c: (c["start"] or datetime.max, c["name"].lower()))
+            for i, comp in enumerate(members):
+                update_competitor(comp["id"], {"course_id": forks[i % len(forks)]})
+                assigned += 1
+        _audit("forks assigned", cls["name"], f"{assigned} runners, {len(forks)} forks")
+        return assigned
+
+
 def create_class(data: dict) -> dict:
     with _lock:
         name = _clean_str(data.get("name"), "Class name", required=True)
@@ -982,7 +1091,9 @@ def create_class(data: dict) -> dict:
         kind = _class_kind(data.get("kind"))
         legs = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
         fee = _as_float(data.get("fee"), "Fee")
-        cid = _insert_class(name=name, course_id=course_id, kind=kind, legs=legs, fee=fee)
+        cid = _insert_class(name=name, course_id=course_id, kind=kind, legs=legs, fee=fee,
+                            fork_courses=_fork_courses(data.get("fork_courses")),
+                            restart=_restart(data.get("restart")))
         _audit("class added", name, f"course {_courses[course_id]['name']}")
         return dict(_classes[cid])
 
@@ -1008,6 +1119,10 @@ def update_class(class_id: int, data: dict) -> dict:
             cls["legs"] = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
         if "fee" in data:
             cls["fee"] = _as_float(data.get("fee"), "Fee")
+        if "fork_courses" in data:
+            cls["fork_courses"] = _fork_courses(data.get("fork_courses"))
+        if "restart" in data:
+            cls["restart"] = _restart(data.get("restart"))
         db.save_class(_active_event_id, cls)
         detail = _changes(before, cls, {"course_id": "course id"})
         if detail:
@@ -1160,7 +1275,8 @@ def preview(data: dict) -> dict:
         cls = _classes.get(class_id)
         if cls is None:
             raise StoreError("That class no longer exists")
-        ecourse = engine_course(_courses[cls["course_id"]])
+        override = _as_int(data.get("course_id"), "Course", minimum=1, allow_blank=True)
+        ecourse = engine_course(_courses.get(override) or _courses[cls["course_id"]])
 
         card = {
             "id": data.get("id"),

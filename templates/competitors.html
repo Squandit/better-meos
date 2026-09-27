@@ -119,6 +119,13 @@
                     <span class="field-label">Hire card</span>
                     <label class="check"><input type="checkbox" name="hired"> Rented on the day</label>
                 </label>
+                <label class="field">
+                    <span class="field-label">Course <span class="hint">fork / override</span></span>
+                    <select name="course_id">
+                        <option value="">Class course</option>
+                        {% for c in course_options %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </label>
                 <label class="field" data-team-field hidden>
                     <span class="field-label">Relay team</span>
                     <select name="team_id"><option value="">— none —</option></select>

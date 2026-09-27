@@ -151,3 +151,53 @@ def test_vacant_slot_hidden_from_results_until_filled():
     store.update_competitor(cid_vac, {"name": "Late Larry", "card_number": 9800001})
     assert store.get_competitor(cid_vac)["vacant"] is False
     assert store.result_for(cid_vac)["name"] == "Late Larry"
+
+
+def _course(name, controls):
+    return store.create_course({"name": name, "type": "linear", "controls": controls})
+
+
+def test_individual_forks_assigned_and_judged_on_own_course():
+    import app as appmod
+    a, b = _course("Fork A", [31, 32]), _course("Fork B", [32, 31])
+    cls = store.create_class({"name": "Forked", "course_id": a["id"],
+                              "fork_courses": [a["id"], b["id"]]})
+    r1 = store.create_competitor({"name": "F1", "class_id": cls["id"], "start": "10:00:00",
+                                  "finish": "10:30:00",
+                                  "punches": [{"code": 32, "time": "10:10:00"},
+                                              {"code": 31, "time": "10:20:00"}]})
+    r2 = store.create_competitor({"name": "F2", "class_id": cls["id"], "start": "10:02:00"})
+    c = appmod.app.test_client()
+    assert c.post(f"/api/classes/{cls['id']}/forks").get_json()["assigned"] == 2
+    assert store.get_competitor(r1["id"])["course_id"] == a["id"]
+    assert store.get_competitor(r2["id"])["course_id"] == b["id"]
+    # F1 ran the B order but was given fork A -> MP; give them B and it's OK.
+    assert store.result_for(r1["id"])["status"] == "mp"
+    html = c.get("/splits").get_data(as_text=True)
+    assert "Forked · Fork A" in html and "Forked · Fork B" in html   # a table per fork
+    store.update_competitor(r1["id"], {"course_id": b["id"]})
+    assert store.result_for(r1["id"])["status"] == "ok"
+
+
+def test_relay_forks_restart_and_leg_places():
+    a, b = _course("Relay F1", [31]), _course("Relay F2", [32])
+    cls = store.create_class({"name": "Relay Forks", "course_id": a["id"], "kind": "relay",
+                              "legs": 2, "fork_courses": f"{a['id']},{b['id']}",
+                              "restart": "12:40:00"})
+    t1 = store.create_team({"name": "T1", "class_id": cls["id"], "start": "12:00:00"})
+    t2 = store.create_team({"name": "T2", "class_id": cls["id"], "start": "12:00:00"})
+    def run(team, leg, finish, code, punch):
+        return store.create_competitor({"name": f"{team['name']}L{leg}", "class_id": cls["id"],
+                                        "team_id": team["id"], "leg": leg, "finish": finish,
+                                        "punches": [{"code": code, "time": punch}]})
+    run(t1, 1, "12:20:00", 31, "12:10:00")
+    run(t1, 2, "12:50:00", 32, "12:30:00")
+    run(t2, 1, "12:45:00", 32, "12:30:00")   # slow leg 1, past the restart
+    run(t2, 2, "13:00:00", 31, "12:50:00")
+    store.assign_forks(cls["id"])            # T1: A then B, T2: B then A
+    standings = next(x for x in store.team_results() if x["class"]["id"] == cls["id"])
+    teams = {t["team"]["name"]: t for t in standings["teams"]}
+    assert [l["seconds"] for l in teams["T1"]["legs"]] == [1200, 1800]
+    # T2 leg 2 went at the 12:40 restart, not T2's 12:45 changeover.
+    assert [l["seconds"] for l in teams["T2"]["legs"]] == [2700, 1200]
+    assert teams["T1"]["legs"][0]["place"] == 1 and teams["T2"]["legs"][1]["place"] == 1

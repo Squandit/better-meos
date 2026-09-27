@@ -210,6 +210,7 @@
                 hired: field("hired") ? field("hired").checked : false,
                 team_id: field("team_id") ? field("team_id").value : "",
                 leg: field("leg") ? field("leg").value : "",
+                course_id: field("course_id") ? field("course_id").value : "",
                 punches: readPunches()
             };
         }
@@ -376,6 +377,7 @@
                 if (field("bib")) { field("bib").value = c.bib == null ? "" : c.bib; }
                 if (field("hired")) { field("hired").checked = !!c.hired; }
                 if (field("leg")) { field("leg").value = c.leg == null ? "" : c.leg; }
+                if (field("course_id")) { field("course_id").value = c.course_id == null ? "" : c.course_id; }
                 refreshTeams(c.class_id, c.team_id);
                 punchBody.innerHTML = "";
                 (c.punches || []).forEach(function (p) { addPunchRow(p.code, p.time); });
@@ -485,6 +487,11 @@
             if (form.elements.kind) { form.elements.kind.value = row.dataset.kind || "individual"; }
             if (form.elements.legs) { form.elements.legs.value = row.dataset.legs || "1"; }
             if (form.elements.fee) { form.elements.fee.value = row.dataset.fee || ""; }
+            form.elements.restart.value = row.dataset.restart || "";
+            var forks = (row.dataset.forks || "").split(",");
+            Array.prototype.forEach.call(form.elements.fork_courses.options, function (o) {
+                o.selected = forks.indexOf(o.value) !== -1;
+            });
             titleEl.textContent = "Edit class";
             openOverlay(modal);
         }
@@ -496,7 +503,10 @@
                 name: form.elements.name.value, course_id: form.elements.course_id.value,
                 kind: form.elements.kind ? form.elements.kind.value : "individual",
                 legs: form.elements.legs ? form.elements.legs.value : 1,
-                fee: form.elements.fee ? form.elements.fee.value : 0
+                fee: form.elements.fee ? form.elements.fee.value : 0,
+                restart: form.elements.restart.value,
+                fork_courses: Array.prototype.filter.call(form.elements.fork_courses.options,
+                    function (o) { return o.selected; }).map(function (o) { return o.value; })
             };
             var req = editId
                 ? api("PUT", "/api/classes/" + editId, payload)
@@ -509,6 +519,15 @@
         if (newBtn) { newBtn.addEventListener("click", openNew); }
 
         document.addEventListener("click", function (e) {
+            var forkBtn = e.target.closest("[data-assign-forks]");
+            if (forkBtn) {
+                var forkRow = forkBtn.closest("[data-class-row]");
+                if (!confirmAction("Assign fork courses in " + forkRow.dataset.name + "? Existing course choices in the class are replaced.")) { return; }
+                api("POST", "/api/classes/" + forkRow.dataset.id + "/forks")
+                    .then(function (d) { reloadWith("Assigned forks to " + d.assigned + " runners"); })
+                    .catch(function (err) { toast(err.message, "error"); });
+                return;
+            }
             var editBtn = e.target.closest("[data-edit-class]");
             if (editBtn) { openEdit(editBtn.closest("[data-class-row]")); return; }
             var delBtn = e.target.closest("[data-delete-class]");
