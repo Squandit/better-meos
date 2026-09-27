@@ -26,6 +26,55 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
+### 1.4 DONE — MeOS gap list (2026-09-27, cloud session)
+One commit per item on `claude/project-review-roadmap-gi2jih` (then merged to
+main). Tests: **194 passing**; every page checked in Chromium under waitress.
+- **Night events**: times >12 h before the start count as after midnight
+  (`results.after_midnight`); the editor only rejects small finish<start.
+- **Max time** on linear courses (stored in `time_limit_minutes`) -> OOT;
+  manual status **NC** (timed, never ranked); **vacant** start slots
+  (`competitors.vacant`, hidden from results, filled by editing).
+- **Start draw** (`draw.py`, /draw): random / clubs separated / alphabetical,
+  vacants, classes on one course interleaved, late-entry mode. Entries draw
+  uses club separation.
+- **Automatic backups** (`backups.py`): every N min when changed, to local app
+  data (+ optional 2nd folder), keep N; OneDrive warnings on start/setup.
+- **Change log** (`audit_log` table, /audit): who did what, before -> after.
+  Actor: login name / console IP / "SI reader (station)" / "online entry".
+- **Reader fix**: `poll_sicard()` also fires on card *removal*; reading then
+  raised and forced a reconnect after every runner. Removal is now skipped.
+  Verified against sportident 1.2.8 source (keys card_number/start/finish/
+  check/clear/punches).
+- **Readout desk**: /readout big screen + OK/MP sounds; hire cards track
+  `card_returned` (Economy lists outstanding); SI check time stored and punches
+  before it ignored (download list flags "old punches").
+- **Printing**: Settings "Print split slips without a dialog" -> launcher opens
+  Edge/Chrome with `--kiosk-printing` (own profile); 80 mm slip by default.
+- **Starter**: /starter start clock + now/next; starters-by-time PDF.
+- **Relays/forking**: per-competitor `course_id` override; class
+  `fork_courses` + "Assign forks" (rotation for relays); class `restart`;
+  per-leg places; splits page one table per fork. Class kind `patrol` in UI.
+- **Multi-stage** page (/stages): combined standings + chase starts (files
+  picked by name from the events folder only).
+- **IOF XML**: results SplitTimes in course order with Missing (WinSplits /
+  Routegadget), default namespace; ResultList import (MeOS migration);
+  CompetitorList -> runner DB.
+- **Online results** (`publish.py`): results.html (self-contained) + .xml to a
+  folder and/or FTPS on change. Prize list PDF (top N).
+- **Speaker**: time to lead, radio split place/gap, predicted finish/place.
+- **Fees**: late surcharge from a date; optional trusted junior/concession.
+- **Eventor API** fetch (`/api/eventor/fetch`, key in Settings) — not tried
+  against a live Eventor; IOF 2.0 answers give a clear error.
+- **Logins** moved to the shared runners.db (fixes /start <-> /login loop with
+  auth on and no event open; old per-event users adopted on open).
+- **COM port detection** in Settings (SI / CP210x first).
+- Sidebar scrolls (nav outgrew laptop screens).
+
+**Still not done**: native .meos file import (use IOF XML export from MeOS);
+list designer (fixed layouts + prize list only); i18n; Emit and SRR radio
+hardware (untested / scaffold); real PayPal sandbox and live Eventor runs;
+a hot-standby second PC (backups to a 2nd folder are the fallback).
+
 ### 1.3 DONE — performance pass (2026-09-26, cloud session)
 Measured on a 1500-runner / 40-class / 15-control event (scratch benchmark, not
 in the repo). Card reads were already fast (~2 ms); the cost was redoing the
@@ -493,7 +542,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 154 passing)
+## 7. Test suite (`tests/`, 194 passing)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:
