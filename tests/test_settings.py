@@ -86,3 +86,11 @@ def test_event_settings_travel_with_the_event_file(cfg):
         assert cfg.get("prize_places") == 7
     finally:
         store.open_event(original)
+
+
+def test_appearance_settings_reach_the_page(cfg):
+    c = appmod.app.test_client()
+    cfg.save({"theme": "dark", "accent": "ocean", "text_size": "125"})
+    html = c.get("/competitors").get_data(as_text=True)
+    assert 'data-theme="dark"' in html and 'data-accent="ocean"' in html and 'data-text="125"' in html
+    assert 'data-theme="dark"' in c.get("/start").get_data(as_text=True)

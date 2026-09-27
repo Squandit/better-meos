@@ -138,7 +138,14 @@ def cached_page(view):
 def inject_user():
     return {"current_user": auth.current_user(), "auth_enabled": auth.is_enabled(),
             "admin_lock_enabled": config.admin_password_set(),
-            "page_has_settings": config.page_has_settings}
+            "page_has_settings": config.page_has_settings,
+            "appearance": _appearance()}
+
+
+def _appearance() -> dict:
+    """Theme / accent / density / text size for the <html> element."""
+    return {"theme": config.get_str("theme"), "accent": config.get_str("accent"),
+            "density": config.get_str("density"), "text": config.get_str("text_size")}
 
 
 # Paths reachable with no event open (the start page + its actions + assets +

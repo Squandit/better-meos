@@ -79,6 +79,24 @@ GROUPS = (
 S = Setting
 
 SCHEMA: list[Setting] = [
+    # ---- Appearance (this computer) --------------------------------------------
+    S("theme", "Theme", "choice", "light", "Appearance",
+      "Auto follows the computer's light/dark setting.",
+      pages=("overview",),
+      choices=(("light", "Light"), ("dark", "Dark"), ("auto", "Auto"))),
+    S("accent", "Accent colour", "choice", "forest", "Appearance",
+      "Buttons, highlights and the active menu item.", pages=("overview",),
+      choices=(("forest", "Forest green"), ("ocean", "Ocean blue"), ("violet", "Violet"),
+               ("sunset", "Sunset orange"), ("berry", "Berry"), ("teal", "Teal"),
+               ("graphite", "Graphite"))),
+    S("density", "Density", "choice", "comfortable", "Appearance",
+      "Compact fits more rows on a small screen.", pages=("overview",),
+      choices=(("comfortable", "Comfortable"), ("compact", "Compact"))),
+    S("text_size", "Text size", "choice", "100", "Appearance",
+      "Scales the whole console (handy on a projector or a tiny laptop).",
+      pages=("overview",),
+      choices=(("90", "Small"), ("100", "Normal"), ("110", "Large"), ("125", "Extra large"))),
+
     # ---- Entries & fees (per event) ----------------------------------------
     S("currency", "Currency", "str", "AUD", "Entries & fees",
       "ISO currency code, e.g. AUD. Must match your PayPal account.",
