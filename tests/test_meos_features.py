@@ -93,7 +93,7 @@ def test_economy_summary():
 def test_assign_bibs():
     n = store.assign_bibs(1)
     assert n >= 2
-    bibs = [c.get("bib") for c in store._competitors.values()]
+    bibs = [c.get("bib") for c in store._competitors.values() if not c.get("vacant")]
     assert all(b is not None for b in bibs)
 
 

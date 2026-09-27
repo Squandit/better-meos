@@ -13,10 +13,12 @@ by the route via :mod:`payments` (scaffolded).
 
 from __future__ import annotations
 
+import random
 import sqlite3
 from datetime import datetime, timedelta
 
 import db
+import draw
 import notify
 import store
 from store import StoreError, parse_clock, format_clock
@@ -139,7 +141,8 @@ def _draw(first, interval: int) -> dict:
             for e in members:
                 skipped.append({"name": e["name"], "reason": "class no longer exists"})
             continue
-        members.sort(key=lambda e: e["name"].lower())
+        # Random order with clubmates kept apart (was alphabetical).
+        members = draw.club_separated(members, random.Random())
         # Continue after any start times already assigned in this class (from an
         # earlier draw), but never before the requested first start. This keeps a
         # re-run for late entries from colliding with the original draw.

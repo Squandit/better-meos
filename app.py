@@ -13,6 +13,7 @@ from flask import (Flask, render_template, request, jsonify, abort, Response,
 import auth
 import config
 import db
+import draw
 import entries as entries_mod
 import eventor
 import events
@@ -590,6 +591,41 @@ def export_bibs_pdf():
     data = pdf.bib_labels_pdf(labels, store.EVENT)
     return Response(data, mimetype="application/pdf", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-bibs.pdf"})
+
+
+@app.route("/draw")
+def draw_page():
+    """Start-list draw for chosen classes (random / club separation, vacants)."""
+    rows = []
+    for cls in store._classes_sorted():
+        members = store._competitors_in_class(cls["id"])
+        starts = sorted(c["start"] for c in members if c["start"] is not None)
+        rows.append({"id": cls["id"], "name": cls["name"],
+                     "course": (store.get_course(cls["course_id"]) or {}).get("name", ""),
+                     "runners": sum(1 for c in members if not c.get("vacant")),
+                     "vacants": sum(1 for c in members if c.get("vacant")),
+                     "undrawn": sum(1 for c in members if c["start"] is None),
+                     "first": _clock(starts[0]) if starts else "",
+                     "last": _clock(starts[-1]) if starts else ""})
+    return render_template("draw.html", active="draw", classes=rows,
+                           first_start=store.EVENT.get("first_start") or "10:00:00")
+
+
+@app.route("/api/draw", methods=["POST"])
+def api_draw():
+    data = _payload()
+    ids = [store._as_int(i, "Class", minimum=1) for i in (data.get("class_ids") or [])]
+    if not ids:
+        raise StoreError("Pick at least one class to draw")
+    outcome = draw.draw_classes(
+        ids, first_start=data.get("first_start"),
+        interval_seconds=store._as_int(data.get("interval_seconds"), "Interval", minimum=1),
+        method=str(data.get("method") or "club"),
+        vacants=store._as_int(data.get("vacants") or 0, "Vacant slots", minimum=0),
+        keep_existing=bool(data.get("keep_existing")),
+        stagger_shared_courses=bool(data.get("stagger", True)))
+    events.publish("competitor", action="draw")
+    return jsonify(outcome)
 
 
 @app.route("/tools")

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Start draw{% endblock %}
+{% block heading %}Start draw{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Draw start times</h3>
+    <p>Random order with clubmates kept apart, optional vacant slots for late entries.
+       Classes on the same course take turns, so nobody on one course starts on the same minute.</p>
+</div>
+
+<form data-draw>
+<section class="panel">
+    <div class="panel-body">
+        <div class="field-grid">
+            <label class="field">
+                <span class="field-label">First start</span>
+                <input name="first_start" class="mono" value="{{ first_start }}">
+            </label>
+            <label class="field">
+                <span class="field-label">Interval <span class="hint">seconds</span></span>
+                <input name="interval_seconds" type="number" min="1" value="120" inputmode="numeric">
+            </label>
+            <label class="field">
+                <span class="field-label">Order</span>
+                <select name="method">
+                    <option value="club">Random, clubs separated</option>
+                    <option value="random">Random</option>
+                    <option value="alpha">Alphabetical</option>
+                </select>
+            </label>
+            <label class="field">
+                <span class="field-label">Vacant slots <span class="hint">per class</span></span>
+                <input name="vacants" type="number" min="0" value="0" inputmode="numeric">
+            </label>
+        </div>
+        <label class="check"><input type="checkbox" name="stagger" checked> Classes on the same course take turns</label>
+        <label class="check"><input type="checkbox" name="keep_existing"> Only runners with no start time (late entries go after the existing field)</label>
+    </div>
+</section>
+
+<section class="panel">
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:40px"><input type="checkbox" data-all checked aria-label="All classes"></th>
+                <th>Class</th><th>Course</th>
+                <th class="num">Runners</th><th class="num">No start</th><th class="num">Vacant</th>
+                <th style="width:90px">First</th><th style="width:90px">Last</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in classes %}
+            <tr>
+                <td><input type="checkbox" name="class_ids" value="{{ c.id }}" checked aria-label="{{ c.name }}"></td>
+                <td class="cell-name">{{ c.name }}</td>
+                <td class="dim">{{ c.course }}</td>
+                <td class="num">{{ c.runners }}</td>
+                <td class="num">{{ c.undrawn }}</td>
+                <td class="num">{{ c.vacants }}</td>
+                <td class="mono dim">{{ c.first or '—' }}</td>
+                <td class="mono dim">{{ c.last or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="empty">No classes yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<div class="ops-bar">
+    <button class="btn btn-primary" type="submit">Draw start list</button>
+    <span class="toolbar-spacer"></span>
+    <span class="tool-result" data-result></span>
+</div>
+</form>
+
+<script>
+(function () {
+    var form = document.querySelector("[data-draw]");
+    var out = form.querySelector("[data-result]");
+    form.querySelector("[data-all]").addEventListener("change", function (e) {
+        form.querySelectorAll('input[name="class_ids"]').forEach(function (b) { b.checked = e.target.checked; });
+    });
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var ids = Array.prototype.map.call(form.querySelectorAll('input[name="class_ids"]:checked'),
+                                          function (b) { return b.value; });
+        if (!form.elements.keep_existing.checked &&
+            !window.confirm("Redraw the chosen classes? Existing start times in them are replaced.")) { return; }
+        out.className = "tool-result"; out.textContent = "Drawing…";
+        fetch("/api/draw", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                class_ids: ids,
+                first_start: form.elements.first_start.value,
+                interval_seconds: form.elements.interval_seconds.value,
+                method: form.elements.method.value,
+                vacants: form.elements.vacants.value,
+                stagger: form.elements.stagger.checked,
+                keep_existing: form.elements.keep_existing.checked
+            })
+        }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+              if (!res.ok) { out.className = "tool-result err"; out.textContent = (res.d && res.d.error) || "Failed"; return; }
+              var n = res.d.classes.reduce(function (s, c) { return s + c.drawn; }, 0);
+              out.className = "tool-result ok"; out.textContent = "Drew " + n + " runners";
+              setTimeout(function () { window.location.reload(); }, 700);
+          }).catch(function () { out.className = "tool-result err"; out.textContent = "Failed"; });
+    });
+})();
+</script>
+{% endblock %}
