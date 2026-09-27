@@ -673,7 +673,8 @@ def _starters():
 @app.route("/starter")
 def starter_page():
     """Start clock + who's up now and next, for the start official."""
-    return render_template("starter.html")
+    return render_template("starter.html", callup=int(config.get("start_callup_minutes") or 0),
+                           beeps=config.get_str("start_beeps") or "off")
 
 
 @app.route("/api/starters")
@@ -997,7 +998,9 @@ def _entry_config():
         clubs = [c.strip() for c in cfg_clubs.split(",") if c.strip()]
     return {
         "event": {"name": store.EVENT["name"],
-                  "closeTime": config.get_str("entry_close")},
+                  "closeTime": config.get_str("entry_close"),
+                  "open": bool(config.get("online_entry_open")),
+                  "message": config.get_str("entry_message")},
         "paypal": payments.paypal_config(),
         "prices": payments.prices(),
         "paymentRequired": online_entry.payment_required(),

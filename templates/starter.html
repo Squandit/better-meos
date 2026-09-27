@@ -4,48 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Start clock</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <style>
         body { margin: 0; background: #10171f; color: #fff; font-family: system-ui, sans-serif;
                min-height: 100vh; display: flex; flex-direction: column; }
         .clock { text-align: center; font-size: clamp(72px, 16vw, 220px); font-weight: 800;
-                 font-variant-numeric: tabular-nums; padding: 18px 0 6px; }
+                 font-variant-numeric: tabular-nums; padding: 18px 0 6px; transition: color .2s; }
+        .clock.go { color: #3ddc84; }
         .count { text-align: center; color: #9aa6b2; font-size: clamp(18px, 2.6vw, 30px); }
-        .lists { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 22px; flex: 1; }
+        .lists { display: grid; grid-template-columns: repeat({{ 3 if callup > 1 else 2 }}, 1fr); gap: 20px; padding: 22px; flex: 1; }
         h2 { margin: 0 0 10px; font-size: 20px; color: #9aa6b2; text-transform: uppercase;
              letter-spacing: .08em; }
+        h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: 6px; }
         .now h2 { color: #3ddc84; }
+        .callup h2 { color: #f5b942; }
         table { width: 100%; border-collapse: collapse; font-size: clamp(18px, 2.2vw, 28px); }
         td { padding: 8px 6px; border-bottom: 1px solid #243140; }
         td.t { font-variant-numeric: tabular-nums; color: #9aa6b2; width: 5.5em; }
         td.c { color: #9aa6b2; width: 5em; }
         .vacant td { color: #56626e; }
         .empty { color: #56626e; }
-        @media (max-width: 800px) { .lists { grid-template-columns: 1fr; } }
+        .sound { position: fixed; top: 14px; right: 16px; background: #1d2a37; color: #cfd8e1; border: 1px solid #2c3b4b;
+                 border-radius: 8px; padding: 8px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+        .sound.on { color: #3ddc84; border-color: #2c5a41; }
+        @media (max-width: 900px) { .lists { grid-template-columns: 1fr; } }
     </style>
 </head>
-<body>
+<body data-callup="{{ callup }}" data-beeps="{{ beeps }}">
+{% if beeps != "off" %}<button class="sound" type="button" data-sound>Sound off · click to turn on</button>{% endif %}
 <div class="clock" data-clock>--:--:--</div>
 <div class="count" data-count></div>
 <div class="lists">
-    <section class="now"><h2>Starting now</h2><table data-now></table></section>
-    <section><h2>Next</h2><table data-next></table></section>
+    {% if callup > 1 %}<section class="callup"><h2>Call up <small data-callup-time></small></h2><table data-callup></table></section>{% endif %}
+    <section class="now"><h2>Next start <small data-now-time></small></h2><table data-now></table></section>
+    <section><h2>After that</h2><table data-next></table></section>
 </div>
 <script>
 (function () {
+    var CALLUP = parseInt(document.body.dataset.callup, 10) || 0;   // minutes ahead
+    var BEEPS = document.body.dataset.beeps;                         // off | starts | every_minute
     var offset = 0;             // server clock minus this device's clock, ms
     var starters = [];
     var clock = document.querySelector("[data-clock]");
     var count = document.querySelector("[data-count]");
+    var audio = null, soundOn = false, lastBeep = null;
 
     function secs(hms) { var p = hms.split(":").map(Number); return p[0] * 3600 + p[1] * 60 + (p[2] || 0); }
     function pad(n) { return (n < 10 ? "0" : "") + n; }
+    function nowMs() { return Date.now() + offset; }
     function nowSecs() {
-        var d = new Date(Date.now() + offset);
+        var d = new Date(nowMs());
         return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
     }
     function fmt(s) { return pad(Math.floor(s / 3600) % 24) + ":" + pad(Math.floor(s / 60) % 60) + ":" + pad(s % 60); }
 
     function fill(table, rows) {
+        if (!table) { return; }
         table.innerHTML = "";
         if (!rows.length) {
             var tr = table.insertRow(); var td = tr.insertCell(); td.className = "empty"; td.textContent = "Nobody";
@@ -59,18 +73,58 @@
         });
     }
 
+    // ---- Start beeps: five short, then a long one on the minute (like an SI start clock).
+    function tone(freq, at, length) {
+        var osc = audio.createOscillator(), gain = audio.createGain();
+        osc.frequency.value = freq; osc.connect(gain); gain.connect(audio.destination);
+        gain.gain.setValueAtTime(0.3, at); gain.gain.setValueAtTime(0, at + length);
+        osc.start(at); osc.stop(at + length);
+    }
+    function beepSequence(minuteSecs) {
+        if (!soundOn || !audio || lastBeep === minuteSecs) { return; }
+        lastBeep = minuteSecs;
+        var msToMinute = (minuteSecs - nowSecs()) * 1000 - (nowMs() % 1000);
+        var t0 = audio.currentTime + msToMinute / 1000;
+        for (var i = 5; i >= 1; i--) { if (t0 - i > audio.currentTime) { tone(880, t0 - i, 0.12); } }
+        tone(1320, Math.max(t0, audio.currentTime), 0.8);
+    }
+    var soundBtn = document.querySelector("[data-sound]");
+    if (soundBtn) {
+        soundBtn.addEventListener("click", function () {
+            try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+            soundOn = !soundOn;
+            soundBtn.classList.toggle("on", soundOn);
+            soundBtn.textContent = soundOn ? "Sound on" : "Sound off · click to turn on";
+            if (soundOn) { tone(1320, audio.currentTime, 0.1); }
+        });
+    }
+
+    function minuteRows(upcoming, minute) {
+        return upcoming.filter(function (r) { var t = secs(r.start); return t >= minute && t < minute + 60; });
+    }
+
     function tick() {
         var now = nowSecs();
         clock.textContent = fmt(now);
-        // "Now" = the start minute that begins next (the starter calls it up),
-        // "Next" = the following few minutes.
         var upcoming = starters.filter(function (r) { return secs(r.start) >= now; });
         var first = upcoming.length ? secs(upcoming[0].start) : null;
-        var nowRows = upcoming.filter(function (r) { return secs(r.start) === first; });
+        var nowRows = first === null ? [] : upcoming.filter(function (r) { return secs(r.start) === first; });
         var nextRows = upcoming.filter(function (r) { var t = secs(r.start); return t > first && t <= first + 300; });
         fill(document.querySelector("[data-now]"), nowRows);
         fill(document.querySelector("[data-next]"), nextRows);
+        document.querySelector("[data-now-time]").textContent = first === null ? "" : fmt(first);
+        if (CALLUP > 1) {
+            var callMinute = (Math.floor(now / 60) + CALLUP) * 60;
+            document.querySelector("[data-callup-time]").textContent = fmt(callMinute) + " starters";
+            fill(document.querySelector("[data-callup]"), minuteRows(starters, callMinute));
+        }
         count.textContent = first === null ? "No more starts" : "Next start in " + fmt(first - now).replace(/^00:/, "");
+        clock.classList.toggle("go", first !== null && first - now <= 5);
+        // Beeps for the coming minute.
+        var nextMinute = (Math.floor(now / 60) + 1) * 60;
+        if (BEEPS === "every_minute" || (BEEPS === "starts" && minuteRows(starters, nextMinute).length)) {
+            if (nextMinute - now <= 6) { beepSequence(nextMinute); }
+        }
     }
 
     function load() {

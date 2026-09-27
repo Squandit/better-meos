@@ -186,6 +186,12 @@ SCHEMA: list[Setting] = [
       "Off = everyone pays the senior fee (nothing checks what they pick). "
       "Turn on if you're happy to trust entrants.",
       env="BMEOS_TRUST_MEMBER_TYPE", scope="event", pages=("entries",)),
+    S("online_entry_open", "Take online entries", "bool", True, "Entries & fees",
+      "Off closes the entry page straight away (results stay up).", scope="event",
+      pages=("entries",)),
+    S("entry_message", "Message on the entry page", "text", "", "Entries & fees",
+      "Shown at the top of the entry form, e.g. parking or late-entry details.",
+      scope="event", pages=("entries",)),
     S("entry_close", "Online entries close", "datetime", "", "Entries & fees",
       "After this, the entry page stops taking entries.",
       env="BMEOS_ENTRY_CLOSE", scope="event", pages=("entries",)),
@@ -218,6 +224,17 @@ SCHEMA: list[Setting] = [
     S("paypal_sandbox", "Use PayPal sandbox", "bool", True, "Online payments (PayPal)",
       "On = test money only. Turn off to take real payments.",
       env="PAYPAL_SANDBOX", pages=("entries",)),
+
+    # ---- Start ---------------------------------------------------------------------
+    S("start_callup_minutes", "Start clock: call up", "int", 3, "Start",
+      "Show who starts this many minutes ahead, for the call-up official "
+      "(0 or 1 = no call-up list).", scope="event", pages=("draw",),
+      minimum=0, maximum=15),
+    S("start_beeps", "Start clock: beeps", "choice", "starts", "Start",
+      "Five short beeps and a long one on the minute, like an SI start clock. "
+      "The start computer turns sound on with one click.", pages=("draw",),
+      choices=(("off", "Off"), ("starts", "Minutes with starters"),
+               ("every_minute", "Every minute"))),
 
     # ---- Readout & printing ----------------------------------------------------
     S("unknown_card_action", "Unknown cards", "choice", "keep", "Readout & printing",

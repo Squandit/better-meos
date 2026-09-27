@@ -127,6 +127,8 @@ def _entries_closed(now: datetime | None = None) -> bool:
     """True once the 'Entry close time' in Settings has passed. The setting is
     free text; only an ISO date/time (what the page's countdown reads) is
     enforced, anything else is display-only."""
+    if not config.get("online_entry_open"):
+        return True
     text = config.get_str("entry_close").strip()
     if not text:
         return False

@@ -322,6 +322,18 @@ def test_entries_close_is_enforced(paypal):
     assert r.status_code == 400 and "closed" in r.get_json()["error"]
 
 
+def test_switching_online_entry_off_closes_the_page(paypal):
+    import config
+    config.save({"online_entry_open": False, "entry_message": "Parking at the <b>school</b>"},
+                target="event")
+    c = appmod.app.test_client()
+    r = _order(c, _cart())
+    assert r.status_code == 400 and "closed" in r.get_json()["error"]
+    html = c.get("/enter").get_data(as_text=True)
+    assert '"open": false' in html
+    assert "Parking at the \\u003cb\\u003eschool" in html     # JSON-escaped, shown as text
+
+
 def test_order_creation_is_rate_limited(paypal):
     c = appmod.app.test_client()
     codes = [_order(c, _cart()).status_code

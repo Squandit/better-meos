@@ -71,3 +71,15 @@ def test_create_event_via_api_imports_entries(tmp_path, monkeypatch):
                content_type="multipart/form-data")
     assert r.status_code == 201
     assert c.get("/setup").status_code == 200
+
+
+
+def test_start_clock_call_up_and_beeps(cfg):
+    import app as appmod
+    c = appmod.app.test_client()
+    html = c.get("/starter").get_data(as_text=True)
+    assert 'data-callup="3"' in html and "Call up" in html and '<button class="sound"' in html
+    cfg.save({"start_callup_minutes": 0}, target="event")
+    cfg.save({"start_beeps": "off"}, target="computer")
+    html = c.get("/starter").get_data(as_text=True)
+    assert "Call up" not in html and '<button class="sound"' not in html

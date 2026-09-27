@@ -129,6 +129,8 @@
     .countdown-time { font-family: 'DM Sans', sans-serif; font-size: 1.4rem; color: var(--forest); }
     .countdown-label { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
 
+    /* Organiser's note */
+    .organiser-msg { background: var(--cream); border-left: 4px solid var(--leaf); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; white-space: pre-line; }
     /* Entries closed */
     .entries-closed { display: none; background: var(--error); color: white; text-align: center; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
     .entries-closed h3 { font-family: 'DM Sans', sans-serif; font-size: 1.2rem; margin-bottom: 0.25rem; }
@@ -221,9 +223,10 @@
     <div class="page-panel active" id="panel-entry">
     <div id="main-form">
       <div id="msg" class="info-msg"></div>
+      <div id="entry-message" class="organiser-msg" hidden></div>
       <div class="entries-closed" id="entries-closed">
         <h3>Entries Closed</h3>
-        <p>The entry deadline has passed. Please see the event organiser.</p>
+        <p id="entries-closed-text">The entry deadline has passed. Please see the event organiser.</p>
       </div>
       <div class="countdown-bar" id="countdown-bar">
         <div class="countdown-time" id="countdown-time">--:--:--</div>
@@ -1242,8 +1245,24 @@
 
   // Check if entries are closed on load and set default tab
   (function() {
+    const note = config.event && config.event.message;
+    if (note) {
+      const box = document.getElementById('entry-message');
+      box.textContent = note;          // organiser's text, never HTML
+      box.hidden = false;
+    }
     const closeTime = config.event && config.event.closeTime;
-    const entriesClosed = closeTime && new Date() >= new Date(closeTime);
+    const switchedOff = config.event && config.event.open === false;
+    const entriesClosed = switchedOff || (closeTime && new Date() >= new Date(closeTime));
+    if (switchedOff) {
+      document.getElementById('entries-closed-text').textContent =
+        'Online entries are not open. Please see the event organiser.';
+      document.getElementById('entries-closed').style.display = 'block';
+      document.getElementById('countdown-bar').style.display = 'none';
+      document.getElementById('person-form').style.opacity = '0.4';
+      document.getElementById('person-form').style.pointerEvents = 'none';
+      document.getElementById('pay-section').style.display = 'none';
+    }
     const entryTab = document.getElementById('tab-entry-btn');
     const resultsTab = document.getElementById('tab-results-btn');
     if (entriesClosed) {
