@@ -573,25 +573,11 @@ def delete_competitor(comp_id: int) -> None:
 # Users (optional auth)
 # ---------------------------------------------------------------------------
 
-def insert_user(username: str, password_hash: str, role: str, club: str | None) -> int:
+def legacy_users() -> list[dict]:
+    """Logins stored in this event file by older versions (auth.py moves them
+    into the shared database the first time the event is opened)."""
     with _lock:
-        cur = _c().execute(
-            "INSERT INTO users (username, password_hash, role, club) VALUES (?, ?, ?, ?)",
-            (username, password_hash, role, club))
-        _commit()
-        return cur.lastrowid
-
-
-def get_user(username: str) -> dict | None:
-    with _lock:
-        row = _c().execute("SELECT * FROM users WHERE username = ?",
-                           (username,)).fetchone()
-        return dict(row) if row else None
-
-
-def count_users() -> int:
-    with _lock:
-        return _c().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+        return [dict(r) for r in _c().execute("SELECT * FROM users ORDER BY id")]
 
 
 # ---------------------------------------------------------------------------

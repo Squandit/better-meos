@@ -165,7 +165,7 @@ def _require_open_event():
         return None
     p = request.path
     if (p in ("/start", "/favicon.ico", "/sw.js", "/manifest.json",
-              "/unlock", "/lock", "/config")
+              "/unlock", "/lock", "/config", "/login", "/logout")
             or p.startswith(_NO_EVENT_OK)):
         return None
     if p.startswith("/api/"):

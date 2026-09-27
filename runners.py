@@ -32,6 +32,15 @@ CREATE TABLE IF NOT EXISTS run_history (
     PRIMARY KEY (card_number, class_name)
 );
 CREATE INDEX IF NOT EXISTS idx_runners_name ON runners(name);
+-- Operator logins (optional auth). Shared by every event, like the runners,
+-- so logging in works before an event is open and doesn't repeat per event.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'operator',
+    club TEXT
+);
 """
 
 
@@ -188,3 +197,27 @@ def import_rows(rows: list[dict]) -> dict:
             imported += 1
         _c().commit()
     return {"imported": imported, "skipped": skipped}
+
+
+# ---------------------------------------------------------------------------
+# Logins (see auth.py)
+# ---------------------------------------------------------------------------
+
+def insert_user(username: str, password_hash: str, role: str, club: str | None) -> int:
+    with _lock:
+        cur = _c().execute(
+            "INSERT INTO users (username, password_hash, role, club) VALUES (?, ?, ?, ?)",
+            (username, password_hash, role, club))
+        _c().commit()
+        return cur.lastrowid
+
+
+def get_user(username: str) -> dict | None:
+    with _lock:
+        row = _c().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        return dict(row) if row else None
+
+
+def count_users() -> int:
+    with _lock:
+        return _c().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
