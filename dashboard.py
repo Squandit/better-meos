@@ -20,6 +20,7 @@ from typing import Callable
 
 import backups
 import config
+import display
 import online_entry
 import publish
 import si_reader
@@ -39,8 +40,7 @@ class Widget:
 
 
 def _now() -> datetime:
-    """Now, on the event's clock (times are pinned to the event date)."""
-    return datetime.combine(store.EVENT_DATE, datetime.now().time())
+    return store.event_now()
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +168,9 @@ def _latest(ctx) -> dict:
 
 def _status_breakdown(ctx) -> dict:
     counts = Counter(r["status"] for r in ctx["rows"])
-    order = ("ok", "nc", "oot", "mp", "dnf", "dns", "dsq")
-    return {"items": [{"status": s, "count": counts[s]} for s in order if counts.get(s)]}
+    order = ("ok", "nc", "oot", "mp", "dnf", "dns", "dsq", "pending")
+    return {"items": [{"status": s, "label": display.STATUS_LABELS[s], "count": counts[s]}
+                      for s in order if counts.get(s)]}
 
 
 def _next_starters(ctx) -> dict:

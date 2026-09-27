@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ row.name }} · splits slip</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
 {% if thermal %}<style>@page { size: 80mm auto; margin: 3mm; }</style>{% endif %}
 </head>
 <body class="slip-page{% if thermal %} slip-thermal{% endif %}">

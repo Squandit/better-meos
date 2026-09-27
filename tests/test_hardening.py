@@ -270,7 +270,8 @@ def test_results_cache_follows_every_write():
     assert store.evaluate()[0] is classes                        # same revision, same object
     cid = store.class_options()[0]["id"]
     before = db.revision()
-    store.create_competitor({"name": "Cache Buster", "class_id": cid})
+    store.create_competitor({"name": "Cache Buster", "class_id": cid,
+                             "start": "10:00:00", "finish": "10:40:00"})
     assert db.revision() > before
     assert store.evaluate()[0] is not classes
     assert "Cache Buster" in c.get("/results").get_data(as_text=True)

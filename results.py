@@ -136,7 +136,7 @@ def _velocity(leg_seconds: int, length_m) -> str:
 
 
 def build_splits_matrix(results: list[dict], controls: list[int],
-                        leg_lengths: list | None = None) -> dict:
+                        leg_lengths: list | None = None, fmt=format_split) -> dict:
     """
     Build a side-by-side splits table for one linear class.
 
@@ -149,8 +149,9 @@ def build_splits_matrix(results: list[dict], controls: list[int],
 
     For every competitor and leg it reports the leg and cumulative time, the leg
     rank and split (cumulative) rank within the class, the time behind that leg's
-    and split's leader, and a ``best_leg`` flag for the fastest leg. Pure: no
-    mutation of the inputs.
+    and split's leader, and a ``best_leg`` flag for the fastest leg. ``fmt``
+    writes the times (compact ``M:SS`` by default). Pure: no mutation of the
+    inputs.
     """
     legs = [{"code": c, "label": str(c)} for c in controls]
     legs.append({"code": "F", "label": "F"})
@@ -200,13 +201,13 @@ def build_splits_matrix(results: list[dict], controls: list[int],
             length = leg_lengths[i] if i < len(leg_lengths) else None
             cells.append({
                 "missing": False,
-                "leg": format_split(leg_sec),
-                "cum": format_split(cum_sec),
+                "leg": fmt(leg_sec),
+                "cum": fmt(cum_sec),
                 "leg_rank": rank(col["leg_times"], leg_sec),
                 "cum_rank": rank(col["cum_times"], cum_sec),
                 "best_leg": leg_sec == col["best_leg"],
-                "leg_behind": format_split(leg_sec - col["best_leg"]),
-                "cum_behind": format_split(cum_sec - col["best_cum"]),
+                "leg_behind": fmt(leg_sec - col["best_leg"]),
+                "cum_behind": fmt(cum_sec - col["best_cum"]),
                 "velocity": _velocity(leg_sec, length),
             })
         rows.append({
@@ -215,7 +216,7 @@ def build_splits_matrix(results: list[dict], controls: list[int],
             "club": r.get("club"),
             "position": r.get("position"),
             "status": r["status"],
-            "total": format_split(r["total_seconds"]) if r["total_seconds"] is not None else "",
+            "total": fmt(r["total_seconds"]) if r["total_seconds"] is not None else "",
             "cells": cells,
         })
     return {"legs": legs, "rows": rows}
@@ -234,6 +235,9 @@ STATUS_DNF = "dnf"
 STATUS_DSQ = "dsq"
 STATUS_OOT = "oot"
 STATUS_NC = "nc"     # not competing: timed and shown, never ranked (manual only)
+# No card read yet and no finish: still out on course, or not started. Not a
+# verdict: it becomes OK/MP/DNF/... when the card is read (MeOS's "unknown").
+STATUS_PENDING = "pending"
 
 
 def validate_linear(
@@ -283,6 +287,10 @@ def build_result(card: dict, course: dict) -> dict:
     finish punch), then course-specific validation. Score courses additionally
     apply an over-time (OOT) penalty. Total time and splits are filled in
     whenever the card has both a start and a finish.
+
+    A card that hasn't been read yet (``card["read"]`` False) with no finish is
+    ``pending`` rather than DNF/DNS: the runner may simply still be out. Cards
+    without a ``read`` key count as read.
 
     A manual status (operator override, e.g. DSQ) is applied last. It changes
     only the displayed status -- the recorded time, splits and points stay as
@@ -357,7 +365,9 @@ def build_result(card: dict, course: dict) -> dict:
     result["punches"] = list(punches)
     result["start"] = start  # reflect a derived punch-start
 
-    if start is None:
+    if finish is None and not card.get("read", True):
+        auto_status = STATUS_PENDING
+    elif start is None:
         auto_status = STATUS_DNS
     elif finish is None:
         auto_status = STATUS_DNF

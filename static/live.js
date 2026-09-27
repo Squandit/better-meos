@@ -25,6 +25,8 @@
             reloadTimer = null;
             // Don't yank the page away while someone is customising it or typing.
             if (document.body.dataset.editing === "1") { scheduleReload(); return; }
+            // Pages that can swap in new content in place (the live screen) do.
+            if (typeof window.BMSoftRefresh === "function") { window.BMSoftRefresh(); return; }
             window.location.reload();
         }, 600);
     }

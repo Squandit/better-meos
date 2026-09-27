@@ -37,8 +37,10 @@ STATUS_TO_IOF = {
     "dsq": "Disqualified",
     "oot": "OverTime",
     "nc": "NotCompeting",
+    "pending": "Active",       # no card read yet (Inactive when not started)
 }
 IOF_TO_STATUS = {v: k for k, v in STATUS_TO_IOF.items()}
+IOF_TO_STATUS["Inactive"] = "pending"
 
 
 def _tag(elem) -> str:
@@ -316,7 +318,10 @@ def export_results(classes_eval: list[dict], event: dict,
                 _sub(res, "Time", str(r["total_seconds"]))
             if r.get("position") is not None:
                 _sub(res, "Position", str(r["position"]))
-            _sub(res, "Status", STATUS_TO_IOF.get(r["status"], "OK"))
+            status = STATUS_TO_IOF.get(r["status"], "OK")
+            if r["status"] == "pending" and r.get("start") is None:
+                status = "Inactive"
+            _sub(res, "Status", status)
             own = (courses or {}).get(r.get("course_id"), course)  # forked runner
             for code, secs in _split_times(r, own):
                 attrs = {"status": "Missing"} if secs is None else {}

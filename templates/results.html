@@ -3,17 +3,30 @@
 {% block title %}Results{% endblock %}
 {% block heading %}Results{% endblock %}
 {% block content %}
+{% set by_course = classes and classes[0].by_course %}
 <div class="page-head">
-    <h3>Class results</h3>
-    <p>Standings from the latest card downloads. Click a competitor to see their splits.</p>
+    <h3>{{ "Course" if by_course else "Class" }} results</h3>
+    <p>Standings from the latest card downloads.{% if show_splits %} Click a runner to see their splits.{% endif %}
+       <a href="{{ url_for('live') }}" target="_blank" rel="noopener">Open the live screen</a></p>
 </div>
 
+{% if classes|length > 4 %}
+<nav class="jump-nav" aria-label="Jump to">
+    {% for cls in classes %}<a class="chip grey" href="#{{ 'course' if cls.by_course else 'cls' }}-{{ cls.name }}">{{ cls.name }}</a>{% endfor %}
+</nav>
+{% endif %}
+
 {% for cls in classes %}
-<section class="panel class-card" id="cls-{{ cls.name }}">
+<section class="panel class-card" id="{{ 'course' if cls.by_course else 'cls' }}-{{ cls.name }}">
     <div class="panel-head">
         <h4>{{ cls.name }}</h4>
-        <span class="chip">{{ cls.meta }}</span>
+        <span class="panel-chips">
+            <span class="chip">{{ cls.meta }}</span>
+            {% if cls.on_course %}<span class="chip grey" title="Started, card not read yet">{{ cls.on_course|length }} out</span>{% endif %}
+        </span>
     </div>
+    {% set with_behind = cls.rows and cls.rows[0].behind is defined %}
+    {% set cols = 4 + (1 if cls.is_score else 0) + (1 if with_behind else 0) %}
     <table class="table">
         <thead>
             <tr>
@@ -21,23 +34,35 @@
                 <th>Athlete</th>
                 {% if cls.is_score %}<th class="num" style="width:80px">Points</th>{% endif %}
                 <th class="num" style="width:104px">Time</th>
+                {% if with_behind %}<th class="num behind-col" style="width:92px">Behind</th>{% endif %}
                 <th style="width:104px;text-align:right"></th>
             </tr>
         </thead>
         <tbody>
-            {% set cols = 5 if cls.is_score else 4 %}
             {% for r in cls.rows %}
-            <tr class="runner{% if r.splits %} has-splits{% endif %}"{% if r.splits %} tabindex="0" role="button" aria-expanded="false"{% endif %}>
+            {% set expandable = show_splits and r.splits %}
+            <tr class="runner{% if expandable %} has-splits{% endif %}"{% if expandable %} tabindex="0" role="button" aria-expanded="false"{% endif %}>
                 <td style="text-align:center">{{ pos(r) }}</td>
-                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                <td><span class="cell-name">{{ r.name }}</span><div class="cell-sub">{{ r.club or "" }}{% if cls.by_course %}{% if r.club %} · {% endif %}{{ r.class }}{% endif %}</div></td>
                 {% if cls.is_score %}<td class="num{% if r.points is none %} dim{% endif %}">{% if r.points is not none %}{{ r.points }}{% else %}&ndash;{% endif %}</td>{% endif %}
                 <td class="num strong{% if not r.time %} dim{% endif %}">{{ time_cell(r) }}</td>
-                <td style="text-align:right">{{ badge(r) }}{% if r.splits %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}</td>
+                {% if with_behind %}<td class="num dim behind-col">{{ r.behind or "" }}</td>{% endif %}
+                <td class="status-cell" style="text-align:right">{{ badge(r) }}{% if expandable %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}</td>
             </tr>
-            {{ splits_rows(r, cols) }}
+            {% if expandable %}{{ splits_rows(r, cols) }}{% endif %}
+            {% else %}
+            <tr><td colspan="{{ cols }}" class="empty">No results yet</td></tr>
             {% endfor %}
         </tbody>
     </table>
+    {% if cls.on_course %}
+    <div class="on-course">
+        <span class="on-course-label">Still out</span>
+        {% for r in cls.on_course %}<span class="on-course-item">{{ r.name }}{% if cls.by_course %} <span class="dim">{{ r.class }}</span>{% endif %} <span class="mono dim">{{ r.start }}</span></span>{% endfor %}
+    </div>
+    {% endif %}
 </section>
+{% else %}
+<p class="empty">No classes yet. Add them on the Classes page.</p>
 {% endfor %}
 {% endblock %}

@@ -144,6 +144,7 @@ def _import_results(rows: list[dict]) -> dict:
                 "finish": store.format_clock(row.get("finish")),
                 "punches": punches,
                 "manual_status": row["status"] if row.get("status") in ("dsq", "nc") else "",
+                "read": row.get("status") != "pending",   # else still out
             })
             created += 1
         except store.StoreError as err:

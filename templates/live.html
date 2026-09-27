@@ -3,39 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ event.name }} · live</title>
+    <title>{{ title }} · live</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
 </head>
-<body class="live-page" data-page="live">
-<header class="live-head">
-    <h1>{{ event.name }}</h1>
-    <span class="live-dot"><span class="dot"></span>live</span>
-</header>
+<body class="live-page" data-page="live" data-page-seconds="{{ page_seconds }}" style="--lv-scale: {{ scale }}">
+<div class="live-frame" data-live-content>
+    <header class="live-head">
+        <h1>{{ title }}</h1>
+        <span class="live-dot"><span class="dot"></span>live</span>
+        <span class="live-pager" data-live-pager></span>
+        {% if show_clock %}<span class="live-clock" data-live-clock></span>{% endif %}
+    </header>
 
-<div class="live-grid">
-    {% for cls in classes %}
-    <section class="live-card">
-        <h2>{{ cls.name }}</h2>
-        <table class="live-table">
-            <tbody>
-                {% for r in cls.rows if r.position %}
-                {% if loop.index <= 8 %}
-                <tr>
-                    <td class="lv-pos">{{ r.position }}</td>
-                    <td class="lv-name">{{ r.name }}{% if r.club %}<span class="lv-club">{{ r.club }}</span>{% endif %}</td>
-                    {% if cls.is_score %}<td class="lv-pts">{{ r.points }}</td>{% endif %}
-                    <td class="lv-time">{{ r.time or '–' }}</td>
-                </tr>
-                {% endif %}
-                {% else %}
-                <tr><td colspan="3" class="lv-empty">No finishers yet</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </section>
-    {% endfor %}
+    <div class="live-body" data-live-body>
+        <div class="live-grid" data-live-grid>
+            {% for cls in classes %}
+            {% set placed = cls.rows|selectattr("position")|list %}
+            <section class="live-card" data-name="{{ cls.name }}">
+                <h2>{{ cls.name }}{% if cls.on_course %}<span class="lv-out">{{ cls.on_course|length }} out</span>{% endif %}</h2>
+                <table class="live-table">
+                    <tbody>
+                        {% set gap = namespace(shown=false) %}
+                        {% for r in placed %}
+                        {% if loop.index <= rows or r.id in fresh %}
+                        {% if loop.index > rows and not gap.shown %}{% set gap.shown = true %}<tr class="lv-gap"><td colspan="{{ 4 if cls.is_score else 3 }}">&middot;&middot;&middot;</td></tr>{% endif %}
+                        <tr{% if r.id in fresh %} class="fresh"{% endif %} data-id="{{ r.id }}">
+                            <td class="lv-pos">{{ r.position }}</td>
+                            <td class="lv-name">{{ r.name }}{% if r.club or cls.by_course %}<span class="lv-club">{{ r.club or "" }}{% if cls.by_course %}{% if r.club %} · {% endif %}{{ r.class }}{% endif %}</span>{% endif %}</td>
+                            {% if cls.is_score %}<td class="lv-pts">{{ r.points }}</td>{% endif %}
+                            <td class="lv-time">{{ r.time or "–" }}{% if r.behind %}<small>{{ r.behind }}</small>{% endif %}</td>
+                        </tr>
+                        {% endif %}
+                        {% else %}
+                        <tr><td colspan="{{ 4 if cls.is_score else 3 }}" class="lv-empty">No finishers yet</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% if placed|length > rows %}<div class="lv-more">+ {{ placed|length - rows }} more</div>{% endif %}
+            </section>
+            {% else %}
+            <p class="lv-empty">No classes to show.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if latest %}
+    <footer class="live-ticker">
+        <span class="lv-ticker-label">Just in</span>
+        <div class="lv-ticker-track">
+            {% for r in latest %}
+            <span class="lv-tick{% if r.fresh %} fresh{% endif %}"><b>{{ r.name }}</b> {{ r.class }} · {% if r.is_ok %}{{ r.time }}{% if r.position %} · {{ r.position|ordinal }}{% endif %}{% else %}{{ r.status_label }}{% endif %}</span>
+            {% endfor %}
+        </div>
+    </footer>
+    {% endif %}
 </div>
 
+<script src="{{ url_for('static', filename='livescreen.js') }}"></script>
 <script src="{{ url_for('static', filename='live.js') }}"></script>
 </body>
 </html>

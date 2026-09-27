@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import threading
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, time as dtime
 
 import db
 import rules
@@ -196,6 +196,18 @@ def format_clock(dt: datetime | None) -> str:
     return dt.strftime("%H:%M:%S") if dt else ""
 
 
+def event_now() -> datetime:
+    """Now on the event's clock (every time is pinned to the event date). For an
+    event on another day it's the end of that day (past) or its start (future),
+    so "has this runner started?" still has a sensible answer."""
+    today = date.today()
+    if EVENT_DATE < today:
+        return datetime.combine(EVENT_DATE, dtime.max)
+    if EVENT_DATE > today:
+        return datetime.combine(EVENT_DATE, dtime.min)
+    return datetime.combine(EVENT_DATE, datetime.now().time())
+
+
 # ---------------------------------------------------------------------------
 # Coercion / validation helpers
 # ---------------------------------------------------------------------------
@@ -323,6 +335,8 @@ def _engine_card(comp: dict, classes: dict | None = None) -> dict:
         "punches": [(p["code"], p["time"]) for p in comp["punches"]],
         "manual_status": comp["manual_status"] or None,
         "check": comp.get("check"),
+        # No card read yet: the engine reports "pending", not DNF/DNS.
+        "read": comp.get("read_at") is not None,
     }
 
 
@@ -390,6 +404,8 @@ def _seed_demo() -> None:
                 finish=card.get("finish"),
                 punches=[{"code": c, "time": t} for c, t in card.get("punches", [])],
                 manual_status=card.get("manual_status", "") or "",
+                read_at=card.get("finish") or card.get("start")
+                if card.get("finish") or card.get("punches") else None,
             )
 
 
@@ -431,7 +447,8 @@ def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0,
 
 def _insert_competitor(*, name, club, class_id, card_number, start, finish,
                        punches, manual_status, bib=None, hired=False,
-                       team_id=None, leg=None, vacant=False, course_id=None) -> int:
+                       team_id=None, leg=None, vacant=False, course_id=None,
+                       read_at=None) -> int:
     cid = _next_id("competitor")
     _competitors[cid] = {
         "id": cid,
@@ -449,6 +466,7 @@ def _insert_competitor(*, name, club, class_id, card_number, start, finish,
         "leg": leg,
         "vacant": vacant,
         "course_id": course_id,
+        "read_at": read_at,
     }
     db.save_competitor(_active_event_id, _competitors[cid])
     return cid
@@ -830,6 +848,7 @@ def competitor_json(comp: dict) -> dict:
         "leg": comp.get("leg"),
         "vacant": bool(comp.get("vacant")),
         "course_id": comp.get("course_id"),
+        "read_at": format_clock(comp.get("read_at")),
         "punches": [
             {"code": p["code"], "time": format_clock(p["time"])}
             for p in comp["punches"]
@@ -956,6 +975,7 @@ def create_competitor(data: dict) -> dict:
             team_id=fields.get("team_id"),
             leg=fields.get("leg"),
             course_id=fields.get("course_id"),
+            read_at=datetime.now() if data.get("read") or fields.get("finish") else None,
         )
         comp = _competitors[cid]
         _audit("competitor added", _who(comp),
@@ -984,6 +1004,9 @@ def update_competitor(comp_id: int, data: dict) -> dict:
         before = dict(comp, class_id=_classes[comp["class_id"]]["name"])
         detail = _changes(before, shown, {"class_id": "class", "card_number": "SI",
                                           "manual_status": "status"})
+        if comp.get("read_at") is None and (
+                data.get("read") or (fields.get("finish") and comp["finish"] is None)):
+            fields["read_at"] = datetime.now()   # the run is in: judge it
         comp.update(fields)
         db.save_competitor(_active_event_id, comp)
         if detail:
@@ -1363,6 +1386,7 @@ def _apply_card(comp: dict, card: dict) -> None:
     if card.get("finish") is not None:
         comp["finish"] = card["finish"]
     comp["check"] = card.get("check")  # a new read replaces the old check too
+    comp["read_at"] = datetime.now()
     db.save_competitor(_active_event_id, comp)
 
 
@@ -1518,7 +1542,7 @@ def auto_create_from_card(card: dict) -> dict:
             start=card.get("start"), finish=card.get("finish"),
             punches=[{"code": c, "time": t, "station_id": station}
                      for c, t in card.get("punches", [])],
-            manual_status="")
+            manual_status="", read_at=datetime.now())
         return competitor_json(find_by_card(number))
 
 

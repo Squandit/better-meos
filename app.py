@@ -15,6 +15,7 @@ import backups
 import config
 import dashboard
 import db
+import display
 import draw
 import entries as entries_mod
 import eventor
@@ -43,9 +44,9 @@ app = Flask(__name__)
 # session cookie, so a key anyone can read would let them forge an unlocked one.
 app.secret_key = config.secret_key()
 
-# Format a raw seconds duration in templates (used by the profile page, which
-# renders engine results directly rather than pre-formatted view rows).
-app.jinja_env.filters["format_secs"] = format_duration
+# Format a raw seconds duration in templates (for pages that render engine
+# results directly rather than pre-formatted view rows), in the event's format.
+app.jinja_env.filters["format_secs"] = lambda secs: display.time_formatter()(secs) or ""
 
 
 def _ordinal(n) -> str:
@@ -201,109 +202,11 @@ MOCK_CARD_DATA = {
 }
 
 
-# Result status codes -> short display labels, and the order to list them in.
-STATUS_LABELS = {
-    "ok": "OK",
-    "mp": "MP",
-    "dns": "DNS",
-    "dnf": "DNF",
-    "dsq": "DSQ",
-    "oot": "OOT",
-    "nc": "NC",
-}
-STATUS_ORDER = ["ok", "nc", "oot", "mp", "dnf", "dns", "dsq"]
-FLAGGED = ("mp", "dnf", "dns", "dsq")
-
-
 @app.context_processor
 def inject_event():
     """Make the open event's details available to every template."""
     # The real reader is switched on in Settings, not per event file.
     return {"event": {**store.EVENT, "reader_enabled": si_reader.reader_enabled()}}
-
-
-def _status_label(status):
-    return STATUS_LABELS.get(status, status.upper() if status else "")
-
-
-def _format_splits(splits):
-    """Format raw split rows (seconds) into display strings."""
-    return [
-        {
-            "control": row["control"],
-            "leg": format_duration(row["leg_seconds"]),
-            "cumulative": format_duration(row["cumulative_seconds"]),
-        }
-        for row in splits
-    ]
-
-
-def _clock(dt):
-    """Wall-clock time string, or None if the punch is missing."""
-    return dt.strftime("%H:%M:%S") if dt else None
-
-
-def _view_row(result):
-    """Shape one engine result into the fields the list/table templates need."""
-    total = result["total_seconds"]
-    return {
-        "id": result["id"],
-        "position": result["position"],
-        "name": result["name"],
-        "club": result["club"],
-        "class": result["class"],
-        "si": result.get("card_number"),
-        "status": result["status"],
-        "status_label": _status_label(result["status"]),
-        "is_ok": result["status"] == "ok",
-        "manual": result.get("manual", False),
-        "time": format_duration(total) if total is not None else None,
-        "start": _clock(result.get("start")),
-        "finish": _clock(result.get("finish")),
-        "points": result["points"],
-        "missed_control": result.get("missed_control"),
-        "ignored": result.get("ignored_punches", 0),
-        "splits": _format_splits(result["splits"]),
-    }
-
-
-def _result_view(result):
-    """Compact evaluation summary used by the editor's live preview / detail."""
-    total = result["total_seconds"]
-    return {
-        "status": result["status"],
-        "status_label": _status_label(result["status"]),
-        "auto_status": result.get("auto_status"),
-        "auto_status_label": _status_label(result.get("auto_status")),
-        "manual": result.get("manual", False),
-        "is_ok": result["status"] == "ok",
-        "course_type": result.get("course_type"),
-        "time": format_duration(total) if total is not None else None,
-        "points": result["points"],
-        "missed_control": result.get("missed_control"),
-        "position": result.get("position"),
-        "splits": _format_splits(result["splits"]),
-    }
-
-
-def _console_data():
-    """Build every class with its ranked, display-ready rows."""
-    classes, _ = store.evaluate()
-    view = []
-    for entry in classes:
-        course = entry["course"]
-        view.append({
-            "id": entry["class"]["id"],
-            "name": entry["class"]["name"],
-            "course": course,
-            "course_id": course["id"],
-            "course_name": course["name"],
-            "type": course["type"],
-            "is_score": course["type"] == "score",
-            "meta": store.course_meta(course),
-            "rows": [_view_row(r) for r in entry["results"]],
-        })
-    return view
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +216,7 @@ def _console_data():
 @app.route("/")
 def index():
     """The customisable home screen (see dashboard.py)."""
-    classes = _console_data()
+    classes = display.console_data()
     ctx = {"classes": classes, "rows": [r for c in classes for r in c["rows"]],
            "evaluated": store.evaluate()[0]}
     return render_template("overview.html", active="overview",
@@ -353,27 +256,27 @@ def _vacant_rows():
         rows.append({"id": comp["id"], "position": None, "name": comp["name"],
                      "club": "", "class": cls.get("name", ""), "si": comp["card_number"],
                      "status": "vacant", "status_label": "Vacant", "is_ok": False,
-                     "manual": False, "time": None, "start": _clock(comp["start"]),
+                     "manual": False, "time": None, "start": display.clock(comp["start"]),
                      "finish": None, "points": None, "missed_control": None, "splits": []})
     return rows
 
 
 @app.route("/competitors")
 def competitors():
-    rows = [r for c in _console_data() for r in c["rows"]]
+    rows = [r for c in display.console_data() for r in c["rows"]]
     rows.extend(_vacant_rows())
     rows.sort(key=lambda r: (r["class"], r["position"] is None, r["position"] or 0, r["name"]))
     return render_template(
         "competitors.html", active="competitors", rows=rows,
         class_options=store.class_options(), course_options=store.course_options(),
-        status_options=[{"value": s, "label": STATUS_LABELS[s]} for s in STATUS_ORDER],
+        status_options=[{"value": s, "label": display.STATUS_LABELS[s]} for s in display.STATUS_ORDER],
     )
 
 
 @app.route("/classes")
 def classes():
     summary = []
-    for c in _console_data():
+    for c in display.console_data():
         rows = c["rows"]
         cls = store.get_class(c["id"]) or {}
         summary.append({
@@ -390,7 +293,7 @@ def classes():
             "restart": cls.get("restart") or "",
             "entries": len(rows),
             "finished": sum(1 for r in rows if r["time"] is not None),
-            "flagged": sum(1 for r in rows if r["status"] in FLAGGED),
+            "flagged": sum(1 for r in rows if r["status"] in display.FLAGGED),
         })
     return render_template(
         "classes.html", active="classes", classes=summary,
@@ -429,7 +332,7 @@ def courses():
 
 @app.route("/download")
 def download():
-    all_rows = [r for c in _console_data() for r in c["rows"]]
+    all_rows = [r for c in display.console_data() for r in c["rows"]]
     rows = [r for r in all_rows if r["finish"] is not None]
     rows.sort(key=lambda r: r["finish"], reverse=True)
     assignable = sorted(all_rows, key=lambda r: r["name"].lower())
@@ -455,7 +358,7 @@ def api_readout_latest():
     comp = store.get_competitor(read["competitor_id"]) if read["competitor_id"] else None
     result = store.result_for(comp["id"]) if comp else None
     if comp and result:
-        row = _view_row(result)
+        row = display.view_row(result)
         out["runner"] = {"id": comp["id"], "name": row["name"], "club": row["club"],
                          "class": row["class"], "status": row["status"],
                          "status_label": row["status_label"], "time": row["time"],
@@ -483,15 +386,17 @@ def api_delete_card_read(read_id):
 @app.route("/results")
 @cached_page
 def results():
-    return render_template("results.html", active="results", classes=_console_data())
+    return render_template("results.html", active="results", classes=display.results_view(),
+                           show_splits=config.get("results_show_splits"))
 
 
 def _splits_data():
     """Per-class splits: a full leg matrix for linear classes, per-runner rows
     for score classes (legs aren't comparable when everyone picks a route)."""
     classes, _ = store.evaluate()
+    fmt = display.time_formatter()
     view = []
-    for entry in classes:
+    for entry in display.ordered(classes, name=lambda e: e["class"]["name"]):
         course = entry["course"]
         cls = entry["class"]
         is_score = course["type"] == "score"
@@ -502,7 +407,7 @@ def _splits_data():
             "is_score": is_score,
         }
         if is_score:
-            item["rows"] = [_view_row(r) for r in entry["results"]]
+            item["rows"] = [display.view_row(r, fmt) for r in entry["results"]]
             view.append(item)
             continue
         # Forked classes: one splits table per course variant (legs of
@@ -517,7 +422,8 @@ def _splits_data():
                 part["name"] = f'{cls["name"]} · {variant["name"]}'
                 part["meta"] = store.course_meta(variant)
             part["matrix"] = build_splits_matrix(
-                by_course[course_id], variant["controls"], variant.get("leg_lengths"))
+                by_course[course_id], variant["controls"], variant.get("leg_lengths"),
+                fmt=fmt)
             part["length_m"] = variant.get("length_m")
             view.append(part)
     return view
@@ -538,7 +444,7 @@ def slip(comp_id):
     result = store.result_for(comp_id)
     if result is None:
         abort(404)
-    return render_template("slip.html", row=_view_row(result),
+    return render_template("slip.html", row=display.view_row(result),
                            auto_print=request.args.get("print") == "1",
                            thermal=(config.get_str("slip_paper") or "80mm").lower() != "a4")
 
@@ -546,13 +452,29 @@ def slip(comp_id):
 @app.route("/live")
 @cached_page
 def live():
-    """Projector-friendly live leaderboard (no operator chrome)."""
-    return render_template("live.html", active="live", classes=_console_data())
+    """Projector-friendly live leaderboard (no operator chrome). ``?classes=``
+    picks this screen's classes (else the event's live screen setting)."""
+    blocks = display.results_view()
+    wanted = request.args.get("classes") or config.get_str("live_classes")
+    if wanted:
+        names = {n.strip().lower() for n in wanted.replace(";", ",").replace("\n", ",").split(",")
+                 if n.strip()}
+        blocks = [b for b in blocks if b["name"].lower() in names]
+    latest = display.latest_finishers(12)
+    return render_template(
+        "live.html", active="live", classes=blocks,
+        title=config.get_str("live_title") or store.EVENT["name"],
+        rows=max(1, int(config.get("live_rows") or 8)),
+        page_seconds=int(config.get("live_page_seconds") or 0),
+        scale=int(config.get_str("live_text_size") or 100) / 100,
+        show_clock=config.get("live_show_clock"),
+        latest=latest if config.get("live_show_latest") else [],
+        fresh={r["id"] for r in latest if r["fresh"]})
 
 
 def _club_archive():
     """All results grouped by club, each club's rows sorted by class then place."""
-    rows = [r for c in _console_data() for r in c["rows"]]
+    rows = [r for c in display.console_data() for r in c["rows"]]
     clubs: dict[str, list] = {}
     for r in rows:
         clubs.setdefault(r["club"] or "Independent", []).append(r)
@@ -612,7 +534,7 @@ def economy_page():
 @cached_page
 def speaker_page():
     """Commentator view: who's out on course, recent finishes."""
-    rows = [r for c in _console_data() for r in c["rows"]]
+    rows = [r for c in display.console_data() for r in c["rows"]]
     out = speaker.out_on_course(store.evaluate()[0])
     finished = [r for r in rows if r["finish"]]
     finished.sort(key=lambda r: r["finish"], reverse=True)
@@ -641,7 +563,7 @@ def _startlist_data():
             "rows": [{"bib": c.get("bib"), "name": c["name"], "club": c.get("club") or "",
                       "vacant": bool(c.get("vacant")),
                       "card": c.get("card_number") or "",
-                      "start": _clock(c.get("start"))} for c in members],
+                      "start": display.clock(c.get("start"))} for c in members],
         })
     return classes
 
@@ -704,8 +626,8 @@ def draw_page():
                      "runners": sum(1 for c in members if not c.get("vacant")),
                      "vacants": sum(1 for c in members if c.get("vacant")),
                      "undrawn": sum(1 for c in members if c["start"] is None),
-                     "first": _clock(starts[0]) if starts else "",
-                     "last": _clock(starts[-1]) if starts else ""})
+                     "first": display.clock(starts[0]) if starts else "",
+                     "last": display.clock(starts[-1]) if starts else ""})
     return render_template("draw.html", active="draw", classes=rows,
                            first_start=store.EVENT.get("first_start") or "10:00:00")
 
@@ -763,6 +685,12 @@ def api_chase_starts():
     return jsonify({"ok": True, "assigned": count})
 
 
+@app.route("/favicon.ico")
+def favicon():
+    """Browsers ask for this whatever the page says; answer with the SVG icon."""
+    return app.send_static_file("favicon.svg")
+
+
 @app.route("/tools")
 def tools():
     """Import / export console."""
@@ -775,7 +703,8 @@ def public_results(slug):
     """Permanent public, read-only results page (no operator chrome)."""
     if slug != store.EVENT["slug"]:
         abort(404)
-    return render_template("public.html", classes=_console_data())
+    return render_template("public.html", classes=display.results_view(),
+                           show_splits=config.get("results_show_splits"))
 
 
 # ---------------------------------------------------------------------------
@@ -912,7 +841,7 @@ def export_results_xml():
 
 @app.route("/export/results.pdf")
 def export_results_pdf():
-    data = pdf.class_results_pdf(_console_data(), store.EVENT)
+    data = pdf.class_results_pdf(display.results_view(on_course=False), store.EVENT)
     return Response(data, mimetype="application/pdf", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-results.pdf"})
 
@@ -922,7 +851,7 @@ def slip_pdf(comp_id):
     result = store.result_for(comp_id)
     if result is None:
         abort(404)
-    data = pdf.splits_slip_pdf(_view_row(result), store.EVENT)
+    data = pdf.splits_slip_pdf(display.view_row(result), store.EVENT)
     return Response(data, mimetype="application/pdf", headers={
         "Content-Disposition": f"attachment; filename=slip-{comp_id}.pdf"})
 
@@ -1058,12 +987,14 @@ def entry_results():
     class_id = request.args.get("classId", type=int)
     classes, _ = store.evaluate()
     out = []
-    for entry in classes:
+    for entry in display.ordered(classes, name=lambda e: e["class"]["name"]):
         cls = entry["class"]
         if class_id and cls["id"] != class_id:
             continue
         comps = []
         for r in entry["results"]:
+            if r["status"] == "pending":
+                continue   # still out (or not started): no result to show yet
             comps.append({
                 "name": r["name"], "club": r.get("club") or "",
                 "timeSecs": r["total_seconds"] if r["status"] == "ok" else None,
@@ -1165,7 +1096,7 @@ def start():
 @app.route("/setup")
 def setup():
     """Per-event hub shown after opening/creating an event."""
-    rows = [r for c in _console_data() for r in c["rows"]]
+    rows = [r for c in display.console_data() for r in c["rows"]]
     counts = {
         "competitors": len(rows),
         "classes": len(store.class_options()),
@@ -1184,7 +1115,8 @@ def _published_files() -> dict:
     with open(os.path.join(app.root_path, "static", "style.css"), encoding="utf-8") as f:
         css = f.read()
     with app.test_request_context("/"):
-        html = render_template("public.html", classes=_console_data(), inline_css=css,
+        html = render_template("public.html", classes=display.results_view(), inline_css=css,
+                               show_splits=config.get("results_show_splits"),
                                published_at=datetime.now().strftime("%H:%M"))
     classes, _ = store.evaluate()
     xml = iofxml.export_results(classes, store.EVENT, courses=store._courses)
@@ -1210,7 +1142,7 @@ def export_prizes_pdf():
     places = max(1, int(config.get("prize_places") or 3))
     classes = [{"name": c["name"], "is_score": c["is_score"],
                 "rows": [r for r in c["rows"] if r["position"] and r["position"] <= places]}
-               for c in _console_data()]
+               for c in display.console_data()]
     data = pdf.prize_list_pdf([c for c in classes if c["rows"]], store.EVENT, places)
     return Response(data, mimetype="application/pdf", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-prizes.pdf"})
@@ -1303,7 +1235,7 @@ def api_create_competitor():
     runners.record_competitor(comp)  # learn this person + their usual class
     result = store.result_for(comp["id"])
     events.publish("competitor", action="create", id=comp["id"])
-    return jsonify({"competitor": comp, "result": _result_view(result) if result else None}), 201
+    return jsonify({"competitor": comp, "result": display.result_view(result) if result else None}), 201
 
 
 @app.route("/api/competitors/<int:comp_id>", methods=["GET"])
@@ -1314,7 +1246,7 @@ def api_get_competitor(comp_id):
     result = store.result_for(comp_id)
     return jsonify({
         "competitor": store.competitor_json(comp),
-        "result": _result_view(result) if result else None,
+        "result": display.result_view(result) if result else None,
     })
 
 
@@ -1323,7 +1255,7 @@ def api_update_competitor(comp_id):
     comp = store.update_competitor(comp_id, _payload())
     result = store.result_for(comp_id)
     events.publish("competitor", action="update", id=comp_id)
-    return jsonify({"competitor": comp, "result": _result_view(result) if result else None})
+    return jsonify({"competitor": comp, "result": display.result_view(result) if result else None})
 
 
 @app.route("/api/competitors/<int:comp_id>", methods=["DELETE"])
@@ -1337,7 +1269,7 @@ def api_delete_competitor(comp_id):
 def api_preview():
     """Evaluate an unsaved competitor payload so the editor can show the effect."""
     result = store.preview(_payload())
-    return jsonify({"result": _result_view(result)})
+    return jsonify({"result": display.result_view(result)})
 
 
 # --- Classes ---------------------------------------------------------------

@@ -4,21 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ event.name }} · results</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%223%22 y=%223%22 width=%2226%22 height=%2226%22 rx=%223%22 fill=%22%23fff%22 stroke=%22%23c9d0d7%22 stroke-width=%221.5%22/%3E%3Cpath d=%22M29 3v23a3 3 0 0 1-3 3H3z%22 fill=%22%23f47c20%22/%3E%3C/svg%3E">
     {% if inline_css %}<style>{{ inline_css|safe }}</style>{% else %}<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">{% endif %}
 </head>
 <body class="public-page" data-page="results">
 <header class="public-head">
     <h1>{{ event.name }}</h1>
     <p>{{ event.date }} · results</p>
+    <input class="search public-search" type="search" placeholder="Find a runner or club" aria-label="Find a runner or club" data-public-search>
 </header>
 
 <main class="public-main">
+    {% if classes|length > 4 %}
+    <nav class="jump-nav" aria-label="Jump to">
+        {% for cls in classes %}<a class="chip grey" href="#blk-{{ loop.index }}">{{ cls.name }}</a>{% endfor %}
+    </nav>
+    {% endif %}
     {% for cls in classes %}
-    <section class="panel class-card">
+    <section class="panel class-card" id="blk-{{ loop.index }}">
         <div class="panel-head">
             <h4>{{ cls.name }}</h4>
-            <span class="chip">{{ cls.meta }}</span>
+            <span class="panel-chips">
+                <span class="chip">{{ cls.meta }}</span>
+                {% if cls.on_course %}<span class="chip grey">{{ cls.on_course|length }} out</span>{% endif %}
+            </span>
         </div>
+        {% set with_behind = cls.rows and cls.rows[0].behind is defined %}
+        {% set cols = 4 + (1 if cls.is_score else 0) + (1 if with_behind else 0) %}
         <table class="table">
             <thead>
                 <tr>
@@ -26,26 +38,93 @@
                     <th>Athlete</th>
                     {% if cls.is_score %}<th class="num" style="width:80px">Points</th>{% endif %}
                     <th class="num" style="width:104px">Time</th>
+                    {% if with_behind %}<th class="num behind-col" style="width:92px">Behind</th>{% endif %}
                     <th style="width:70px;text-align:right"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for r in cls.rows %}
-                <tr>
+                {% set expandable = show_splits and r.splits %}
+                <tr class="runner{% if expandable %} has-splits{% endif %}"{% if expandable %} tabindex="0" role="button" aria-expanded="false"{% endif %}>
                     <td style="text-align:center">{% if r.position %}{{ r.position }}{% else %}&ndash;{% endif %}</td>
-                    <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                    <td><span class="cell-name">{{ r.name }}</span><div class="cell-sub">{{ r.club or "" }}{% if cls.by_course %}{% if r.club %} · {% endif %}{{ r.class }}{% endif %}</div></td>
                     {% if cls.is_score %}<td class="num">{% if r.points is not none %}{{ r.points }}{% else %}&ndash;{% endif %}</td>{% endif %}
                     <td class="num strong{% if not r.time %} dim{% endif %}">{% if r.time %}{{ r.time }}{% else %}&ndash;{% endif %}</td>
-                    <td style="text-align:right">{% if not r.is_ok %}<span class="badge badge-{{ r.status }}">{{ r.status_label }}</span>{% endif %}</td>
+                    {% if with_behind %}<td class="num dim behind-col">{{ r.behind or "" }}</td>{% endif %}
+                    <td class="status-cell" style="text-align:right">{% if not r.is_ok %}<span class="badge badge-{{ r.status }}">{{ r.status_label }}</span>{% endif %}{% if expandable %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}</td>
                 </tr>
+                {% if expandable %}
+                <tr class="splits-row">
+                    <td colspan="{{ cols }}">
+                        <div class="splits-wrap">
+                            {% if r.missed_control %}<p class="mp-note">Mispunch: missed control {{ r.missed_control }}</p>{% endif %}
+                            <table class="splits">
+                                <thead><tr><th>Control</th><th>Leg</th><th>Cumulative</th></tr></thead>
+                                <tbody>{% for s in r.splits %}<tr><td>{{ s.control }}</td><td>{{ s.leg }}</td><td>{{ s.cumulative }}</td></tr>{% endfor %}</tbody>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+                {% else %}
+                <tr><td colspan="{{ cols }}" class="empty">No results yet</td></tr>
                 {% endfor %}
             </tbody>
         </table>
+        {% if cls.on_course %}
+        <div class="on-course">
+            <span class="on-course-label">Still out</span>
+            {% for r in cls.on_course %}<span class="on-course-item">{{ r.name }} <span class="mono dim">{{ r.start }}</span></span>{% endfor %}
+        </div>
+        {% endif %}
     </section>
+    {% else %}
+    <p class="empty">No results yet.</p>
     {% endfor %}
 </main>
 
 <footer class="public-foot">{% if published_at %}Updated {{ published_at }} · {% endif %}Live results · better-meos</footer>
+<script>
+(function () {
+    // Self-contained (this page is also published as a single file).
+    document.querySelectorAll("tr.runner.has-splits").forEach(function (row) {
+        function toggle() {
+            var next = row.nextElementSibling;
+            if (!next || !next.classList.contains("splits-row")) { return; }
+            var open = row.classList.toggle("open");
+            next.classList.toggle("open", open);
+            row.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+        row.addEventListener("click", toggle);
+        row.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+        });
+    });
+    var search = document.querySelector("[data-public-search]");
+    if (search) {
+        // Keep the search across the automatic refreshes.
+        try { search.value = sessionStorage.getItem("bm-public-search") || ""; } catch (e) { /* private mode */ }
+        search.addEventListener("input", function () {
+            try { sessionStorage.setItem("bm-public-search", search.value); } catch (e) { /* private mode */ }
+        });
+        search.addEventListener("input", function () {
+            var q = search.value.trim().toLowerCase();
+            document.querySelectorAll(".class-card").forEach(function (card) {
+                var any = false;
+                card.querySelectorAll("tr.runner").forEach(function (tr) {
+                    var hit = !q || tr.textContent.toLowerCase().indexOf(q) !== -1;
+                    tr.style.display = hit ? "" : "none";
+                    var next = tr.nextElementSibling;
+                    if (!hit && next && next.classList.contains("splits-row")) { next.classList.remove("open"); }
+                    any = any || hit;
+                });
+                card.style.display = any || !q ? "" : "none";
+            });
+        });
+        if (search.value) { search.dispatchEvent(new Event("input")); }
+    }
+})();
+</script>
 {% if published_at %}<script>setTimeout(function () { location.reload(); }, 60000);</script>
 {% else %}<script src="{{ url_for('static', filename='live.js') }}"></script>{% endif %}
 </body>

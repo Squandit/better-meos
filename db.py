@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS competitors (
     check_time TEXT,                             -- SI check punch (card cleared + checked)
     card_returned INTEGER NOT NULL DEFAULT 0,    -- hire card handed back
     course_id INTEGER,                           -- course override (forking); NULL = class's
+    read_at TEXT,                                -- last SI card read (NULL = not read yet)
     -- Backs store._check_card_unique at the DB level (NULLs are unconstrained,
     -- so hire-card competitors with no number are allowed).
     UNIQUE (event_id, card_number)
@@ -309,14 +310,22 @@ _MIGRATIONS = [
     ("competitors", "course_id", "INTEGER"),
     ("classes", "fork_courses", "TEXT"),
     ("classes", "restart", "TEXT"),
+    # Files from before read_at: anyone with a finish or punches was read.
+    ("competitors", "read_at", "TEXT",
+     "UPDATE competitors SET read_at = COALESCE(finish, start, "
+     "(SELECT MAX(time) FROM punches WHERE competitor_id = competitors.id)) "
+     "WHERE finish IS NOT NULL "
+     "OR EXISTS (SELECT 1 FROM punches WHERE competitor_id = competitors.id)"),
 ]
 
 
 def _migrate(conn) -> None:
-    for table, col, decl in _MIGRATIONS:
+    for table, col, decl, *backfill in _MIGRATIONS:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if col not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            for sql in backfill:
+                conn.execute(sql)
 
 
 def _c() -> sqlite3.Connection:
@@ -554,14 +563,14 @@ def save_competitor(event_id: int, comp: dict) -> None:
             """INSERT OR REPLACE INTO competitors
                (id, event_id, name, club, class_id, card_number, start, finish,
                 manual_status, bib, hired, team_id, leg, vacant, check_time,
-                card_returned, course_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                card_returned, course_id, read_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
              comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
              comp.get("team_id"), comp.get("leg"), 1 if comp.get("vacant") else 0,
              _iso(comp.get("check")), 1 if comp.get("card_returned") else 0,
-             comp.get("course_id")),
+             comp.get("course_id"), _iso(comp.get("read_at"))),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -915,6 +924,7 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "check": _dt(row["check_time"]),
                 "card_returned": bool(row["card_returned"]),
                 "course_id": row["course_id"],
+                "read_at": _dt(row["read_at"]) if row["read_at"] else None,
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),
