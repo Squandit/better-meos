@@ -145,6 +145,11 @@ def test_paid_order_enters_only_after_verified_capture(paypal):
     assert all(x["ok"] for x in body["results"]) and body["reference"] == f"CAP-{oid}"
     assert all(store.find_by_card(int(i["card"])) for i in cart)
     assert db.get_order_by_paypal(oid)["status"] == "completed"
+    # The Economy page sees them as paid, for exactly what was charged.
+    entered = [store.find_by_card(int(i["card"])) for i in cart]
+    assert round(sum(c["paid"] for c in entered), 2) == 25.00
+    assert {c["pay_method"] for c in entered} == {"PayPal"}
+    assert all(store.fee_due(c) == c["paid"] for c in entered)
 
 
 def test_capture_is_idempotent(paypal):

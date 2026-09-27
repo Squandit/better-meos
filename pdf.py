@@ -17,7 +17,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    PageBreak, SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
 )
 
 _GREEN = colors.HexColor("#1f6f43")
@@ -172,6 +172,57 @@ def prize_list_pdf(classes: list[dict], event: dict, places: int) -> bytes:
         tbl.setStyle(_table_style())
         story.append(tbl)
         story.append(Spacer(1, 6 * mm))
+    doc.build(story)
+    return buf.getvalue()
+
+
+def invoices_pdf(clubs: list[dict], event: dict, *, currency: str = "",
+                 text: str = "", due_days: int = 0) -> bytes:
+    """Club invoices, one page per club: each runner's fee, what's been paid
+    and what's still owed, then the payment details. ``clubs`` =
+    [{club, due, paid, owing, rows: [{name, class, due, paid, owing, method}]}]."""
+    from datetime import date, timedelta
+
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    styles = _styles()
+    story = []
+    today = date.today()
+    money = (lambda v: f"{v:,.2f}")
+    for n, club in enumerate(clubs):
+        if n:
+            story.append(PageBreak())
+        story.append(Paragraph(f"<b>Invoice</b>: {escape(club['club'])}", styles["Title"]))
+        line = f"{escape(event.get('name', ''))} · {escape(event.get('date', ''))}"
+        story.append(Paragraph(line, styles["Normal"]))
+        dated = f"Issued {today.strftime('%d %B %Y').lstrip('0')}"
+        if due_days:
+            due = today + timedelta(days=due_days)
+            dated += f" · due {due.strftime('%d %B %Y').lstrip('0')}"
+        story.append(Paragraph(dated, styles["Normal"]))
+        story.append(Spacer(1, 6 * mm))
+        data = [["Runner", "Class", "Fee", "Paid", "Owing"]]
+        for r in club["rows"]:
+            paid = money(r["paid"]) + (f" ({r['method']})" if r["paid"] and r["method"] else "")
+            data.append([r["name"], r["class"], money(r["due"]), paid, money(r["owing"])])
+        data.append(["Total", "", money(club["due"]), money(club["paid"]), money(club["owing"])])
+        tbl = Table(data, colWidths=[56 * mm, 26 * mm, 26 * mm, 36 * mm, 26 * mm])
+        style = _table_style()
+        style.add("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")
+        style.add("LINEABOVE", (0, -1), (-1, -1), 0.8, _GREEN)
+        style.add("ALIGN", (2, 0), (-1, -1), "RIGHT")
+        tbl.setStyle(style)
+        story.append(tbl)
+        story.append(Spacer(1, 6 * mm))
+        owing = f"<b>Amount owing: {money(club['owing'])} {escape(currency)}</b>"
+        story.append(Paragraph(owing if club["owing"] else "<b>Paid in full. Thank you!</b>",
+                               styles["Heading3"]))
+        if text:
+            story.append(Spacer(1, 3 * mm))
+            for para in text.splitlines():
+                story.append(Paragraph(escape(para) or "&nbsp;", styles["Normal"]))
+    if not story:
+        story.append(Paragraph("No entries to invoice.", styles["Normal"]))
     doc.build(story)
     return buf.getvalue()
 

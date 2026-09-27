@@ -244,10 +244,13 @@ def _enter_items(items: list[dict]) -> list[dict]:
             cls = store.get_class(item["class_id"])
             outcome = {"name": item["name"], "className": cls["name"] if cls else "",
                        "card": item["card"], "club": item["club"]}
+            price = float(item.get("price") or 0)
             try:
                 comp = store.create_competitor({
                     "name": item["name"], "club": item["club"],
                     "class_id": item["class_id"], "card_number": item["card"],
+                    # What they were charged, already paid (Economy page).
+                    "fee": price, "paid": price, "pay_method": "PayPal" if price else "",
                 })
                 runners.record_competitor(comp)
                 outcome.update(ok=True, detail="")
@@ -298,8 +301,8 @@ def start_order(data: dict, *, client_key: str | None = None) -> dict:
     if not _EMAIL_RE.match(email) or len(email) > 200:
         raise EntryError("Please enter a valid email address for your receipt")
 
-    for item, line in zip(items, price["lines"]):
-        item["price"] = payments.money_str(line, code)
+    for item, share in zip(items, price["shares"]):
+        item["price"] = payments.money_str(share, code)     # what they actually pay
     with store._lock:
         _check_items(items)
         _supersede_unpaid({i["card"] for i in items})

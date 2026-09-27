@@ -941,3 +941,7 @@ tr.quick-entry-row > td { background: var(--surface-2); }
 .controls-table tr.ctl-optional td, .controls-table tr.ctl-no_timing td { background: color-mix(in srgb, #e08a1e 8%, transparent); }
 .controls-table tr.ctl-alarm td:first-child { box-shadow: inset 3px 0 0 #b8302f; }
 .missed-hot { color: #b8302f; font-weight: 700; }
+
+/* ---- Economy ------------------------------------------------------------------ */
+td.owing { color: #b8302f; font-weight: 700; }
+.stat-grid + .panel { margin-top: 16px; }

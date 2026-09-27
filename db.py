@@ -311,6 +311,9 @@ _MIGRATIONS = [
     ("classes", "fork_courses", "TEXT"),
     ("classes", "restart", "TEXT"),
     ("classes", "results_mode", "TEXT NOT NULL DEFAULT 'normal'"),
+    ("competitors", "fee", "REAL"),                      # NULL = the class fee
+    ("competitors", "paid", "REAL NOT NULL DEFAULT 0"),
+    ("competitors", "pay_method", "TEXT"),
     ("classes", "entry_max", "INTEGER NOT NULL DEFAULT 0"),
     ("classes", "online_entry", "INTEGER NOT NULL DEFAULT 1"),
     # Files from before read_at: anyone with a finish or punches was read.
@@ -588,14 +591,15 @@ def save_competitor(event_id: int, comp: dict) -> None:
             """INSERT OR REPLACE INTO competitors
                (id, event_id, name, club, class_id, card_number, start, finish,
                 manual_status, bib, hired, team_id, leg, vacant, check_time,
-                card_returned, course_id, read_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                card_returned, course_id, read_at, fee, paid, pay_method)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
              comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
              comp.get("team_id"), comp.get("leg"), 1 if comp.get("vacant") else 0,
              _iso(comp.get("check")), 1 if comp.get("card_returned") else 0,
-             comp.get("course_id"), _iso(comp.get("read_at"))),
+             comp.get("course_id"), _iso(comp.get("read_at")), comp.get("fee"),
+             float(comp.get("paid") or 0), comp.get("pay_method") or None),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -953,6 +957,9 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "card_returned": bool(row["card_returned"]),
                 "course_id": row["course_id"],
                 "read_at": _dt(row["read_at"]) if row["read_at"] else None,
+                "fee": row["fee"],
+                "paid": row["paid"] or 0.0,
+                "pay_method": row["pay_method"] or "",
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),

@@ -3,14 +3,87 @@
 {% block heading %}Economy{% endblock %}
 {% block content %}
 <div class="page-head">
-    <h3>Entry fees &amp; hire cards</h3>
-    <p>Fee per class × entries, plus hire-card counts. Set a class's fee in the class editor.</p>
+    <h3>Money</h3>
+    <p>What every runner owes (their class fee, or what they paid online, plus the hire-card fee) and what's been
+       paid. Record a payment with one click; clubs get an invoice each. Fees and payment methods are in the gear menu.</p>
 </div>
 
+<div class="stat-grid">
+    <div class="stat"><div class="label">Due</div><div class="value">{{ '%.2f'|format(money.due) }}</div><div class="sub">{{ currency }} · {{ money.runners|length }} runners</div></div>
+    <div class="stat accent"><div class="label">Paid</div><div class="value">{{ '%.2f'|format(money.paid) }}</div>
+        <div class="sub">{% for m, amount in money.methods %}{{ m }} {{ '%.2f'|format(amount) }}{% if not loop.last %} · {% endif %}{% else %}nothing yet{% endfor %}</div></div>
+    <div class="stat"><div class="label">Owing</div><div class="value">{{ '%.2f'|format(money.owing) }}</div><div class="sub">{{ money.runners|selectattr("owing")|list|length }} runners</div></div>
+    <div class="stat"><div class="label">Hire cards out</div><div class="value">{{ economy.outstanding|length }}</div><div class="sub">of {{ economy.hire_cards }} hired</div></div>
+</div>
+
+<section class="panel" data-filter>
+    <div class="panel-head">
+        <h4>Runners</h4>
+        <span class="panel-chips">
+            <label class="check"><input type="checkbox" data-owing-only> Owing only</label>
+            <input class="search" type="search" placeholder="Find a runner or club" aria-label="Find a runner or club">
+        </span>
+    </div>
+    <div class="table-scroll">
+    <table class="table" data-payments>
+        <thead>
+            <tr><th>Runner</th><th style="width:90px">Class</th><th class="num" style="width:90px">Due</th>
+                <th class="num" style="width:90px">Paid</th><th style="width:120px">Method</th>
+                <th style="width:260px;text-align:right">Record payment</th></tr>
+        </thead>
+        <tbody>
+            {% for r in money.runners %}
+            <tr data-id="{{ r.id }}" data-owing="{{ 1 if r.owing else 0 }}">
+                <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
+                <td>{{ r['class'] }}{% if r.hired %} <span class="chip grey" title="Hire card">hire</span>{% endif %}</td>
+                <td class="num">{{ '%.2f'|format(r.due) }}</td>
+                <td class="num{% if r.owing %} owing{% else %} strong{% endif %}">{{ '%.2f'|format(r.paid) }}</td>
+                <td class="dim">{{ r.method }}</td>
+                <td style="text-align:right" class="row-actions">
+                    {% if r.owing %}
+                    {% for m in methods[:2] %}<button class="btn btn-soft btn-sm" data-pay="{{ m }}">{{ m }}</button>{% endfor %}
+                    <select data-pay-other aria-label="Other payment method">
+                        <option value="">Other…</option>
+                        {% for m in methods[2:] %}<option>{{ m }}</option>{% endfor %}
+                    </select>
+                    {% else %}<button class="link-btn" data-unpay>Undo</button>{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="empty">No entries yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+
 <section class="panel">
+    <div class="panel-head">
+        <h4>Clubs</h4>
+        <a class="btn btn-soft btn-sm" href="{{ url_for('export_invoices_pdf') }}">All invoices (PDF)</a>
+    </div>
+    <table class="table">
+        <thead><tr><th>Club</th><th class="num">Entries</th><th class="num">Due</th><th class="num">Paid</th><th class="num">Owing</th><th style="width:100px"></th></tr></thead>
+        <tbody>
+            {% for c in money.clubs %}
+            <tr>
+                <td class="cell-name">{{ c.club }}</td>
+                <td class="num">{{ c.entries }}</td>
+                <td class="num">{{ '%.2f'|format(c.due) }}</td>
+                <td class="num">{{ '%.2f'|format(c.paid) }}</td>
+                <td class="num{% if c.owing %} owing{% endif %}">{{ '%.2f'|format(c.owing) }}</td>
+                <td style="text-align:right"><a class="link-btn" href="{{ url_for('export_invoices_pdf', club=c.club) }}">Invoice</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>By class</h4></div>
     <table class="table">
         <thead>
-            <tr><th>Class</th><th class="num">Entries</th><th class="num">Fee</th>
+            <tr><th>Class</th><th class="num">Entries</th><th class="num">Class fee</th>
                 <th class="num">Subtotal</th><th class="num">Hire cards</th></tr>
         </thead>
         <tbody>
@@ -26,13 +99,6 @@
             <tr><td colspan="5" class="empty">No classes yet.</td></tr>
             {% endfor %}
         </tbody>
-        <tfoot>
-            <tr>
-                <td class="strong">Total</td><td></td><td></td>
-                <td class="num strong">{{ '%.2f'|format(economy.total_fees) }}</td>
-                <td class="num strong">{{ economy.hire_cards }}</td>
-            </tr>
-        </tfoot>
     </table>
 </section>
 
@@ -60,13 +126,44 @@
     </table>
 </section>
 <script>
-document.querySelector("[data-hire]").addEventListener("click", function (e) {
-    if (!e.target.closest("[data-returned]")) { return; }
-    var row = e.target.closest("tr");
-    fetch("/api/competitors/" + row.dataset.id, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card_returned: true })
-    }).then(function (r) { if (r.ok) { row.remove(); } });
-});
+(function () {
+    function post(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(body) })
+            .then(function (r) { return r.json().then(function (d) { if (!r.ok) { throw new Error(d.error || "Failed"); } return d; }); });
+    }
+    var table = document.querySelector("[data-payments]");
+    function pay(row, method, amount) {
+        post("/api/competitors/" + row.dataset.id + "/payment", { method: method, amount: amount })
+            .then(function () { window.location.reload(); })
+            .catch(function (err) { window.alert(err.message); });
+    }
+    table.addEventListener("click", function (e) {
+        var row = e.target.closest("tr[data-id]");
+        if (!row) { return; }
+        var btn = e.target.closest("[data-pay]");
+        if (btn) { pay(row, btn.dataset.pay); return; }
+        if (e.target.closest("[data-unpay]")) { pay(row, "", 0); }
+    });
+    table.addEventListener("change", function (e) {
+        if (e.target.matches("[data-pay-other]") && e.target.value) {
+            pay(e.target.closest("tr[data-id]"), e.target.value);
+        }
+    });
+    var owingOnly = document.querySelector("[data-owing-only]");
+    owingOnly.addEventListener("change", function () {
+        table.querySelectorAll("tr[data-id]").forEach(function (tr) {
+            tr.hidden = owingOnly.checked && tr.dataset.owing !== "1";
+        });
+    });
+    document.querySelector("[data-hire]").addEventListener("click", function (e) {
+        if (!e.target.closest("[data-returned]")) { return; }
+        var row = e.target.closest("tr");
+        fetch("/api/competitors/" + row.dataset.id, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ card_returned: true })
+        }).then(function (r) { if (r.ok) { row.remove(); } });
+    });
+})();
 </script>
 {% endblock %}

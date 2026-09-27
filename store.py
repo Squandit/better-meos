@@ -16,6 +16,7 @@ human-readable message that the API layer turns into a 400.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 from contextlib import contextmanager
@@ -486,7 +487,7 @@ def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0,
 def _insert_competitor(*, name, club, class_id, card_number, start, finish,
                        punches, manual_status, bib=None, hired=False,
                        team_id=None, leg=None, vacant=False, course_id=None,
-                       read_at=None) -> int:
+                       read_at=None, fee=None, paid=0.0, pay_method="") -> int:
     cid = _next_id("competitor")
     _competitors[cid] = {
         "id": cid,
@@ -505,6 +506,9 @@ def _insert_competitor(*, name, club, class_id, card_number, start, finish,
         "vacant": vacant,
         "course_id": course_id,
         "read_at": read_at,
+        "fee": fee,
+        "paid": paid,
+        "pay_method": pay_method,
     }
     db.save_competitor(_active_event_id, _competitors[cid])
     return cid
@@ -826,6 +830,62 @@ def team_results() -> list[dict]:
 # Economy (entry fees + hire cards) and bib numbers
 # ---------------------------------------------------------------------------
 
+def fee_due(comp: dict) -> float:
+    """What one runner owes in all: their own fee if one is set (online entries
+    record what they paid), else the class fee, plus the hire-card fee."""
+    cls = _classes.get(comp["class_id"]) or {}
+    base = comp["fee"] if comp.get("fee") is not None else (cls.get("fee") or 0)
+    hire = (config.get("hire_card_fee") or 0) if comp.get("hired") else 0
+    return round(float(base) + float(hire), 2)
+
+
+def record_payment(comp_id: int, method: str, amount=None) -> dict:
+    """Mark a runner paid (by default the whole amount due) with a method."""
+    with _lock:
+        comp = _competitors.get(comp_id)
+        if comp is None:
+            raise StoreError("That competitor no longer exists")
+        paid = fee_due(comp) if amount in (None, "") else _money(amount, "Paid")
+        method = _clean_str(method, "Payment method")[:40]
+        before = (comp.get("paid") or 0, comp.get("pay_method") or "")
+        comp["paid"], comp["pay_method"] = paid, method
+        db.save_competitor(_active_event_id, comp)
+        _audit("payment", _who(comp), f"{before[0]:.2f} {before[1]} -> {paid:.2f} {method}".strip())
+        return competitor_json(comp)
+
+
+def payments_summary() -> dict:
+    """Per-runner money: who owes what, totals by payment method and by club."""
+    with _lock:
+        runners, by_method, by_club = [], {}, {}
+        for c in sorted(_competitors.values(), key=lambda c: c["name"].lower()):
+            if c.get("vacant"):
+                continue
+            due = fee_due(c)
+            paid = round(c.get("paid") or 0, 2)
+            cls = _classes.get(c["class_id"]) or {}
+            row = {"id": c["id"], "name": c["name"], "club": c.get("club") or "",
+                   "class": cls.get("name", ""), "due": due, "paid": paid,
+                   "owing": round(max(due - paid, 0), 2), "method": c.get("pay_method") or "",
+                   "hired": bool(c.get("hired"))}
+            runners.append(row)
+            if paid:
+                key = row["method"] or "Not recorded"
+                by_method[key] = round(by_method.get(key, 0) + paid, 2)
+            club = by_club.setdefault(row["club"] or "No club", {
+                "club": row["club"] or "No club", "entries": 0, "due": 0.0, "paid": 0.0,
+                "owing": 0.0})
+            club["entries"] += 1
+            for k in ("due", "paid", "owing"):
+                club[k] = round(club[k] + row[k], 2)
+        return {"runners": runners,
+                "methods": sorted(by_method.items(), key=lambda kv: -kv[1]),
+                "clubs": sorted(by_club.values(), key=lambda c: c["club"].lower()),
+                "due": round(sum(r["due"] for r in runners), 2),
+                "paid": round(sum(r["paid"] for r in runners), 2),
+                "owing": round(sum(r["owing"] for r in runners), 2)}
+
+
 def economy_summary() -> dict:
     """Fee totals per class plus hire-card counts for the active event."""
     with _lock:
@@ -890,6 +950,10 @@ def competitor_json(comp: dict) -> dict:
         "vacant": bool(comp.get("vacant")),
         "course_id": comp.get("course_id"),
         "read_at": format_clock(comp.get("read_at")),
+        "fee": "" if comp.get("fee") is None else comp["fee"],
+        "paid": comp.get("paid") or 0,
+        "pay_method": comp.get("pay_method") or "",
+        "due": fee_due(comp),
         "punches": [
             {"code": p["code"], "time": format_clock(p["time"])}
             for p in comp["punches"]
@@ -974,6 +1038,14 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         if course_id is not None and course_id not in _courses:
             raise StoreError("That course no longer exists")
         out["course_id"] = course_id
+    # Money is optional on a full payload too: most forms never send it.
+    if "fee" in data:
+        raw = data.get("fee")
+        out["fee"] = None if raw in (None, "") else _money(raw, "Fee")
+    if "paid" in data:
+        out["paid"] = _money(data.get("paid") or 0, "Paid")
+    if "pay_method" in data:
+        out["pay_method"] = _clean_str(data.get("pay_method"), "Payment method")[:40]
 
     # Cross-field: finish must not precede start.
     start = out.get("start", current["start"] if current else None)
@@ -985,6 +1057,15 @@ def _validated_competitor_fields(data: dict, *, partial=False, current=None) -> 
         raise StoreError("Finish time is before the start time")
 
     return out
+
+
+def _money(value, field: str) -> float:
+    amount = round(_as_float(value, field), 2)
+    if not math.isfinite(amount) or amount > 1_000_000:
+        raise StoreError(f"{field} must be an amount of money")
+    if amount < 0:
+        raise StoreError(f"{field} can't be negative")
+    return amount
 
 
 def _check_card_unique(card_number, *, ignore: int | None = None) -> None:
@@ -1017,6 +1098,9 @@ def create_competitor(data: dict) -> dict:
             leg=fields.get("leg"),
             course_id=fields.get("course_id"),
             read_at=datetime.now() if data.get("read") or fields.get("finish") else None,
+            fee=fields.get("fee"),
+            paid=fields.get("paid") or 0.0,
+            pay_method=fields.get("pay_method", ""),
         )
         comp = _competitors[cid]
         _audit("competitor added", _who(comp),

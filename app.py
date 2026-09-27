@@ -272,7 +272,9 @@ def competitors():
     return render_template(
         "competitors.html", active="competitors", rows=rows,
         class_options=store.class_options(), course_options=store.course_options(),
-        status_options=[{"value": s, "label": display.STATUS_LABELS[s]} for s in display.STATUS_ORDER],
+        status_options=[{"value": s, "label": display.STATUS_LABELS[s]}
+                        for s in display.STATUS_ORDER if s != "pending"],
+        pay_methods=[m.strip() for m in config.get_str("pay_methods").split(",") if m.strip()],
     )
 
 
@@ -583,8 +585,40 @@ def api_delete_team(team_id):
 
 @app.route("/economy")
 def economy_page():
+    methods = [m.strip() for m in config.get_str("pay_methods").split(",") if m.strip()]
     return render_template("economy.html", active="economy",
-                           economy=store.economy_summary(), event=store.EVENT)
+                           economy=store.economy_summary(), money=store.payments_summary(),
+                           methods=methods, currency=config.get_str("currency"),
+                           event=store.EVENT)
+
+
+@app.route("/api/competitors/<int:comp_id>/payment", methods=["POST"])
+def api_record_payment(comp_id):
+    """Record a payment: the whole amount due unless an amount is given."""
+    data = _payload()
+    comp = store.record_payment(comp_id, str(data.get("method") or ""), data.get("amount"))
+    return jsonify({"ok": True, "competitor": comp})
+
+
+@app.route("/export/invoices.pdf")
+def export_invoices_pdf():
+    """Club invoices: one page per club (or just ?club=...), what each runner
+    owes and what's been paid."""
+    money = store.payments_summary()
+    wanted = request.args.get("club")
+    clubs = []
+    for club in money["clubs"]:
+        if wanted and club["club"] != wanted:
+            continue
+        rows = [r for r in money["runners"] if (r["club"] or "No club") == club["club"]]
+        clubs.append({**club, "rows": rows})
+    data = pdf.invoices_pdf(clubs, store.EVENT, currency=config.get_str("currency"),
+                            text=config.get_str("invoice_text"),
+                            due_days=int(config.get("invoice_due_days") or 0))
+    name = f"{store.EVENT['slug']}-invoice" + (f"-{wanted}" if wanted else "s")
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in name)
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename={safe}.pdf"})
 
 
 @app.route("/speaker")

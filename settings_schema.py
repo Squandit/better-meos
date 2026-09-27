@@ -193,6 +193,19 @@ SCHEMA: list[Setting] = [
       "Comma-separated clubs for the entry page's club dropdown "
       "(blank = clubs already in the event).", env="BMEOS_CLUBS", pages=("entries",)),
 
+    # ---- Economy (per event) -----------------------------------------------------
+    S("hire_card_fee", "Hire card fee", "float", 0.0, "Economy",
+      "Added to what a runner owes when they hire a card.", scope="event",
+      pages=("economy",), minimum=0),
+    S("pay_methods", "Payment methods", "text", "Cash, Card, Bank transfer, Invoice",
+      "Economy", "Comma separated; the choices when you record a payment.",
+      scope="event", pages=("economy",)),
+    S("invoice_text", "Invoice payment details", "text", "", "Economy",
+      "Printed at the bottom of club invoices, e.g. the bank account to pay into.",
+      scope="event", pages=("economy",)),
+    S("invoice_due_days", "Invoices due after (days)", "int", 14, "Economy", "",
+      scope="event", pages=("economy",), minimum=0, maximum=365),
+
     # ---- Online payments -----------------------------------------------------
     S("paypal_client_id", "PayPal client ID", "str", "", "Online payments (PayPal)",
       "Public client id from your PayPal app.", env="PAYPAL_CLIENT_ID",

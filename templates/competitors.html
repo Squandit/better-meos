@@ -120,6 +120,19 @@
                     <label class="check"><input type="checkbox" name="hired"> Rented on the day</label>
                 </label>
                 <label class="field">
+                    <span class="field-label">Fee <span class="hint">blank = class fee</span></span>
+                    <input type="number" name="fee" inputmode="decimal" min="0" step="0.01" autocomplete="off">
+                </label>
+                <label class="field">
+                    <span class="field-label">Paid</span>
+                    <input type="number" name="paid" inputmode="decimal" min="0" step="0.01" autocomplete="off" placeholder="0">
+                </label>
+                <label class="field">
+                    <span class="field-label">Paid by</span>
+                    <input type="text" name="pay_method" list="pay-methods" autocomplete="off" placeholder="Cash">
+                    <datalist id="pay-methods">{% for m in pay_methods %}<option value="{{ m }}">{% endfor %}</datalist>
+                </label>
+                <label class="field">
                     <span class="field-label">Course <span class="hint">fork / override</span></span>
                     <select name="course_id">
                         <option value="">Class course</option>

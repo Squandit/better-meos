@@ -131,15 +131,30 @@ def quote(member_types: list[str], *, now: datetime | None = None) -> dict:
     """
     Price a cart server-side: one fee per person by membership type (plus the
     late surcharge once it applies), then the family cap. Returns Decimals:
-    ``{"lines", "subtotal", "total", "capped", "late"}``.
+    ``{"lines", "shares", "subtotal", "total", "capped", "late"}``.
+
+    ``lines`` are the list prices; ``shares`` are what each person actually
+    pays, the cap's discount spread in proportion so they add up to exactly
+    ``total`` (the books then match what PayPal took, to the cent).
     """
     late = late_fee(now)
     lines = [fee_for(t) + late for t in member_types]
     subtotal = sum(lines, Decimal(0))
     cap = to_money(config.get("family_cap"))
-    total = min(subtotal, cap) if cap > 0 else subtotal
-    return {"lines": lines, "subtotal": to_money(subtotal),
-            "total": to_money(total), "capped": total < subtotal, "late": late}
+    total = to_money(min(subtotal, cap) if cap > 0 else subtotal)
+    return {"lines": lines, "shares": _shares(lines, total), "subtotal": to_money(subtotal),
+            "total": total, "capped": total < subtotal, "late": late}
+
+
+def _shares(lines: list[Decimal], total: Decimal) -> list[Decimal]:
+    """Split ``total`` across people in proportion to their list prices, in
+    whole cents, the rounding remainder going to the last person."""
+    subtotal = sum(lines, Decimal(0))
+    if not lines or subtotal <= 0:
+        return [Decimal(0) for _ in lines]
+    shares = [to_money(line * total / subtotal) for line in lines]
+    shares[-1] = to_money(total - sum(shares[:-1], Decimal(0)))
+    return shares
 
 
 # --- PayPal REST client -----------------------------------------------------

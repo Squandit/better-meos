@@ -208,6 +208,9 @@
                 manual_status: field("manual_status").value,
                 bib: field("bib") ? field("bib").value : "",
                 hired: field("hired") ? field("hired").checked : false,
+                fee: field("fee") ? field("fee").value : "",
+                paid: field("paid") ? field("paid").value : "",
+                pay_method: field("pay_method") ? field("pay_method").value : "",
                 team_id: field("team_id") ? field("team_id").value : "",
                 leg: field("leg") ? field("leg").value : "",
                 course_id: field("course_id") ? field("course_id").value : "",
@@ -376,6 +379,9 @@
                 field("manual_status").value = c.manual_status || "";
                 if (field("bib")) { field("bib").value = c.bib == null ? "" : c.bib; }
                 if (field("hired")) { field("hired").checked = !!c.hired; }
+                if (field("fee")) { field("fee").value = c.fee === "" || c.fee == null ? "" : c.fee; }
+                if (field("paid")) { field("paid").value = c.paid ? c.paid : ""; }
+                if (field("pay_method")) { field("pay_method").value = c.pay_method || ""; }
                 if (field("leg")) { field("leg").value = c.leg == null ? "" : c.leg; }
                 if (field("course_id")) { field("course_id").value = c.course_id == null ? "" : c.course_id; }
                 refreshTeams(c.class_id, c.team_id);
