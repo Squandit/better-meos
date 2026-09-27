@@ -20,7 +20,7 @@ from typing import Callable
 
 import config
 import store
-from results import format_duration, format_split, rank_results
+from results import build_splits_matrix, format_duration, format_split, rank_results
 
 # Result status codes -> short display labels, and the order to list them in.
 STATUS_LABELS = {
@@ -292,3 +292,49 @@ def latest_finishers(limit: int = 10, fresh_seconds: int = 120) -> list[dict]:
         row["fresh"] = read_at is not None and (wall - read_at).total_seconds() < fresh_seconds
         out.append(row)
     return out
+
+
+def slip_view(comp_id: int) -> dict | None:
+    """
+    Everything a split slip shows: the runner's row, their place and time
+    behind in the class, and for a linear course one line per course control
+    (in course order, a missed one marked) with the leg time, the place on that
+    leg within the class and the running time.
+    """
+    classes, by_id = store.evaluate()
+    result = by_id.get(comp_id)
+    if result is None:
+        return None
+    fmt = time_formatter()
+    row = view_row(result, fmt)
+    entry = next((e for e in classes
+                  if any(r["id"] == comp_id for r in e["results"])), None)
+    view = {"row": row, "place": None, "of": None, "behind": "", "legs": None,
+            "footer": config.get_str("slip_footer"),
+            "show_place": bool(config.get("slip_show_place")),
+            "leg_places": bool(config.get("slip_leg_places"))}
+    if entry is None:
+        return view
+    placed = [r for r in entry["results"] if r["position"] is not None]
+    view["of"] = len(placed)
+    view["place"] = result["position"]
+    if result["position"] and result["position"] > 1 and result["total_seconds"] is not None:
+        best = placed[0]
+        if entry["course"]["type"] == "score":
+            gap = (best["points"] or 0) - (result["points"] or 0)
+            view["behind"] = f"-{gap} pts" if gap else "+" + fmt(result["total_seconds"] - best["total_seconds"])
+        else:
+            view["behind"] = "+" + fmt(result["total_seconds"] - best["total_seconds"])
+    course = store.get_course(result.get("course_id")) or entry["course"]
+    if course["type"] == "linear" and result.get("start") is not None:
+        same = [r for r in entry["results"]
+                if r.get("course_id", entry["course"]["id"]) == course["id"]]
+        matrix = build_splits_matrix(same, list(course["controls"]),
+                                     course.get("leg_lengths"), fmt=lambda x: fmt(x) or "")
+        mine = next((r for r in matrix["rows"] if r["id"] == comp_id), None)
+        if mine is not None:
+            view["legs"] = [{"n": i + 1 if leg["code"] != "F" else "F",
+                             "code": leg["code"] if leg["code"] != "F" else "",
+                             **cell}
+                            for i, (leg, cell) in enumerate(zip(matrix["legs"], mine["cells"]))]
+    return view

@@ -23,8 +23,10 @@
         if (reloadTimer) { return; }          // a reload is already queued
         reloadTimer = setTimeout(function () {
             reloadTimer = null;
-            // Don't yank the page away while someone is customising it or typing.
-            if (document.body.dataset.editing === "1") { scheduleReload(); return; }
+            // Don't yank the page away while someone is customising it, typing,
+            // or while split slips are still printing from it.
+            var b = document.body.dataset;
+            if (b.editing === "1" || b.printing === "1") { scheduleReload(); return; }
             // Pages that can swap in new content in place (the live screen) do.
             if (typeof window.BMSoftRefresh === "function") { window.BMSoftRefresh(); return; }
             window.location.reload();

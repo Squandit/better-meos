@@ -5,12 +5,16 @@
 {% block content %}
 <div class="page-head">
     <h3>Finish downloads</h3>
-    <p>Cards read at the finish, most recent first. Click a row to inspect its splits.</p>
+    <p>Cards read at the finish, latest finish first. Click a row to inspect its splits.</p>
 </div>
 
 <div class="toolbar" data-download>
     <button class="btn btn-primary" data-simulate>Simulate download</button>
-    <label class="check"><input type="checkbox" data-autoprint> Auto-print splits</label>
+    <label class="check">Auto-print
+        <select data-autoprint title="Print split slips on this computer as cards are read">
+            {% for value, label in auto_print_choices %}<option value="{{ value }}"{% if value == auto_print %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+    </label>
     <span class="muted-count" data-sim-result></span>
     <a class="btn btn-soft" href="{{ url_for('readout_page') }}" target="_blank" rel="noopener">Readout screen</a>
     <span class="toolbar-spacer"></span>
@@ -40,14 +44,40 @@
                 <td class="mono">{{ u.finish or '—' }}</td>
                 <td class="num">{{ u.punches }}</td>
                 <td>
+                    <button class="btn btn-primary btn-sm" data-new-entry>New runner</button>
+                    <span class="dim">or</span>
                     <select data-assign-to>
-                        <option value="">Choose competitor…</option>
+                        <option value="">someone already entered…</option>
                         {% for r in assignable %}
                         <option value="{{ r.id }}">{{ r.name }} ({{ r['class'] }}{% if r.si %}, SI {{ r.si }}{% endif %})</option>
                         {% endfor %}
                     </select>
                     <button class="link-btn" data-assign>Assign</button>
                     <button class="link-btn danger" data-discard>Discard</button>
+                </td>
+            </tr>
+            <tr class="quick-entry-row" data-entry-for="{{ u.id }}" hidden>
+                <td colspan="6">
+                    <form class="quick-entry" data-quick-entry="{{ u.id }}">
+                        <label>Name<input name="name" required value="{{ u.known.name or '' }}" placeholder="Full name" autocomplete="off"></label>
+                        <label>Club<input name="club" value="{{ u.known.club or '' }}" autocomplete="off"></label>
+                        <label>Class
+                            <select name="class_id" required>
+                                {% if u.suggested %}
+                                <optgroup label="Fits the punches">
+                                    {% for c in u.suggested %}<option value="{{ c.class_id }}">{{ c.name }} · {{ c.reason }}</option>{% endfor %}
+                                </optgroup>
+                                <optgroup label="All classes">
+                                {% else %}<option value="">Choose…</option>{% endif %}
+                                {% for c in class_options %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                                {% if u.suggested %}</optgroup>{% endif %}
+                            </select>
+                        </label>
+                        <label class="check"><input type="checkbox" name="hired"> Hire card</label>
+                        <button class="btn btn-primary" type="submit">Add and give them this run</button>
+                        {% if u.known.name %}<span class="dim">Known card: {{ u.known.name }}{% if u.known.usual_class %}, usually {{ u.known.usual_class }}{% endif %}</span>{% endif %}
+                        <span class="form-error" data-entry-error></span>
+                    </form>
                 </td>
             </tr>
             {% endfor %}
@@ -96,7 +126,7 @@
                 <td style="text-align:right">
                     {{ badge(r) }}
                     {% if r.ignored %}<span class="chip red" title="Punches outside this run were ignored. Was the card cleared?">{{ r.ignored }} old punch{{ 'es' if r.ignored != 1 else '' }}</span>{% endif %}
-                    <a class="link-btn" href="{{ url_for('slip', comp_id=r.id) }}?print=1" target="_blank" rel="noopener" onclick="event.stopPropagation()">Print</a>
+                    <a class="link-btn" href="{{ url_for('slip', comp_id=r.id) }}?print=1" target="_blank" rel="noopener" data-print-slip="{{ r.id }}">Print</a>
                     {% if r.splits %}<span class="chev" aria-hidden="true">&#9656;</span>{% endif %}
                 </td>
             </tr>
@@ -108,22 +138,63 @@
     </table>
 </section>
 
+<script type="application/json" data-reads>{{ {"boot": boot, "reads": reads}|tojson }}</script>
+<script src="{{ url_for('static', filename='printing.js') }}"></script>
 <script>
 (function () {
     var bar = document.querySelector("[data-download]");
-    var toggle = bar.querySelector("[data-autoprint]");
     var out = bar.querySelector("[data-sim-result]");
+    var rule = bar.querySelector("[data-autoprint]");
 
-    toggle.checked = localStorage.getItem("bm-autoprint") === "1";
-    toggle.addEventListener("change", function () {
-        localStorage.setItem("bm-autoprint", toggle.checked ? "1" : "0");
+    function store(key, value) { try { sessionStorage.setItem(key, value); } catch (e) { /* private mode */ } }
+    function recall(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } }
+    function json(req) {
+        return req.then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (d) {
+                if (!r.ok) { throw new Error(d.error || "Failed"); }
+                return d;
+            });
+        });
+    }
+
+    // ---- Auto-print: every read since this page last looked, in read order.
+    var data = JSON.parse(document.querySelector("[data-reads]").textContent);
+    var newest = data.reads.reduce(function (m, r) { return Math.max(m, r.seq); }, 0);
+    function wanted(status) {
+        if (rule.value === "all") { return true; }
+        if (rule.value === "ok") { return status === "ok"; }
+        if (rule.value === "not_ok") { return status !== "ok"; }
+        return false;
+    }
+    var last = parseInt(recall("bm-print-seq") || "", 10);
+    if (recall("bm-print-boot") === data.boot && !isNaN(last)) {
+        data.reads.filter(function (r) { return r.seq > last && wanted(r.status); })
+            .sort(function (a, b) { return a.seq - b.seq; })
+            .forEach(function (r) { window.BMPrint.slip(r.id); });
+    }
+    store("bm-print-boot", data.boot);
+    store("bm-print-seq", String(Math.max(newest, isNaN(last) ? 0 : last)));
+
+    rule.addEventListener("change", function () {
+        store("bm-print-seq", String(newest));      // switching on doesn't print the backlog
+        window.BMSettings.post("computer", { auto_print: rule.value })
+            .then(function () { out.textContent = "Auto-print saved for this computer"; })
+            .catch(function (err) { out.textContent = err.message; });
     });
 
+    // ---- Unmatched cards: assign, discard, or enter a new runner.
     var unmatched = document.querySelector("[data-unmatched]");
     if (unmatched) {
         unmatched.addEventListener("click", function (e) {
             var row = e.target.closest("[data-read-row]");
             if (!row) { return; }
+            if (e.target.closest("[data-new-entry]")) {
+                var form = unmatched.querySelector("[data-entry-for='" + row.dataset.id + "']");
+                form.hidden = !form.hidden;
+                document.body.dataset.editing = form.hidden ? "" : "1";   // no reload mid-typing
+                if (!form.hidden) { form.querySelector("input[name=name]").focus(); }
+                return;
+            }
             var req = null;
             if (e.target.closest("[data-assign]")) {
                 var who = row.querySelector("[data-assign-to]").value;
@@ -137,37 +208,35 @@
                 req = fetch("/api/card-reads/" + row.dataset.id, { method: "DELETE" });
             }
             if (!req) { return; }
-            req.then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-               .then(function (res) {
-                   if (!res.ok) { window.alert((res.d && res.d.error) || "Failed"); return; }
-                   window.location.reload();
-               });
+            json(req).then(function () { window.location.reload(); })
+                .catch(function (err) { window.alert(err.message); });
+        });
+        unmatched.addEventListener("submit", function (e) {
+            var form = e.target.closest("[data-quick-entry]");
+            if (!form) { return; }
+            e.preventDefault();
+            var err = form.querySelector("[data-entry-error]");
+            err.textContent = "";
+            var body = {
+                name: form.elements.name.value, club: form.elements.club.value,
+                class_id: form.elements.class_id.value, hired: form.elements.hired.checked
+            };
+            json(fetch("/api/card-reads/" + form.dataset.quickEntry + "/enter", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body)
+            })).then(function () {
+                document.body.dataset.editing = "";
+                window.location.reload();
+            }).catch(function (x) { err.textContent = x.message; });
         });
     }
 
     bar.querySelector("[data-simulate]").addEventListener("click", function () {
         out.textContent = "Reading…";
-        fetch("/api/reader/simulate", { method: "POST" })
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-                out.textContent = d.ok ? ("Downloaded " + d.name) : (d.error || "Failed");
-                setTimeout(function () { window.location.reload(); }, 400);
-            })
-            .catch(function () { out.textContent = "Failed"; });
+        json(fetch("/api/reader/simulate", { method: "POST" }))
+            .then(function (d) { out.textContent = d.ok ? "Downloaded " + d.name : (d.error || "Not matched"); })
+            .catch(function (err) { out.textContent = err.message; });
     });
-
-    // Auto-print: when on, print the newest download once. Keyed on id+finish
-    // so a re-download (new finish time) of the same competitor prints again.
-    if (toggle.checked) {
-        var first = document.querySelector("tr.runner[data-id]");
-        if (first) {
-            var key = first.getAttribute("data-key");
-            if (sessionStorage.getItem("bm-printed") !== key) {
-                sessionStorage.setItem("bm-printed", key);
-                window.open("/slip/" + first.getAttribute("data-id") + "?print=1", "_blank");
-            }
-        }
-    }
 })();
 </script>
 {% endblock %}

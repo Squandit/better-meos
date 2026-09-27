@@ -1436,8 +1436,68 @@ def unmatched_reads() -> list[dict]:
             "station": read["station_id"] or "main",
             "start": format_clock(read["start"]), "finish": format_clock(read["finish"]),
             "punches": len(read["punches"]),
+            "codes": [code for code, _ in read["punches"]],
         })
     return out
+
+
+def _found_in_order(required: list[int], codes: list[int]) -> int:
+    """How many of a course's controls appear in the punches, in course order."""
+    i = 0
+    for code in codes:
+        if i < len(required) and code == required[i]:
+            i += 1
+    return i
+
+
+def suggest_classes(codes: list[int], limit: int = 3) -> list[dict]:
+    """
+    Classes whose course these punches fit, best first: how MeOS guesses the
+    class of a card nobody entered. A course punched completely and in order
+    beats a partial one; among those, the one that explains the most punches
+    wins (Short's controls are also "in order" inside Long's punches).
+    Returns ``[{class_id, name, reason, complete}]``.
+    """
+    scored = []
+    for cls in _classes.values():
+        if cls.get("kind", "individual") != "individual":
+            continue
+        course = _courses.get(cls["course_id"])
+        if course is None or not codes:
+            continue
+        if course["type"] == "linear":
+            required = list(course["controls"])
+            if not required:
+                continue
+            found = _found_in_order(required, codes)
+            complete = found == len(required)
+            quality, precision = found / len(required), found / len(codes)
+            reason = (f"all {found} controls in order" if complete
+                      else f"{found} of {len(required)} controls in order")
+        else:
+            on_course = {c["code"] for c in course["controls"]}
+            hits = len(set(codes) & on_course)
+            complete = False
+            quality = precision = hits / len(set(codes))
+            reason = f"{hits} of its controls"
+        if quality > 0:
+            scored.append(((not complete, -precision, -quality, cls["name"].lower()),
+                           {"class_id": cls["id"], "name": cls["name"], "reason": reason,
+                            "complete": complete}))
+    scored.sort(key=lambda x: x[0])
+    return [item for _, item in scored[:limit]]
+
+
+def enter_from_read(read_id: int, data: dict) -> dict:
+    """Quick entry at the download desk: add the runner a kept read belongs to
+    (with its card number) and give them that run."""
+    with batch():
+        read = db.get_card_read(read_id)
+        if read is None or read["competitor_id"] is not None:
+            raise StoreError("That card read has already been dealt with")
+        _check_card_unique(read["card_number"])   # before anything is created
+        comp = create_competitor({k: data.get(k) for k in ("name", "club", "class_id", "hired")})
+        return assign_card_read(read_id, comp["id"])
 
 
 def assign_card_read(read_id: int, comp_id: int) -> dict:

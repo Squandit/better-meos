@@ -617,6 +617,8 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .slip-splits th, .slip-splits td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; }
 .slip-splits th { font-size: 11px; color: var(--muted); text-transform: uppercase; }
 .slip-foot { margin-top: 18px; color: var(--muted); font-size: 11px; text-align: center; }
+.slip-splits tr.slip-missing td { color: #b8302f; font-style: italic; }
+.slip-splits tr.slip-best td { font-weight: 700; }
 
 @media print {
     .slip-page { background: #fff; }
@@ -917,3 +919,13 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .public-search { display: block; margin-top: 12px; max-width: 320px; }
 td.status-cell { white-space: nowrap; }
 @media (max-width: 560px) { .behind-col { display: none; } }
+
+/* ---- Download desk: quick entry, hidden print frames ----------------------- */
+.print-frame { position: fixed; width: 0; height: 0; border: 0; left: -10px; top: -10px; }
+tr.quick-entry-row > td { background: var(--surface-2); }
+.quick-entry { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
+.quick-entry label:not(.check) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.quick-entry input:not([type=checkbox]), .quick-entry select { min-width: 160px; }
+.quick-entry .form-error { color: var(--red, #c0392b); font-weight: 600; }
+.form-error:empty { display: none; }
+.toolbar select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }

@@ -350,6 +350,11 @@ def build_result(card: dict, course: dict) -> dict:
     # earlier run's 10:15 reads as today's 10:15) and could turn an MP into OK.
     before = len(punches)
     check = after_midnight(start, card.get("check")) if start is not None else card.get("check")
+    # A check punch after the start (or the finish, with no start) isn't this
+    # run's: it's left on a card that wasn't checked today, or it's a night
+    # event's check before midnight. Trusting it would throw the whole run away.
+    if check is not None and (start or finish) is not None and check > (start or finish):
+        check = None
     if check is not None:
         # Punched before the check station: from before the card was cleared.
         punches = [(code, t) for code, t in punches if t >= check]

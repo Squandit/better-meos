@@ -37,16 +37,35 @@
             <td>Status</td>
             <td>{% if row.is_ok %}OK{% else %}<span class="badge badge-{{ row.status }}">{{ row.status_label }}</span>{% endif %}</td>
         </tr>
+        {% if show_place and place %}
+        <tr>
+            <td>Place</td><td class="mono strong">{{ place }} of {{ of }}</td>
+            <td>{% if behind %}Behind{% endif %}</td><td class="mono">{{ behind }}</td>
+        </tr>
+        {% endif %}
         {% if row.points is not none %}
         <tr><td>Points</td><td class="mono strong">{{ row.points }}</td><td></td><td></td></tr>
         {% endif %}
     </table>
 
     {% if row.missed_control %}
-    <p class="mp-note">Mispunch — missed control {{ row.missed_control }}</p>
+    <p class="mp-note">Mispunch: missed control {{ row.missed_control }}</p>
     {% endif %}
 
-    {% if row.splits %}
+    {% if legs %}
+    <table class="slip-splits">
+        <thead><tr><th>#</th><th>Control</th><th class="num">Leg</th>{% if leg_places %}<th class="num">Place</th>{% endif %}<th class="num">Time</th></tr></thead>
+        <tbody>
+            {% for leg in legs %}
+            {% if leg.missing %}
+            <tr class="slip-missing"><td>{{ leg.n }}</td><td>{{ leg.code }}</td><td class="num" colspan="{{ 3 if leg_places else 2 }}">missing</td></tr>
+            {% else %}
+            <tr{% if leg.best_leg %} class="slip-best"{% endif %}><td>{{ leg.n }}</td><td>{{ leg.code }}</td><td class="num mono">{{ leg.leg }}</td>{% if leg_places %}<td class="num mono">{{ leg.leg_rank }}</td>{% endif %}<td class="num mono">{{ leg.cum }}</td></tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% elif row.splits %}
     <table class="slip-splits">
         <thead><tr><th>Control</th><th class="num">Leg</th><th class="num">Cumulative</th></tr></thead>
         <tbody>
@@ -57,10 +76,10 @@
     </table>
     {% endif %}
 
-    <p class="slip-foot">Printed from better-meos</p>
+    <p class="slip-foot">{{ footer or "Printed from better-meos" }}</p>
 </div>
 {% if auto_print %}<script>
-window.addEventListener("afterprint", function () { window.close(); });
+window.addEventListener("afterprint", function () { if (window.top === window) { window.close(); } });
 window.addEventListener("load", function () { window.print(); });
 </script>{% endif %}
 </body>

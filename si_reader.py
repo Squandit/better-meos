@@ -52,6 +52,9 @@ _start_lock = threading.Lock()
 _recent: deque = deque(maxlen=25)
 _recent_lock = threading.Lock()
 _read_seq = 0
+# Read sequence numbers restart with the app; pages that track "reads I've
+# already handled" (auto-print) use this to notice a restart.
+BOOT_ID = f"{os.getpid()}-{int(time.time())}"
 
 
 def recent_reads() -> list[dict]:
@@ -65,9 +68,13 @@ def recent_reads() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 # Auto-create courses/classes/competitors from unknown cards (MeOS interactive
-# setup). Off by default; enable with BMEOS_AUTO_CREATE. The API can also request
-# it per-read.
+# setup): the event's "Unknown cards" setting, or BMEOS_AUTO_CREATE for the
+# whole computer. The API can also request it per read.
 AUTO_CREATE = bool(os.environ.get("BMEOS_AUTO_CREATE"))
+
+
+def auto_create_enabled() -> bool:
+    return AUTO_CREATE or config.get_str("unknown_card_action") == "auto_create"
 
 
 def process_card(card: dict, *, station_id: str | None = None,
@@ -80,13 +87,14 @@ def process_card(card: dict, *, station_id: str | None = None,
     registered for the card -- the caller (API or reader loop) decides what to do,
     but either way a live event is published so the operator sees the read.
 
-    When ``auto_create`` is set (defaults to the ``BMEOS_AUTO_CREATE`` env flag),
-    an unknown card builds its own course/class/competitor instead of failing.
+    When ``auto_create`` is set (defaults to the event's "Unknown cards"
+    setting), an unknown card builds its own course/class/competitor instead of
+    failing.
     """
     if station_id is not None:
         card = {**card, "station_id": station_id}
     if auto_create is None:
-        auto_create = AUTO_CREATE
+        auto_create = auto_create_enabled()
     with store.acting_as(f"SI reader ({station_id or 'main'})"):
         return _process_card(card, station_id, auto_create)
 

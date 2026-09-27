@@ -29,6 +29,7 @@ import publish
 import remote
 import runners
 import security
+import settings_schema
 import si_reader
 import speaker
 import simulator
@@ -330,21 +331,46 @@ def courses():
     return render_template("courses.html", active="courses", courses=view)
 
 
+def _unmatched_with_hints() -> list[dict]:
+    """Kept reads plus what we can guess about them: the runner (from the
+    runner database) and the classes their punches fit."""
+    out = []
+    for read in store.unmatched_reads():
+        known = runners.lookup(read["card_number"]) or {}
+        classes = store.suggest_classes(read["codes"])
+        usual = next((c for c in store.class_options()
+                      if known.get("usual_class") and c["name"] == known["usual_class"]), None)
+        if usual and not any(c["class_id"] == usual["id"] for c in classes):
+            classes.insert(0, {"class_id": usual["id"], "name": usual["name"],
+                               "reason": "their usual class", "complete": False})
+        out.append({**read, "known": known, "suggested": classes})
+    return out
+
+
 @app.route("/download")
 def download():
     all_rows = [r for c in display.console_data() for r in c["rows"]]
     rows = [r for r in all_rows if r["finish"] is not None]
     rows.sort(key=lambda r: r["finish"], reverse=True)
     assignable = sorted(all_rows, key=lambda r: r["name"].lower())
+    reads = [{"seq": r["seq"], "id": r["competitor_id"],
+              "status": (store.result_for(r["competitor_id"]) or {}).get("status")}
+             for r in si_reader.recent_reads() if r["competitor_id"]]
     return render_template("download.html", active="download", rows=rows, count=len(rows),
-                           unmatched=store.unmatched_reads(), assignable=assignable,
-                           readers=si_reader.reader_status())
+                           unmatched=_unmatched_with_hints(), assignable=assignable,
+                           class_options=store.class_options(),
+                           readers=si_reader.reader_status(),
+                           auto_print=config.get_str("auto_print") or "off",
+                           auto_print_choices=settings_schema.BY_KEY["auto_print"].choices,
+                           reads=reads, boot=si_reader.BOOT_ID)
 
 
 @app.route("/readout")
 def readout_page():
     """Runner-facing readout screen: big result + OK / mispunch sound per read."""
-    return render_template("readout.html", active="download")
+    return render_template("readout.html", active="download",
+                           sound=config.get("readout_sound"),
+                           show_place=config.get("readout_show_place"))
 
 
 @app.route("/api/readout/latest")
@@ -374,6 +400,14 @@ def api_assign_card_read(read_id):
     comp_id = store._as_int(_payload().get("competitor_id"), "Competitor", minimum=1)
     comp = store.assign_card_read(read_id, comp_id)
     events.publish("card_read", action="assign")
+    return jsonify({"ok": True, "competitor": comp})
+
+
+@app.route("/api/card-reads/<int:read_id>/enter", methods=["POST"])
+def api_enter_card_read(read_id):
+    """Quick entry: add the runner a kept read belongs to and give them the run."""
+    comp = store.enter_from_read(read_id, _payload())
+    events.publish("card_read", action="enter")
     return jsonify({"ok": True, "competitor": comp})
 
 
@@ -441,10 +475,10 @@ def slip(comp_id):
     comp = store.get_competitor(comp_id)
     if comp is None:
         abort(404)
-    result = store.result_for(comp_id)
-    if result is None:
+    slip_data = display.slip_view(comp_id)
+    if slip_data is None:
         abort(404)
-    return render_template("slip.html", row=display.view_row(result),
+    return render_template("slip.html", **slip_data,
                            auto_print=request.args.get("print") == "1",
                            thermal=(config.get_str("slip_paper") or "80mm").lower() != "a4")
 

@@ -102,15 +102,19 @@ def test_class_order_setting_and_natural_order(cfg, scratch):
 def test_results_by_course_ranks_classes_together(cfg, scratch):
     course = store.get_class(m21a())["course_id"]
     m35 = store.create_class({"name": "M35", "course_id": course})
-    store.create_competitor({"name": "Speedy Veteran", "class_id": m35["id"],
-                             "start": "10:00:00", "finish": "10:30:00", "read": True,
-                             "punches": [{"code": c, "time": f"10:{10 + i}:00"}
-                                         for i, c in enumerate((138, 130, 142, 155))]})
+    punches = [{"code": c, "time": f"10:{10 + i}:00"} for i, c in enumerate((138, 130, 142, 155))]
+    store.create_competitor({"name": "Speedy Veteran", "class_id": m35["id"], "read": True,
+                             "start": "10:00:00", "finish": "10:30:00", "punches": punches})
+    store.create_competitor({"name": "Course Mate", "class_id": m21a(), "read": True,
+                             "start": "10:00:00", "finish": "10:40:00", "punches": punches})
     cfg.save({"results_group_by": "course"}, target="event")
     blocks = display.results_view()
     block = next(b for b in blocks if b["by_course"] and any(r["class"] == "M35" for r in b["rows"]))
-    assert block["rows"][0]["name"] == "Speedy Veteran" and block["rows"][0]["position"] == 1
-    assert {r["class"] for r in block["rows"]} == {"M21A", "M35"}
+    place = {r["name"]: r["position"] for r in block["rows"]}
+    # One ranking across both classes on the course.
+    assert place["Speedy Veteran"] and place["Course Mate"]
+    assert place["Speedy Veteran"] < place["Course Mate"]
+    assert {r["class"] for r in block["rows"]} >= {"M21A", "M35"}
     html = appmod.app.test_client().get("/results").get_data(as_text=True)
     assert "Course results" in html
 

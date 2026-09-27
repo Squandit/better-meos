@@ -26,9 +26,10 @@
 </head>
 <body class="readout">
 <div class="ro-card" data-card><p class="ro-idle">Waiting for the first card…</p></div>
-<label class="ro-sound"><input type="checkbox" data-sound checked> Sound</label>
+<label class="ro-sound"><input type="checkbox" data-sound{% if sound %} checked{% endif %}> Sound</label>
 <script>
 (function () {
+    var SHOW_PLACE = {{ "true" if show_place else "false" }};
     var card = document.querySelector("[data-card]");
     var soundBox = document.querySelector("[data-sound]");
     var lastSeq = null;
@@ -71,7 +72,7 @@
         card.appendChild(el("div", "ro-name", r.name));
         card.appendChild(el("div", "ro-sub", [r["class"], r.club].filter(Boolean).join(" · ")));
         if (r.time) {
-            card.appendChild(el("div", "ro-time", r.time + (r.position ? "   #" + r.position : "")));
+            card.appendChild(el("div", "ro-time", r.time + (SHOW_PLACE && r.position ? "   #" + r.position : "")));
         }
         if (r.missed_control) {
             card.appendChild(el("div", "ro-sub", "Missed control " + r.missed_control));

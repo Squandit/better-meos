@@ -200,7 +200,26 @@ SCHEMA: list[Setting] = [
       "On = test money only. Turn off to take real payments.",
       env="PAYPAL_SANDBOX", pages=("entries",)),
 
-    # ---- Printing -------------------------------------------------------------
+    # ---- Readout & printing ----------------------------------------------------
+    S("unknown_card_action", "Unknown cards", "choice", "keep", "Readout & printing",
+      "When a card nobody has entered is read.", scope="event", pages=("download",),
+      choices=(("keep", "Keep the read until I say whose it is"),
+               ("auto_create", "Enter it automatically (course and class from its punches)"))),
+    S("auto_print", "Print split slips automatically", "choice", "off", "Readout & printing",
+      "Prints on this computer while the Download page is open.", pages=("download",),
+      choices=(("off", "Off"), ("all", "Every card read"), ("ok", "Only OK runs"),
+               ("not_ok", "Only mispunches and other problems"))),
+    S("slip_show_place", "Slip: place and time behind", "bool", True, "Readout & printing",
+      "", scope="event", pages=("download",)),
+    S("slip_leg_places", "Slip: place on each leg", "bool", True, "Readout & printing",
+      "The runner's place in their class for each leg.", scope="event", pages=("download",)),
+    S("slip_footer", "Slip: footer text", "str", "", "Readout & printing",
+      "e.g. Results at example.org. Thanks for running!", scope="event",
+      pages=("download",)),
+    S("readout_sound", "Readout screen: beep", "bool", True, "Readout & printing",
+      "Two short beeps for OK, one long low tone for anything else.", pages=("download",)),
+    S("readout_show_place", "Readout screen: show the place", "bool", True,
+      "Readout & printing", "", scope="event", pages=("download",)),
     S("silent_print", "Print split slips without a dialog", "bool", False,
       "Readout & printing",
       "Opens the console in Edge/Chrome with kiosk printing, so auto-print goes "
