@@ -1070,3 +1070,5 @@ td.owing { color: var(--red-ink); font-weight: 700; }
 .tour-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--green-soft); border-radius: 14px; padding: 14px 18px; margin: 16px 0 0; }
 .tour-banner > div { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 2px; }
 .tour-banner span { color: var(--muted); font-size: 13.5px; }
+
+.sidebar .foot .version { opacity: .7; }

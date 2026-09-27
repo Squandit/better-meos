@@ -41,6 +41,7 @@ import stages
 import store
 from store import StoreError
 from results import build_splits_matrix, format_duration
+from version import __version__
 
 app = Flask(__name__)
 
@@ -147,7 +148,7 @@ def inject_user():
     return {"current_user": auth.current_user(), "auth_enabled": auth.is_enabled(),
             "admin_lock_enabled": config.admin_password_set(),
             "page_has_settings": config.page_has_settings,
-            "appearance": _appearance()}
+            "appearance": _appearance(), "app_version": __version__}
 
 
 def _appearance() -> dict:

@@ -66,3 +66,12 @@ def test_old_data_next_to_the_exe_is_copied_once(tmp_path):
     assert (root / "runners.db").read_bytes() == b"newer"          # never overwritten
     assert (exe_dir / "config.json").exists()                      # copied, not moved
     assert launcher.adopt_old_data(str(exe_dir), str(root)) == []   # only the first time
+
+
+def test_version_is_shown_and_matches_the_changelog():
+    import re
+    import app as appmod
+    from version import __version__
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
+    assert f"## {__version__} " in open("CHANGELOG.md", encoding="utf-8").read()
+    assert f"better-meos {__version__}" in appmod.app.test_client().get("/results").get_data(as_text=True)

@@ -165,7 +165,9 @@ def main() -> None:
     threading.Timer(1.2, lambda: open_console(url, silent_print=bool(
         config.get("silent_print")))).start()
 
-    print(f"\n  better-meos admin console:  {url}")
+    from version import __version__
+    print(f"\n  better-meos {__version__}")
+    print(f"  Admin console:              {url}")
     print(f"  Public entry + results:     http://127.0.0.1:{public_port}/results")
     print(f"  Same-WiFi devices: http://<this-PC-IP>:{public_port}")
     if admin_host == "127.0.0.1":

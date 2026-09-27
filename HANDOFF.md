@@ -108,6 +108,10 @@ Committed straight to main, one commit per feature. Tests: **256 passing**
   `better-meos-setup.exe` in CI: per-user install, no admin, shortcuts,
   uninstall leaves data alone. CI installs it silently and checks the app
   serves /start and writes to the user folder. Icon: installer/better-meos.ico.
+- **Versions**: `version.py` (1.0.0 = everything up to the installer),
+  CHANGELOG.md, shown in the sidebar footer, start page and console window.
+  Tag `vX.Y.Z` after bumping version.py; CI checks they match and publishes a
+  GitHub Release with the installer and exe.
 - Small fixes: favicon (every page 404'd), numeric table headers right-aligned,
   macros imported `with context`.
 
