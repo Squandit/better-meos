@@ -3,8 +3,11 @@
 #
 # Every push: download the installer (better-meos-installer) or the bare exe
 # from the run's "Artifacts" section (Actions tab).
-# Push a tag like v1.2.0: both are attached to a GitHub Release, which gives a
-# plain download link to hand to operators.
+# Release: bump version.py + CHANGELOG.md, then either push a tag like v1.2.0,
+# or run this workflow by hand (Actions > Build Windows exe > Run workflow)
+# with "release" ticked, which tags the commit itself. Either way the
+# installer and exe are attached to a GitHub Release with the changelog notes,
+# a plain download link to hand to operators.
 name: Build Windows exe
 
 on:
@@ -12,6 +15,11 @@ on:
     branches: ["**"]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a release: tags this commit v<version.py> and attaches the installer"
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # attach the exe to a release on tag pushes
@@ -60,6 +68,20 @@ jobs:
         run: |
           $code = python -c "from version import __version__; print(__version__)"
           if ("${{ github.ref_name }}".TrimStart("v") -ne $code) { throw "tag ${{ github.ref_name }} doesn't match version.py ($code): bump version.py first" }
+      - name: Version and release notes
+        id: ver
+        shell: pwsh
+        run: |
+          $v = python -c "from version import __version__; print(__version__)"
+          "version=$v" >> $env:GITHUB_OUTPUT
+          # This version's CHANGELOG.md section becomes the release notes.
+          $lines = Get-Content CHANGELOG.md
+          $start = [array]::IndexOf($lines, ($lines | Where-Object { $_ -like "## $v *" } | Select-Object -First 1))
+          $notes = @()
+          if ($start -ge 0) {
+            for ($i = $start + 1; $i -lt $lines.Count -and $lines[$i] -notlike "## *"; $i++) { $notes += $lines[$i] }
+          }
+          ($notes -join "`n").Trim() | Set-Content release-notes.md
       - name: Build the installer
         shell: pwsh
         run: |
@@ -94,10 +116,14 @@ jobs:
         with:
           name: better-meos-installer
           path: dist/better-meos-setup.exe
-      - name: Attach to release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish the release (v* tag pushed, or run by hand with "release" ticked)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: better-meos ${{ steps.ver.outputs.version }}
+          body_path: release-notes.md
           files: |
             dist/better-meos-setup.exe
             dist/better-meos.exe
