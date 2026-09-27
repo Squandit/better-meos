@@ -186,3 +186,49 @@ def test_competitorlist_fills_runner_db():
         content_type="multipart/form-data")
     assert r.get_json() == {"imported": 1, "skipped": 1}
     assert runners.lookup(7654321)["name"] == "Karin Lind"
+
+
+OCAD_XML = """<?xml version="1.0"?>
+<CourseData xmlns="http://www.orienteering.org/datastandard/3.0" iofVersion="3.0">
+  <RaceCourseData>
+    <Course>
+      <Name>Ocad Long</Name>
+      <Length>4200</Length>
+      <CourseControl type="Start"><Control>S1</Control></CourseControl>
+      <CourseControl type="Control"><Control>61</Control><LegLength>400</LegLength></CourseControl>
+      <CourseControl type="Control"><Control>62</Control><LegLength>500</LegLength></CourseControl>
+      <CourseControl type="Finish"><Control>F1</Control></CourseControl>
+    </Course>
+    <ClassCourseAssignment><ClassName>Ocad M21</ClassName><CourseName>Ocad Long</CourseName></ClassCourseAssignment>
+    <ClassCourseAssignment><ClassName>Ocad W21</ClassName><CourseName>Ocad Long</CourseName></ClassCourseAssignment>
+    <ClassCourseAssignment><ClassName>Nowhere</ClassName><CourseName>Missing Course</CourseName></ClassCourseAssignment>
+  </RaceCourseData>
+</CourseData>
+"""
+
+
+def test_ocad_import_assigns_classes_and_updates_courses_in_place():
+    import io
+    import app as appmod
+    client = appmod.app.test_client()
+
+    def upload(xml):
+        return client.post("/api/import/courses", data={"file": (io.BytesIO(xml.encode()), "c.xml")},
+                           content_type="multipart/form-data").get_json()
+
+    first = upload(OCAD_XML)
+    assert first["created"] == 1 and first["classes_created"] == ["Ocad M21", "Ocad W21"]
+    course = next(c for c in store._courses.values() if c["name"] == "Ocad Long")
+    m21 = next(c for c in store._classes.values() if c["name"] == "Ocad M21")
+    assert m21["course_id"] == course["id"]
+    assert all(c["name"] != "Nowhere" for c in store._classes.values())
+
+    # The planner moves a control and re-exports: same course, updated.
+    second = upload(OCAD_XML.replace("<Control>62</Control>", "<Control>63</Control>"))
+    assert second["created"] == 0 and second["updated"] == ["Ocad Long"]
+    assert sum(1 for c in store._courses.values() if c["name"] == "Ocad Long") == 1
+    assert store.get_course(course["id"])["controls"] == [61, 63]
+    assert "updated" in second["message"]
+    for cls in [c for c in store._classes.values() if c["name"].startswith("Ocad ")]:
+        store.delete_class(cls["id"])
+    store.delete_course(course["id"])

@@ -154,7 +154,9 @@ document.querySelectorAll("form[data-upload]").forEach(function (form) {
                 if (form.getAttribute("data-reload")) { window.location.reload(); return; }
                 var d = res.d;
                 out.className = "tool-result ok";
-                if (d.created !== undefined) {
+                if (d.message) {
+                    out.textContent = d.message;
+                } else if (d.created !== undefined) {
                     var msg = "Imported " + d.created;
                     if (d.names) { msg += " course(s): " + d.names.join(", "); }
                     if (d.skipped && d.skipped.length) {

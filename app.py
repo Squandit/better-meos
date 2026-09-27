@@ -777,15 +777,51 @@ def _uploaded_text():
 
 @app.route("/api/import/courses", methods=["POST"])
 def api_import_courses():
-    """Import courses from an IOF XML CourseData file."""
+    """Import courses from an IOF XML CourseData file (OCAD, Purple Pen,
+    Condes). A course that already exists by name is updated, not duplicated,
+    so a re-export after a late change just works; classes the file assigns
+    to courses are created or moved onto them."""
+    text = _uploaded_text()
     try:
-        courses = iofxml.parse_courses(_uploaded_text())
+        courses = iofxml.parse_courses(text)
+        assignments = iofxml.parse_class_assignments(text)
     except (ValueError, ET_ERROR) as err:
         raise StoreError(f"Could not read course file: {err}")
+    created, updated, new_classes, moved = [], [], [], []
     with store.batch():
-        created = [store.create_course(c)["name"] for c in courses]
+        by_name = {c["name"].lower(): c["id"] for c in store._courses.values()}
+        for c in courses:
+            cid = by_name.get(c["name"].lower())
+            if cid is None:
+                by_name[c["name"].lower()] = store.create_course(c)["id"]
+                created.append(c["name"])
+            else:
+                store.update_course(cid, {**store.course_json(store.get_course(cid)), **c})
+                updated.append(c["name"])
+        classes = {c["name"].lower(): c for c in store._classes.values()}
+        for class_name, course_name in assignments:
+            cid = by_name.get(course_name.lower())
+            cls = classes.get(class_name.lower())
+            if cid is None:
+                continue
+            if cls is None:
+                classes[class_name.lower()] = store.create_class(
+                    {"name": class_name, "course_id": cid})
+                new_classes.append(class_name)
+            elif cls["course_id"] != cid:
+                store.update_class(cls["id"], {"course_id": cid})
+                moved.append(class_name)
     events.publish("course", action="import")
-    return jsonify({"created": len(created), "names": created})
+    parts = [f"{len(created)} new course{'s' if len(created) != 1 else ''}"]
+    if updated:
+        parts.append(f"{len(updated)} updated")
+    if new_classes:
+        parts.append(f"classes added: {', '.join(new_classes)}")
+    if moved:
+        parts.append(f"classes moved to their new course: {', '.join(moved)}")
+    return jsonify({"created": len(created), "updated": updated, "names": created + updated,
+                    "classes_created": new_classes, "classes_moved": moved,
+                    "message": "Imported " + "; ".join(parts)})
 
 
 @app.route("/api/import/members", methods=["POST"])

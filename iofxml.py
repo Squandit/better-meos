@@ -123,6 +123,23 @@ def parse_courses(source) -> list[dict]:
     return courses
 
 
+def parse_class_assignments(source) -> list[tuple[str, str]]:
+    """
+    The ``ClassCourseAssignment`` entries of a CourseData file (OCAD and
+    Purple Pen write them when classes are set up there): ``[(class name,
+    course name)]`` in file order.
+    """
+    root = _parse_root(source)
+    _require_v3(root, "CourseData")
+    out = []
+    for item in root.iter(f"{{{NS}}}ClassCourseAssignment"):
+        cls = (_text(item, "ClassName", "") or "").strip()
+        course = (_text(item, "CourseName", "") or "").strip()
+        if cls and course:
+            out.append((cls, course))
+    return out
+
+
 def parse_startlist(source) -> list[dict]:
     """
     Parse an IOF ``StartList`` document into competitor dicts.
