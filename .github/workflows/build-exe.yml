@@ -1,0 +1,64 @@
+# Builds the operator's Windows exe on GitHub's Windows machines, so nobody
+# needs Python installed to get a working better-meos.exe.
+#
+# Every push: download it from the run's "Artifacts" section (Actions tab).
+# Push a tag like v1.2.0: it's also attached to a GitHub Release, which gives
+# a plain download link to hand to operators.
+name: Build Windows exe
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # attach the exe to a release on tag pushes
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q
+
+  build:
+    # Independent of the test job: a failing test shows up red on the run,
+    # but the exe still builds so it can be tried.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: pyinstaller --noconfirm better-meos.spec
+      - name: Check the exe starts and serves the start page
+        shell: pwsh
+        run: |
+          $env:BMEOS_PORT = "18799"; $env:BMEOS_PUBLIC_PORT = "18800"
+          New-Item -ItemType Directory -Force smoke | Out-Null
+          Copy-Item dist\better-meos.exe smoke\
+          $p = Start-Process -FilePath smoke\better-meos.exe -WorkingDirectory smoke -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 2
+            try { $ok = (Invoke-WebRequest http://127.0.0.1:18799/start -UseBasicParsing).StatusCode -eq 200 } catch {}
+          }
+          Stop-Process -Id $p.Id -Force
+          if (-not $ok) { throw "exe did not serve /start" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-meos-exe
+          path: dist/better-meos.exe
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/better-meos.exe
