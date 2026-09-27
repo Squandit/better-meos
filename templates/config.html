@@ -27,6 +27,10 @@
                 {% else %}
                 <input type="text" data-key="{{ f.key }}" data-type="str" value="{{ f.value if f.value is not none else '' }}">
                 {% endif %}
+                {% if f.key == "reader_ports" %}
+                <span class="port-picker"><button type="button" class="btn btn-soft btn-sm" data-detect-ports>Detect SI stations</button>
+                    <span data-port-list class="hint"></span></span>
+                {% endif %}
                 {% if f.help %}<span class="hint">{{ f.help }}</span>{% endif %}
             </label>
             {% endfor %}
@@ -43,6 +47,24 @@
 
 <script>
 (function () {
+    var detect = document.querySelector("[data-detect-ports]");
+    if (detect) {
+        detect.addEventListener("click", function () {
+            var list = document.querySelector("[data-port-list]");
+            var input = document.querySelector('[data-key="reader_ports"]');
+            list.textContent = "Looking…";
+            fetch("/api/serial-ports").then(function (r) { return r.json(); }).then(function (ports) {
+                list.textContent = ports.length ? "" : "No serial ports found. Is the station plugged in?";
+                ports.forEach(function (p) {
+                    var b = document.createElement("button");
+                    b.type = "button"; b.className = "btn btn-ghost btn-sm";
+                    b.textContent = p.device + (p.likely_si ? " (SI station)" : "") + " · " + p.description;
+                    b.addEventListener("click", function () { input.value = p.device; });
+                    list.appendChild(b);
+                });
+            });
+        });
+    }
     var form = document.querySelector("[data-config-form]");
     var status = document.querySelector("[data-config-status]");
     form.addEventListener("submit", function (e) {

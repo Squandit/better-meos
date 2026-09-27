@@ -388,3 +388,14 @@ def test_reader_loop_ignores_card_removed_events(monkeypatch):
     stop = threading.Event()
     si_reader._run("COM9", "test", stop)     # must not raise on the removal event
     assert reads == ["ack"]
+
+
+def test_serial_port_listing(monkeypatch):
+    import types
+    from serial.tools import list_ports
+    fake = [types.SimpleNamespace(device="COM3", description="USB Serial", manufacturer=None, product=None),
+            types.SimpleNamespace(device="COM5", description="SPORTident USB to UART",
+                                  manufacturer="Silicon Labs", product=None)]
+    monkeypatch.setattr(list_ports, "comports", lambda: fake)
+    ports = appmod.app.test_client().get("/api/serial-ports").get_json()
+    assert ports[0]["device"] == "COM5" and ports[0]["likely_si"] is True

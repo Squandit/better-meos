@@ -1567,6 +1567,12 @@ def config_page():
                            groups=config.dashboard_values())
 
 
+@app.route("/api/serial-ports")
+def api_serial_ports():
+    """COM ports on this PC, for picking the SI station in Settings."""
+    return jsonify(si_reader.serial_ports())
+
+
 @app.route("/api/config", methods=["GET"])
 def api_get_config():
     return jsonify({"groups": config.dashboard_values()})

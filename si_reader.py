@@ -323,6 +323,22 @@ def _start_one(port: str, station_id: str) -> bool:
         return True
 
 
+def serial_ports() -> list[dict]:
+    """Serial ports on this PC, SportIdent stations first (they show up as
+    'SPORTident' / Silicon Labs CP210x USB-serial)."""
+    try:
+        from serial.tools import list_ports
+    except ImportError:  # pragma: no cover - pyserial ships with sportident
+        return []
+    ports = []
+    for p in list_ports.comports():
+        text = " ".join(filter(None, (p.description, p.manufacturer, p.product))).strip()
+        likely = any(k in text.lower() for k in ("sportident", "cp210", "silicon labs"))
+        ports.append({"device": p.device, "description": text or p.device, "likely_si": likely})
+    ports.sort(key=lambda p: (not p["likely_si"], p["device"]))
+    return ports
+
+
 def reader_enabled() -> bool:
     """Real reader on? (Settings -> SI reader, env BMEOS_READER as fallback.)"""
     return bool(config.get("reader_enabled"))
