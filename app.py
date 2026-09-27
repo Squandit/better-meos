@@ -11,6 +11,7 @@ from flask import (Flask, render_template, request, jsonify, abort, Response,
                    make_response, url_for, redirect, session)
 
 import auth
+import backups
 import config
 import db
 import draw
@@ -987,7 +988,8 @@ def api_draw_startlist():
 def start():
     """Event selection: open an event file from the folder, or create a new one."""
     return render_template("start.html", events=store.events_in_folder(),
-                           folder=store.events_dir())
+                           folder=store.events_dir(),
+                           synced_folder=backups.in_synced_folder(store.events_dir()))
 
 
 @app.route("/setup")
@@ -1001,7 +1003,17 @@ def setup():
         "out": sum(1 for r in rows if r["start"] and not r["finish"]),
     }
     return render_template("setup.html", active="setup", counts=counts,
-                           remote_url=remote.url(), remote_configured=remote.is_configured())
+                           remote_url=remote.url(), remote_configured=remote.is_configured(),
+                           backup=backups.status(),
+                           synced_folder=backups.in_synced_folder(store.events_dir()))
+
+
+@app.route("/api/backups/now", methods=["POST"])
+def api_backup_now():
+    written = backups.backup_now()
+    if not written:
+        return jsonify({"error": backups.status()["error"] or "Nothing to back up"}), 400
+    return jsonify({"ok": True, "files": written})
 
 
 @app.route("/api/events/new", methods=["POST"])
@@ -1389,6 +1401,7 @@ if __name__ == "__main__":
     # twice. (No-op anyway unless the event has the reader enabled.)
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         si_reader.start_all()
+        backups.start()
     # The dev server is single-port (the full admin surface); the port split is
     # a launcher/production concern -- run launcher.py to serve both ports.
     # threaded=True so a long-lived SSE stream doesn't block other requests.
