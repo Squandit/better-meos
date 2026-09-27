@@ -109,8 +109,9 @@ def cached_page(view):
         global _page_cache_revision
         # Read the revision BEFORE rendering: the page is then at least as new
         # as its key, never older (a write mid-render just makes the next
-        # request miss).
-        revision = db.revision()
+        # request miss). The minute counts too: some of a page follows the
+        # clock rather than the data ("still out" once a start time passes).
+        revision = (db.revision(), datetime.now().strftime("%H:%M"))
         key = _page_key()
         with _page_cache_lock:
             if _page_cache_revision != revision:
