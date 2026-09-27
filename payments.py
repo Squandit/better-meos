@@ -27,6 +27,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import config
@@ -73,6 +74,8 @@ def prices() -> dict:
         "junior": float(config.get("fee_junior") or 0.0),
         "concession": float(config.get("fee_concession") or 0.0),
         "familyCap": float(config.get("family_cap") or 0.0),
+        "late": float(late_fee()),
+        "chooseType": bool(config.get("trust_member_type")),
     }
 
 
@@ -110,17 +113,33 @@ def fee_for(member_type: str) -> Decimal:
     return to_money(config.get(key))
 
 
-def quote(member_types: list[str]) -> dict:
+def late_fee(now: datetime | None = None) -> Decimal:
+    """The per-person late surcharge, if the late-entry time has passed. The
+    setting is an ISO date/time; anything unparseable means no surcharge."""
+    text = config.get_str("late_fee_from").strip()
+    if not text:
+        return Decimal(0)
+    try:
+        start = datetime.fromisoformat(text)
+    except ValueError:
+        return Decimal(0)
+    current = now or datetime.now(start.tzinfo)
+    return to_money(config.get("late_fee")) if current >= start else Decimal(0)
+
+
+def quote(member_types: list[str], *, now: datetime | None = None) -> dict:
     """
-    Price a cart server-side: one fee per person by membership type, then the
-    family cap. Returns Decimals: ``{"lines", "subtotal", "total", "capped"}``.
+    Price a cart server-side: one fee per person by membership type (plus the
+    late surcharge once it applies), then the family cap. Returns Decimals:
+    ``{"lines", "subtotal", "total", "capped", "late"}``.
     """
-    lines = [fee_for(t) for t in member_types]
+    late = late_fee(now)
+    lines = [fee_for(t) + late for t in member_types]
     subtotal = sum(lines, Decimal(0))
     cap = to_money(config.get("family_cap"))
     total = min(subtotal, cap) if cap > 0 else subtotal
     return {"lines": lines, "subtotal": to_money(subtotal),
-            "total": to_money(total), "capped": total < subtotal}
+            "total": to_money(total), "capped": total < subtotal, "late": late}
 
 
 # --- PayPal REST client -----------------------------------------------------

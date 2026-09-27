@@ -100,21 +100,27 @@ def reset_rate_limits() -> None:
 # Rules
 # ---------------------------------------------------------------------------
 
+MEMBER_TYPES = ("senior", "junior", "concession")
+
+
 def _member_type(item: dict) -> str:
     """
     Which fee applies to one entrant.
 
-    The entry page has no verified membership type (the runner database gives
-    everyone 'senior'), so the server prices everyone at the senior fee and
-    ignores any type the browser sends: letting the client declare itself a
-    junior would be a way to pay less. Swap this for a lookup once membership
-    types are stored server-side.
+    Nothing server-side knows anyone's membership type, so by default everyone
+    pays the senior fee and whatever the browser claims is ignored (letting the
+    client declare itself a junior would be a way to pay less). An organiser
+    who is happy to trust entrants turns on "Let entrants choose junior /
+    concession", and then the declared type is used.
     """
+    if config.get("trust_member_type") and item.get("type") in MEMBER_TYPES:
+        return item["type"]
     return "senior"
 
 
 def payment_required() -> bool:
-    return payments.quote([_member_type({})])["total"] > 0
+    return any(payments.quote([t])["total"] > 0 for t in (
+        MEMBER_TYPES if config.get("trust_member_type") else ("senior",)))
 
 
 def _entries_closed(now: datetime | None = None) -> bool:
@@ -213,7 +219,9 @@ def clean_cart(raw) -> list[dict]:
             raise EntryError(f"{name} is in your cart twice")
         cards.add(card)
         names.add(name.lower())
-        items.append({"name": name, "club": club, "card": card, "class_id": class_id})
+        member_type = str(entry.get("type") or "senior").lower()
+        items.append({"name": name, "club": club, "card": card, "class_id": class_id,
+                      "type": member_type if member_type in MEMBER_TYPES else "senior"})
     return items
 
 

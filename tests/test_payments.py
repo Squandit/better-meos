@@ -386,3 +386,24 @@ def test_paypal_secret_never_reaches_the_browser(paypal):
     fields = {f["key"]: f for g in groups for f in g["fields"]}
     assert fields["paypal_client_secret"]["value"] == ""
     assert fields["paypal_client_secret"]["is_set"] is True
+
+
+def test_late_fee_applies_after_the_late_time(paypal):
+    import config
+    from datetime import datetime
+    config.save({"late_fee": 4, "late_fee_from": "2026-10-01T18:00"})
+    assert payments.quote(["senior"], now=datetime(2026, 10, 1, 17, 59))["total"] == Decimal("10.00")
+    assert payments.quote(["senior"], now=datetime(2026, 10, 1, 18, 0))["total"] == Decimal("14.00")
+
+
+def test_declared_types_only_when_the_organiser_trusts_them(paypal):
+    import config
+    config.save({"fee_junior": 4, "family_cap": 0})
+    c = appmod.app.test_client()
+    oid = _order(c, _cart(1, type="junior")).get_json()["orderID"]
+    assert paypal.orders[oid]["amount"] == "10.00"          # ignored by default
+    config.save({"trust_member_type": True})
+    oid = _order(c, _cart(1, type="junior")).get_json()["orderID"]
+    assert paypal.orders[oid]["amount"] == "4.00"
+    oid = _order(c, _cart(1, type="free-please")).get_json()["orderID"]
+    assert paypal.orders[oid]["amount"] == "10.00"          # unknown type -> senior

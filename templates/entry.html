@@ -278,6 +278,15 @@
           <input type="text" id="card" placeholder="e.g. 1234567" inputmode="numeric" pattern="[0-9]*">
         </div>
 
+        <div class="field" id="type-field" style="display:none">
+          <label>Entry type</label>
+          <select id="member-type">
+            <option value="senior">Senior</option>
+            <option value="junior">Junior</option>
+            <option value="concession">Concession</option>
+          </select>
+        </div>
+
         <div class="field">
           <label>Course</label>
           <select id="class">
@@ -376,7 +385,11 @@
 
   document.getElementById('event-name').textContent = config.event.name;
   document.getElementById('price-hint').textContent =
-    `$${prices.senior} per person` + (FAMILY_CAP !== Infinity ? ` · Family cap $${FAMILY_CAP}` : '');
+    (prices.chooseType
+      ? `Senior $${prices.senior} · Junior $${prices.junior} · Concession $${prices.concession}`
+      : `$${prices.senior} per person`)
+    + (prices.late ? ` · late entry +$${prices.late}` : '')
+    + (FAMILY_CAP !== Infinity ? ` · Family cap $${FAMILY_CAP}` : '');
   document.getElementById('cap-amount').textContent = FAMILY_CAP !== Infinity ? FAMILY_CAP : '';
 
   if (config.paypal.sandbox) document.getElementById('sandbox-note').style.display = 'block';
@@ -447,10 +460,21 @@
     el.className = 'fee-amount';
   }
 
-  function getPersonPrice() {
-    // Matches the server, which prices everyone at the senior fee (there's no
-    // verified membership type yet). Display only; the server decides.
-    return prices.senior;
+  // Entry types are only offered when the organiser trusts declared types;
+  // otherwise the server charges everyone the senior fee.
+  if (prices.chooseType) {
+    document.getElementById('type-field').style.display = '';
+    document.getElementById('member-type').addEventListener('change', updateFeeDisplay);
+  }
+  function memberType() {
+    return prices.chooseType ? document.getElementById('member-type').value : 'senior';
+  }
+  function getPersonPrice(type) {
+    // Mirrors the server's pricing (fee by type + late surcharge). Display
+    // only; the server decides what is charged.
+    const t = type || memberType();
+    const base = prices[t] !== undefined ? prices[t] : prices.senior;
+    return base + (prices.late || 0);
   }
 
   // Name autocomplete
@@ -643,7 +667,8 @@
     }
 
     clearMsg();
-    cart.push({ name, club, card, classId: currentClassId, className: currentClassName, price: getPersonPrice() });
+    cart.push({ name, club, card, classId: currentClassId, className: currentClassName,
+                type: memberType(), price: getPersonPrice() });
     nameInp.value = '';
     document.getElementById('club').value = '';
     document.getElementById('card').value = '';
@@ -666,7 +691,7 @@
   // entry, prices the cart, creates the PayPal order, then captures and
   // verifies the payment before anyone is entered. Nothing here decides money.
   function cartPayload() {
-    return cart.map(e => ({ name: e.name, club: e.club, card: e.card, classId: e.classId }));
+    return cart.map(e => ({ name: e.name, club: e.club, card: e.card, classId: e.classId, type: e.type }));
   }
 
   function postJSON(url, body) {
