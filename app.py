@@ -718,6 +718,36 @@ def audit_page():
     return render_template("audit.html", active="audit", entries=store.audit_log())
 
 
+def _stage_paths(names) -> list[str]:
+    """Stage files chosen by filename, only from the events folder (never an
+    arbitrary path from the browser)."""
+    files = {e["filename"]: e["path"] for e in store.events_in_folder()}
+    return [files[n] for n in (names or []) if n in files]
+
+
+@app.route("/stages")
+def stages_page():
+    """Multi-day events: combined standings across stage files + chase starts."""
+    events_list = sorted(store.events_in_folder(), key=lambda e: (e["date_iso"], e["name"]))
+    chosen = request.args.getlist("stage")
+    combined = stages.combined_results(_stage_paths(chosen)) if chosen else None
+    return render_template("stages.html", active="stages", events=events_list,
+                           chosen=set(chosen), combined=combined)
+
+
+@app.route("/api/stages/chase", methods=["POST"])
+def api_chase_starts():
+    data = _payload()
+    paths = _stage_paths(data.get("stages"))
+    if store.current_event_path() in paths:
+        raise StoreError("Pick only the earlier stages, not the one that's open")
+    if not paths:
+        raise StoreError("Pick the earlier stages to base the chase start on")
+    count = stages.apply_chase_starts(paths, data.get("first_start"))
+    events.publish("competitor", action="chase")
+    return jsonify({"ok": True, "assigned": count})
+
+
 @app.route("/tools")
 def tools():
     """Import / export console."""

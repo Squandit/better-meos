@@ -144,13 +144,15 @@ def apply_chase_starts(prior_paths: list[str], first_start: str) -> int:
                     comp["name"], comp.get("club", ""), None)
 
     assigned = 0
-    with store._lock:
+    with store.batch():
         for comp in list(store._competitors.values()):
             key = card_to_name.get(comp.get("card_number"))
             if key is None:
                 key = _identity(comp["name"], comp.get("club", ""), None)
             if key in deficit:
-                comp["start"] = base + timedelta(seconds=deficit[key])
-                db.save_competitor(store._active_event_id, comp)
+                start = base + timedelta(seconds=deficit[key])
+                store.update_competitor(comp["id"], {"start": store.format_clock(start)})
                 assigned += 1
+        store._audit("chase starts set", f"{assigned} runners",
+                     f"first start {first_start}, from {len(prior_paths)} stage(s)")
     return assigned
