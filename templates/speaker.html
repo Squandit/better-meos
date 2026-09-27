@@ -12,17 +12,41 @@
     <section class="panel">
         <div class="panel-head"><h4>Out on course</h4><span class="chip grey">{{ out|length }}</span></div>
         <table class="table">
-            <thead><tr><th style="width:84px">Started</th><th>Athlete</th><th style="width:90px">Class</th></tr></thead>
+            <thead><tr><th style="width:84px">Started</th><th>Athlete</th><th style="width:80px">Class</th>
+                <th style="width:84px">Running</th><th>Radio</th><th style="width:96px">To lead</th></tr></thead>
             <tbody>
                 {% for r in out %}
                 <tr><td class="mono">{{ r.start }}</td>
                     <td><span class="cell-name">{{ r.name }}</span>{% if r.club %}<div class="cell-sub">{{ r.club }}</div>{% endif %}</td>
-                    <td>{{ r['class'] }}</td></tr>
+                    <td>{{ r['class'] }}</td>
+                    <td class="mono dim" data-running="{{ r.start }}"></td>
+                    <td>{% if r.last_control %}<span class="mono">{{ r.split }}</span> at {{ r.last_control }}
+                        · {% if r.split_place == 1 %}<strong>fastest</strong>{% else %}{{ r.split_place|ordinal }}, +{{ r.behind }}{% endif %}
+                        {% if r.predicted %}<div class="cell-sub">heading for {{ r.predicted }} → {{ r.predicted_place|ordinal }}</div>{% endif %}
+                        {% else %}<span class="dim">–</span>{% endif %}</td>
+                    <td class="mono">{{ r.must_finish_by or '–' }}</td></tr>
                 {% else %}
-                <tr><td colspan="3" class="empty">Nobody out on course.</td></tr>
+                <tr><td colspan="6" class="empty">Nobody out on course.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
+        <p class="tool-note">"To lead" is the clock time they must finish by to beat the current leader.</p>
+        <script>
+        (function () {
+            // Running time ticks in the browser (the page itself is cached per change).
+            function tick() {
+                var now = new Date();
+                var nowS = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+                document.querySelectorAll("[data-running]").forEach(function (td) {
+                    var p = td.dataset.running.split(":").map(Number);
+                    var s = (nowS - (p[0] * 3600 + p[1] * 60 + p[2]) + 86400) % 86400;
+                    var h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
+                    td.textContent = (h ? h + ":" + (m < 10 ? "0" : "") : "") + m + ":" + (sec < 10 ? "0" : "") + sec;
+                });
+            }
+            tick(); setInterval(tick, 1000);
+        })();
+        </script>
     </section>
 
     <section class="panel">

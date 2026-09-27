@@ -28,6 +28,7 @@ import remote
 import runners
 import security
 import si_reader
+import speaker
 import simulator
 import stages
 import store
@@ -44,6 +45,16 @@ app.secret_key = config.secret_key()
 # Format a raw seconds duration in templates (used by the profile page, which
 # renders engine results directly rather than pre-formatted view rows).
 app.jinja_env.filters["format_secs"] = format_duration
+
+
+def _ordinal(n) -> str:
+    """1 -> 1st, 2 -> 2nd, 11 -> 11th, 23 -> 23rd."""
+    n = int(n)
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+app.jinja_env.filters["ordinal"] = _ordinal
 
 # Port-surface split (public vs admin) + admin unlock gate. Installed first so
 # its before_request guard runs before the login / open-event guards.
@@ -598,8 +609,7 @@ def economy_page():
 def speaker_page():
     """Commentator view: who's out on course, recent finishes."""
     rows = [r for c in _console_data() for r in c["rows"]]
-    out = [r for r in rows if r["start"] and not r["finish"]]
-    out.sort(key=lambda r: r["start"])
+    out = speaker.out_on_course(store.evaluate()[0])
     finished = [r for r in rows if r["finish"]]
     finished.sort(key=lambda r: r["finish"], reverse=True)
     return render_template("speaker.html", active="speaker",
