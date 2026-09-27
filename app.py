@@ -23,6 +23,7 @@ import importers
 import online_entry
 import payments
 import pdf
+import publish
 import remote
 import runners
 import security
@@ -1147,8 +1148,46 @@ def setup():
     }
     return render_template("setup.html", active="setup", counts=counts,
                            remote_url=remote.url(), remote_configured=remote.is_configured(),
-                           backup=backups.status(),
+                           backup=backups.status(), published=publish.status(),
                            synced_folder=backups.in_synced_folder(store.events_dir()))
+
+
+def _published_files() -> dict:
+    """What publish.py pushes online: a self-contained results page (CSS
+    inlined, reloads itself each minute) and the IOF XML results."""
+    with open(os.path.join(app.root_path, "static", "style.css"), encoding="utf-8") as f:
+        css = f.read()
+    with app.test_request_context("/"):
+        html = render_template("public.html", classes=_console_data(), inline_css=css,
+                               published_at=datetime.now().strftime("%H:%M"))
+    classes, _ = store.evaluate()
+    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses)
+    return {"results.html": html.encode("utf-8"), "results.xml": xml.encode("utf-8")}
+
+
+publish.set_renderer(_published_files)
+
+
+@app.route("/api/publish/now", methods=["POST"])
+def api_publish_now():
+    if not publish.enabled():
+        return jsonify({"error": "Set a publish folder or FTP host in Settings first"}), 400
+    targets = publish.publish_now()
+    if not targets:
+        return jsonify({"error": publish.status()["error"] or "Nothing published"}), 400
+    return jsonify({"ok": True, "targets": targets})
+
+
+@app.route("/export/prizes.pdf")
+def export_prizes_pdf():
+    """Prize-giving list: the top places of every class."""
+    places = max(1, int(config.get("prize_places") or 3))
+    classes = [{"name": c["name"], "is_score": c["is_score"],
+                "rows": [r for r in c["rows"] if r["position"] and r["position"] <= places]}
+               for c in _console_data()]
+    data = pdf.prize_list_pdf([c for c in classes if c["rows"]], store.EVENT, places)
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-prizes.pdf"})
 
 
 @app.route("/api/backups/now", methods=["POST"])
@@ -1553,6 +1592,7 @@ if __name__ == "__main__":
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         si_reader.start_all()
         backups.start()
+        publish.start()
     # The dev server is single-port (the full admin surface); the port split is
     # a launcher/production concern -- run launcher.py to serve both ports.
     # threaded=True so a long-lived SSE stream doesn't block other requests.

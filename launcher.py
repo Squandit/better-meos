@@ -77,6 +77,7 @@ def main() -> None:
     import app as appmod
     import backups
     import config
+    import publish
     import si_reader
     from waitress import serve
 
@@ -89,6 +90,7 @@ def main() -> None:
 
     si_reader.start_all()  # real SI reader if configured; else no-op
     backups.start()        # snapshot the open event every few minutes
+    publish.start()        # push results online when configured
 
     # Public/results server on its own port, in the background. Every phone
     # watching live results holds one thread (capped by events.MAX_STREAMS), so

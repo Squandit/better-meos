@@ -151,6 +151,31 @@ def start_list_by_time_pdf(rows: list[dict], event: dict) -> bytes:
     return buf.getvalue()
 
 
+def prize_list_pdf(classes: list[dict], event: dict, places: int) -> bytes:
+    """Prize-giving list: the top ``places`` of each class, read out in reverse
+    at the ceremony. ``classes`` = [{name, is_score, rows:[view rows]}]."""
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    styles = _styles()
+    story = [
+        Paragraph(f"<b>{escape(event.get('name', ''))}</b> — Prize giving", styles["Title"]),
+        Paragraph(escape(f"{event.get('date', '')} · top {places} per class"), styles["Normal"]),
+        Spacer(1, 6 * mm),
+    ]
+    for cls in classes:
+        story.append(Paragraph(escape(cls["name"]), styles["Heading2"]))
+        head = ["Place", "Name", "Club", "Points" if cls["is_score"] else "Time"]
+        data = [head] + [[str(r["position"]), r["name"], r.get("club") or "",
+                          str(r["points"]) if cls["is_score"] else (r.get("time") or "")]
+                         for r in cls["rows"]]
+        tbl = Table(data, colWidths=[16 * mm, 62 * mm, 58 * mm, 30 * mm])
+        tbl.setStyle(_table_style())
+        story.append(tbl)
+        story.append(Spacer(1, 6 * mm))
+    doc.build(story)
+    return buf.getvalue()
+
+
 def bib_labels_pdf(labels: list[dict], event: dict) -> bytes:
     """A grid of bib labels (large bib number + name/class) for printing."""
     buf = io.BytesIO()
