@@ -69,6 +69,8 @@
 
 <div class="ops-bar">
     <button class="btn btn-primary" type="submit">Draw start list</button>
+    <a class="btn btn-soft" href="{{ url_for('starter_page') }}" target="_blank" rel="noopener">Start clock</a>
+    <a class="btn btn-soft" href="{{ url_for('export_startlist_pdf', by='time') }}">Starters PDF</a>
     <span class="toolbar-spacer"></span>
     <span class="tool-result" data-result></span>
 </div>

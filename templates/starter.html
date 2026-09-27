@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Start clock</title>
+    <style>
+        body { margin: 0; background: #10171f; color: #fff; font-family: system-ui, sans-serif;
+               min-height: 100vh; display: flex; flex-direction: column; }
+        .clock { text-align: center; font-size: clamp(72px, 16vw, 220px); font-weight: 800;
+                 font-variant-numeric: tabular-nums; padding: 18px 0 6px; }
+        .count { text-align: center; color: #9aa6b2; font-size: clamp(18px, 2.6vw, 30px); }
+        .lists { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 22px; flex: 1; }
+        h2 { margin: 0 0 10px; font-size: 20px; color: #9aa6b2; text-transform: uppercase;
+             letter-spacing: .08em; }
+        .now h2 { color: #3ddc84; }
+        table { width: 100%; border-collapse: collapse; font-size: clamp(18px, 2.2vw, 28px); }
+        td { padding: 8px 6px; border-bottom: 1px solid #243140; }
+        td.t { font-variant-numeric: tabular-nums; color: #9aa6b2; width: 5.5em; }
+        td.c { color: #9aa6b2; width: 5em; }
+        .vacant td { color: #56626e; }
+        .empty { color: #56626e; }
+        @media (max-width: 800px) { .lists { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="clock" data-clock>--:--:--</div>
+<div class="count" data-count></div>
+<div class="lists">
+    <section class="now"><h2>Starting now</h2><table data-now></table></section>
+    <section><h2>Next</h2><table data-next></table></section>
+</div>
+<script>
+(function () {
+    var offset = 0;             // server clock minus this device's clock, ms
+    var starters = [];
+    var clock = document.querySelector("[data-clock]");
+    var count = document.querySelector("[data-count]");
+
+    function secs(hms) { var p = hms.split(":").map(Number); return p[0] * 3600 + p[1] * 60 + (p[2] || 0); }
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    function nowSecs() {
+        var d = new Date(Date.now() + offset);
+        return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+    }
+    function fmt(s) { return pad(Math.floor(s / 3600) % 24) + ":" + pad(Math.floor(s / 60) % 60) + ":" + pad(s % 60); }
+
+    function fill(table, rows) {
+        table.innerHTML = "";
+        if (!rows.length) {
+            var tr = table.insertRow(); var td = tr.insertCell(); td.className = "empty"; td.textContent = "Nobody";
+            return;
+        }
+        rows.forEach(function (r) {
+            var tr = table.insertRow();
+            if (r.vacant) { tr.className = "vacant"; }
+            [[r.start, "t"], [r.bib || "", ""], [r.vacant ? "Vacant" : r.name, ""], [r["class"], "c"]]
+                .forEach(function (cell) { var td = tr.insertCell(); td.textContent = cell[0]; td.className = cell[1]; });
+        });
+    }
+
+    function tick() {
+        var now = nowSecs();
+        clock.textContent = fmt(now);
+        // "Now" = the start minute that begins next (the starter calls it up),
+        // "Next" = the following few minutes.
+        var upcoming = starters.filter(function (r) { return secs(r.start) >= now; });
+        var first = upcoming.length ? secs(upcoming[0].start) : null;
+        var nowRows = upcoming.filter(function (r) { return secs(r.start) === first; });
+        var nextRows = upcoming.filter(function (r) { var t = secs(r.start); return t > first && t <= first + 300; });
+        fill(document.querySelector("[data-now]"), nowRows);
+        fill(document.querySelector("[data-next]"), nextRows);
+        count.textContent = first === null ? "No more starts" : "Next start in " + fmt(first - now).replace(/^00:/, "");
+    }
+
+    function load() {
+        var sent = Date.now();
+        fetch("/api/starters", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+            var server = new Date(); var p = d.now.split(":").map(Number);
+            server.setHours(p[0], p[1], p[2], 0);
+            offset = server.getTime() - (sent + Date.now()) / 2;   // midway through the request
+            starters = d.starters;
+            tick();
+        });
+    }
+    load();
+    setInterval(tick, 250);
+    setInterval(load, 60000);   // pick up late entries / redraws
+})();
+</script>
+</body>
+</html>

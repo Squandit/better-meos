@@ -610,14 +610,42 @@ def _startlist_data():
         classes.append({
             "name": cls["name"],
             "rows": [{"bib": c.get("bib"), "name": c["name"], "club": c.get("club") or "",
+                      "vacant": bool(c.get("vacant")),
                       "card": c.get("card_number") or "",
                       "start": _clock(c.get("start"))} for c in members],
         })
     return classes
 
 
+def _starters():
+    """Everyone with a start time, in start order (the starter's view)."""
+    rows = []
+    for cls in _startlist_data():
+        for r in cls["rows"]:
+            if r["start"]:
+                rows.append({**r, "class": cls["name"]})
+    rows.sort(key=lambda r: (r["start"], r["class"], r["name"]))
+    return rows
+
+
+@app.route("/starter")
+def starter_page():
+    """Start clock + who's up now and next, for the start official."""
+    return render_template("starter.html")
+
+
+@app.route("/api/starters")
+def api_starters():
+    return jsonify({"now": datetime.now().strftime("%H:%M:%S"), "starters": _starters()})
+
+
 @app.route("/export/startlist.pdf")
 def export_startlist_pdf():
+    if request.args.get("by") == "time":
+        data = pdf.start_list_by_time_pdf(_starters(), store.EVENT)
+        return Response(data, mimetype="application/pdf", headers={
+            "Content-Disposition":
+                f"attachment; filename={store.EVENT['slug']}-starters.pdf"})
     data = pdf.start_list_pdf(_startlist_data(), store.EVENT)
     return Response(data, mimetype="application/pdf", headers={
         "Content-Disposition": f"attachment; filename={store.EVENT['slug']}-startlist.pdf"})

@@ -58,3 +58,12 @@ def test_keep_existing_only_places_late_entries():
 
 def test_draw_page_renders():
     assert "Draw start list" in appmod.app.test_client().get("/draw").get_data(as_text=True)
+
+
+def test_starter_screen_and_pdf():
+    c = appmod.app.test_client()
+    data = c.get("/api/starters").get_json()
+    starts = [r["start"] for r in data["starters"]]
+    assert starts == sorted(starts) and len(data["now"]) == 8
+    assert c.get("/starter").status_code == 200
+    assert c.get("/export/startlist.pdf?by=time").data[:4] == b"%PDF"
