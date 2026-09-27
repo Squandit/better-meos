@@ -99,3 +99,17 @@ def test_import_startlist_csv_via_upload(client):
         "file": (io.BytesIO(csv_text), "startlist.csv")},
         content_type="multipart/form-data")
     assert r.status_code == 200 and r.get_json()["created"] == 1
+
+
+def test_command_palette_search(client):
+    found = client.get("/api/search?q=test run").get_json()
+    assert found["runners"] == [] or found["runners"][0]["name"]
+    by_name = client.get("/api/search?q=runner").get_json()["runners"]
+    assert any(r["name"] == "Test Runner" for r in by_name)
+    by_card = client.get("/api/search?q=8635918").get_json()["runners"]
+    assert by_card and by_card[0]["name"] == "Test Runner" and by_card[0]["class"] == "M21A"
+    assert client.get("/api/search?q=m21").get_json()["classes"][0]["name"] == "M21A"
+    assert any(s["key"] == "time_format" for s in client.get("/api/search?q=time format").get_json()["settings"])
+    assert client.get("/api/search?q=").get_json()["runners"] == []
+    html = client.get("/results").get_data(as_text=True)
+    assert "palette.js" in html and "data-palette" in html

@@ -9,7 +9,7 @@
 </div>
 
 {% for club in clubs %}
-<section class="panel class-card">
+<section class="panel class-card" id="club-{{ club.club }}">
     <div class="panel-head">
         <h4>{{ club.club }}</h4>
         <span class="chip grey">{{ club.rows|length }} competitor{{ '' if club.rows|length == 1 else 's' }}</span>

@@ -36,6 +36,10 @@
         if (!on) { window.location.reload(); }                // widgets fetch fresh data
     }
     editBtn.addEventListener("click", function () { setEditing(!grid.classList.contains("editing")); });
+    if (window.location.hash === "#customise") {            // from the command palette
+        history.replaceState(null, "", window.location.pathname);
+        setEditing(true);
+    }
     resetBtn.addEventListener("click", function () {
         if (!window.confirm("Put the home screen back to the default widgets?")) { return; }
         post("/api/dashboard/reset").then(function () { document.body.dataset.editing = ""; window.location.reload(); });

@@ -29,6 +29,7 @@ import pdf
 import publish
 import remote
 import runners
+import search as search_mod
 import season
 import security
 import settings_schema
@@ -224,6 +225,12 @@ def index():
            "evaluated": store.evaluate()[0]}
     return render_template("overview.html", active="overview",
                            widgets=dashboard.build(ctx), catalogue=dashboard.catalogue())
+
+
+@app.route("/api/search")
+def api_search():
+    """Command palette search: runners, classes, clubs, settings."""
+    return jsonify(search_mod.query(request.args.get("q", "")))
 
 
 @app.route("/api/dashboard", methods=["POST"])

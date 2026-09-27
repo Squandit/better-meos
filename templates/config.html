@@ -55,7 +55,11 @@
     var search = document.querySelector("[data-settings-search]");
     var timer = null;
     search.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(refresh, 200); });
-    window.addEventListener("load", function () { draw(initial); });
+    window.addEventListener("load", function () {
+        // /config?q=... (the command palette) opens with that search.
+        var q = new URLSearchParams(window.location.search).get("q");
+        if (q) { search.value = q; refresh(); } else { draw(initial); }
+    });
 })();
 </script>
 {% endblock %}
