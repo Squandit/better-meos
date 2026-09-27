@@ -100,6 +100,14 @@ Committed straight to main, one commit per feature. Tests: **256 passing**
   -> page map, and guided tours that move page to page highlighting each
   button (state in sessionStorage). Tour steps are data at the top of help.js;
   a step whose element is missing shows as a centred card.
+- **Installer + data folder**: the packaged app keeps everything in
+  `%USERPROFILE%\better-meos` (events\, config.json, runners.db; backups stay in
+  %LOCALAPPDATA%), wherever the exe runs from; data an older exe left beside
+  itself is copied in once; `portable.txt` next to the exe keeps data beside it
+  (USB stick). `installer/better-meos.iss` (Inno Setup) builds
+  `better-meos-setup.exe` in CI: per-user install, no admin, shortcuts,
+  uninstall leaves data alone. CI installs it silently and checks the app
+  serves /start and writes to the user folder. Icon: installer/better-meos.ico.
 - Small fixes: favicon (every page 404'd), numeric table headers right-aligned,
   macros imported `with context`.
 

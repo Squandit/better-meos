@@ -25,11 +25,6 @@ PUBLIC_THREADS = 32
 ADMIN_THREADS = 24
 
 
-def _use_exe_folder() -> None:
-    """In the packaged exe, keep config.json, events/ and runners.db next to
-    the exe, whatever folder a shortcut launched it from."""
-    if getattr(sys, "frozen", False):
-        os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
 
 
 # Where Edge / Chrome usually live on Windows (Edge ships with Windows 10/11).
@@ -72,15 +67,72 @@ def open_console(url: str, *, silent_print: bool) -> None:
     webbrowser.open(url)
 
 
-def _use_exe_folder() -> None:
-    """In the packaged exe, keep config.json, events/ and runners.db next to
-    the exe, whatever folder a shortcut launched it from."""
-    if getattr(sys, "frozen", False):
-        os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
+# Everything the packaged app writes, in one folder per Windows user.
+DATA_FOLDER = "better-meos"
+PORTABLE_MARKER = "portable.txt"
+_DATA_FILES = ("config.json", "runners.db")
+
+
+def data_root(exe_dir: str, home: str) -> str:
+    """Where the packaged app keeps its data.
+
+    Normally ``<user profile>\\better-meos``: one folder with the events, the
+    settings and the runner database, the same wherever the exe was started
+    from (not Downloads, not Program Files) and outside OneDrive, which
+    redirects Documents and Desktop but not the profile folder itself. A
+    ``portable.txt`` next to the exe keeps everything beside it instead (a
+    USB stick that moves between laptops)."""
+    if os.path.isfile(os.path.join(exe_dir, PORTABLE_MARKER)):
+        return exe_dir
+    return os.path.join(home, DATA_FOLDER)
+
+
+def adopt_old_data(exe_dir: str, root: str) -> list[str]:
+    """Older versions kept their data next to the exe. Copy it into the data
+    folder the first time (copy, never move: the old files stay as they were)."""
+    import shutil
+    copied = []
+    if os.path.abspath(exe_dir) == os.path.abspath(root):
+        return copied
+    for name in _DATA_FILES:
+        src, dst = os.path.join(exe_dir, name), os.path.join(root, name)
+        if os.path.isfile(src) and not os.path.exists(dst):
+            shutil.copy2(src, dst)
+            copied.append(name)
+    src_events, dst_events = os.path.join(exe_dir, "events"), os.path.join(root, "events")
+    if os.path.isdir(src_events):
+        os.makedirs(dst_events, exist_ok=True)
+        for name in os.listdir(src_events):
+            if name.endswith(".bmeos") and not os.path.exists(os.path.join(dst_events, name)):
+                shutil.copy2(os.path.join(src_events, name), os.path.join(dst_events, name))
+                copied.append(os.path.join("events", name))
+    return copied
+
+
+def _use_data_folder() -> None:
+    """Packaged exe: work in the data folder, and point settings, events and
+    the runner database at it (unless the environment already says where)."""
+    if not getattr(sys, "frozen", False):
+        return
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    root = data_root(exe_dir, os.path.expanduser("~"))
+    os.makedirs(os.path.join(root, "events"), exist_ok=True)
+    try:
+        copied = adopt_old_data(exe_dir, root)
+    except OSError as err:
+        copied = []
+        print(f"  Couldn't copy old data from {exe_dir}: {err}")
+    os.environ.setdefault("BMEOS_CONFIG", os.path.join(root, "config.json"))
+    os.environ.setdefault("BMEOS_EVENTS_DIR", os.path.join(root, "events"))
+    os.environ.setdefault("BMEOS_RUNNERS_DB", os.path.join(root, "runners.db"))
+    os.chdir(root)
+    print(f"\n  Your events and settings live in: {root}")
+    if copied:
+        print(f"  Moved in from the old location next to the exe: {', '.join(copied)}")
 
 
 def main() -> None:
-    _use_exe_folder()
+    _use_data_folder()
     import app as appmod
     import backups
     import config

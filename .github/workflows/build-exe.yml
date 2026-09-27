@@ -1,9 +1,10 @@
 # Builds the operator's Windows exe on GitHub's Windows machines, so nobody
 # needs Python installed to get a working better-meos.exe.
 #
-# Every push: download it from the run's "Artifacts" section (Actions tab).
-# Push a tag like v1.2.0: it's also attached to a GitHub Release, which gives
-# a plain download link to hand to operators.
+# Every push: download the installer (better-meos-installer) or the bare exe
+# from the run's "Artifacts" section (Actions tab).
+# Push a tag like v1.2.0: both are attached to a GitHub Release, which gives a
+# plain download link to hand to operators.
 name: Build Windows exe
 
 on:
@@ -53,12 +54,43 @@ jobs:
           }
           Stop-Process -Id $p.Id -Force
           if (-not $ok) { throw "exe did not serve /start" }
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $version = if ("${{ github.ref }}" -like "refs/tags/v*") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.${{ github.run_number }}" }
+          & $iscc "/DAppVersion=$version" installer\better-meos.iss
+          if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
+      - name: Check the installer installs and the app starts
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\better-meos-setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode)" }
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\better-meos\better-meos.exe"
+          if (-not (Test-Path $exe)) { throw "better-meos.exe not installed at $exe" }
+          $env:BMEOS_PORT = "18799"; $env:BMEOS_PUBLIC_PORT = "18800"
+          $app = Start-Process -FilePath $exe -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 2
+            try { $ok = (Invoke-WebRequest http://127.0.0.1:18799/start -UseBasicParsing).StatusCode -eq 200 } catch {}
+          }
+          Stop-Process -Id $app.Id -Force
+          if (-not $ok) { throw "installed app did not serve /start" }
+          if (-not (Test-Path (Join-Path $env:USERPROFILE "better-meos\config.json"))) { throw "settings were not written to the user's better-meos folder" }
       - uses: actions/upload-artifact@v4
         with:
           name: better-meos-exe
           path: dist/better-meos.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: better-meos-installer
+          path: dist/better-meos-setup.exe
       - name: Attach to release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/better-meos.exe
+          files: |
+            dist/better-meos-setup.exe
+            dist/better-meos.exe
