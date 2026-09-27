@@ -188,18 +188,33 @@ def console_data() -> list[dict]:
     return ordered(view)
 
 
-def _groups(evaluated: list[dict]) -> list[dict]:
-    """``[{key, name, meta, is_score, results}]`` per class, or per course when
-    the event lists results by course (every class on a course ranked
-    together; a forked runner counts on the course they ran)."""
+def results_mode(cls: dict) -> str:
+    """A class's results option: normal, no_times (names only) or hidden."""
+    return cls.get("results_mode") or "normal"
+
+
+def _class_group(e: dict) -> dict:
+    return {"key": e["class"]["id"], "name": e["class"]["name"],
+            "meta": store.course_meta(e["course"]),
+            "is_score": e["course"]["type"] == "score", "by_course": False,
+            "mode": results_mode(e["class"]), "results": e["results"]}
+
+
+def _groups(evaluated: list[dict], public: bool = True) -> list[dict]:
+    """``[{key, name, meta, is_score, mode, results}]`` per class, or per course
+    when the event lists results by course (every class on a course ranked
+    together; a forked runner counts on the course they ran). Public views
+    leave out classes whose results are hidden; names-only classes always
+    keep their own block, unranked."""
+    if public:
+        evaluated = [e for e in evaluated if results_mode(e["class"]) != "hidden"]
     if config.get_str("results_group_by") != "course":
-        return ordered([{"key": e["class"]["id"], "name": e["class"]["name"],
-                         "meta": store.course_meta(e["course"]),
-                         "is_score": e["course"]["type"] == "score",
-                         "by_course": False, "results": e["results"]}
-                        for e in evaluated])
+        return ordered([_class_group(e) for e in evaluated])
+    own = [_class_group(e) for e in evaluated if results_mode(e["class"]) != "normal"]
     pooled: dict[int, list] = {}
     for e in evaluated:
+        if results_mode(e["class"]) != "normal":
+            continue
         for r in e["results"]:
             cid = r.get("course_id", e["course"]["id"])
             # rank_results groups by "class": rank on the course instead,
@@ -214,8 +229,9 @@ def _groups(evaluated: list[dict]) -> list[dict]:
         ranked = rank_results(rows).get(cid, [])
         groups.append({"key": cid, "name": course["name"], "meta": store.course_meta(course),
                        "is_score": course["type"] == "score", "by_course": True,
+                       "mode": "normal",
                        "results": [dict(r, **{"class": r["real_class"]}) for r in ranked]})
-    return sorted(groups, key=lambda g: _natural(g["name"]))
+    return sorted(groups, key=lambda g: _natural(g["name"])) + ordered(own)
 
 
 def _behind(rows: list[dict], is_score: bool, fmt) -> None:
@@ -234,14 +250,21 @@ def _behind(rows: list[dict], is_score: bool, fmt) -> None:
             r["behind"] = "+" + fmt(r["seconds"] - best["seconds"])
 
 
-def results_view(*, on_course: bool | None = None) -> list[dict]:
+def _names_only(row: dict) -> dict:
+    """A row for a class whose results show names only: no time or place."""
+    return dict(row, position=None, time=None, seconds=None, points=None, splits=[],
+                missed_control=None)
+
+
+def results_view(*, on_course: bool | None = None, public: bool = True) -> list[dict]:
     """
     The results as the event wants them shown: blocks (a class, or a course)
     in the configured order, each with the listed ``rows`` (placed first, then
     unplaced runners per the 'Unplaced runners' setting), ``behind`` on placed
     rows, and ``on_course``: runners with no card read yet whose start has
     passed (only when the event shows them; ``on_course=False`` forces off,
-    e.g. for PDFs).
+    e.g. for PDFs). ``public`` leaves out classes whose results are hidden.
+    Names-only classes list everyone who ran, alphabetically, without times.
     """
     evaluated, _ = store.evaluate()
     fmt, now = time_formatter(), store.event_now()
@@ -250,7 +273,16 @@ def results_view(*, on_course: bool | None = None) -> list[dict]:
     show_behind = config.get("results_show_behind")
 
     blocks = []
-    for g in _groups(evaluated):
+    for g in _groups(evaluated, public):
+        if g["mode"] == "no_times":
+            ran = [_names_only(view_row(r, fmt, now)) for r in g["results"]
+                   if r["status"] not in ("pending", "dns")]
+            ran.sort(key=lambda x: x["name"].lower())
+            blocks.append({"id": g["key"], "name": g["name"], "meta": g["meta"],
+                           "is_score": False, "by_course": g["by_course"], "rows": ran,
+                           "on_course": [], "entries": len(g["results"]),
+                           "mode": g["mode"]})
+            continue
         rows, out = [], []
         for r in g["results"]:
             if r["status"] == "pending":
@@ -268,8 +300,24 @@ def results_view(*, on_course: bool | None = None) -> list[dict]:
         blocks.append({"id": g["key"], "name": g["name"], "meta": g["meta"],
                        "is_score": g["is_score"], "by_course": g["by_course"],
                        "rows": rows, "on_course": out,
-                       "entries": len(g["results"])})
+                       "entries": len(g["results"]), "mode": g["mode"]})
     return blocks
+
+
+def public_evaluated() -> list[dict]:
+    """The evaluated classes as the public may see them (published IOF XML):
+    hidden classes left out, names-only classes without times or places."""
+    evaluated, _ = store.evaluate()
+    out = []
+    for e in evaluated:
+        mode = results_mode(e["class"])
+        if mode == "hidden":
+            continue
+        if mode == "no_times":
+            e = dict(e, results=[dict(r, total_seconds=None, position=None, splits=[],
+                                      punches=[], points=None) for r in e["results"]])
+        out.append(e)
+    return out
 
 
 def _read_at(result: dict):

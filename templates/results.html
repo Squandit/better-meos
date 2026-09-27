@@ -22,6 +22,7 @@
         <h4>{{ cls.name }}</h4>
         <span class="panel-chips">
             <span class="chip">{{ cls.meta }}</span>
+            {% if cls.mode == "no_times" %}<span class="chip grey">names only</span>{% elif cls.mode == "hidden" %}<span class="chip red" title="Not on the public results">hidden from public</span>{% endif %}
             {% if cls.on_course %}<span class="chip grey" title="Started, card not read yet">{{ cls.on_course|length }} out</span>{% endif %}
         </span>
     </div>

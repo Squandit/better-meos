@@ -310,6 +310,9 @@ _MIGRATIONS = [
     ("competitors", "course_id", "INTEGER"),
     ("classes", "fork_courses", "TEXT"),
     ("classes", "restart", "TEXT"),
+    ("classes", "results_mode", "TEXT NOT NULL DEFAULT 'normal'"),
+    ("classes", "entry_max", "INTEGER NOT NULL DEFAULT 0"),
+    ("classes", "online_entry", "INTEGER NOT NULL DEFAULT 1"),
     # Files from before read_at: anyone with a finish or punches was read.
     ("competitors", "read_at", "TEXT",
      "UPDATE competitors SET read_at = COALESCE(finish, start, "
@@ -535,11 +538,13 @@ def save_class(event_id: int, cls: dict) -> None:
     with _lock:
         _c().execute(
             "INSERT OR REPLACE INTO classes (id, event_id, name, course_id, kind, legs, fee, "
-            "fork_courses, restart) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "fork_courses, restart, results_mode, entry_max, online_entry) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (cls["id"], event_id, cls["name"], cls["course_id"],
              cls.get("kind", "individual"), cls.get("legs", 1), cls.get("fee", 0),
              ",".join(str(c) for c in cls.get("fork_courses") or []) or None,
-             cls.get("restart") or None),
+             cls.get("restart") or None, cls.get("results_mode") or "normal",
+             int(cls.get("entry_max") or 0), 0 if cls.get("online_entry") is False else 1),
         )
         _commit()
 
@@ -907,6 +912,9 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "fee": row["fee"] or 0,
                 "fork_courses": [int(x) for x in (row["fork_courses"] or "").split(",") if x],
                 "restart": row["restart"] or "",
+                "results_mode": row["results_mode"] or "normal",
+                "entry_max": row["entry_max"] or 0,
+                "online_entry": bool(row["online_entry"]),
             }
 
         teams: dict[int, dict] = {}

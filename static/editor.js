@@ -488,6 +488,9 @@
             if (form.elements.legs) { form.elements.legs.value = row.dataset.legs || "1"; }
             if (form.elements.fee) { form.elements.fee.value = row.dataset.fee || ""; }
             form.elements.restart.value = row.dataset.restart || "";
+            form.elements.results_mode.value = row.dataset.resultsMode || "normal";
+            form.elements.entry_max.value = row.dataset.entryMax && row.dataset.entryMax !== "0" ? row.dataset.entryMax : "";
+            form.elements.online_entry.checked = row.dataset.onlineEntry !== "0";
             var forks = (row.dataset.forks || "").split(",");
             Array.prototype.forEach.call(form.elements.fork_courses.options, function (o) {
                 o.selected = forks.indexOf(o.value) !== -1;
@@ -505,6 +508,9 @@
                 legs: form.elements.legs ? form.elements.legs.value : 1,
                 fee: form.elements.fee ? form.elements.fee.value : 0,
                 restart: form.elements.restart.value,
+                results_mode: form.elements.results_mode.value,
+                entry_max: form.elements.entry_max.value,
+                online_entry: form.elements.online_entry.checked,
                 fork_courses: Array.prototype.filter.call(form.elements.fork_courses.options,
                     function (o) { return o.selected; }).map(function (o) { return o.value; })
             };

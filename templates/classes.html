@@ -33,8 +33,13 @@
             {% for c in classes %}
             <tr data-class-row data-id="{{ c.id }}" data-name="{{ c.name }}" data-course-id="{{ c.course_id }}"
                 data-kind="{{ c.kind }}" data-legs="{{ c.legs }}" data-fee="{{ c.fee }}"
-                data-forks="{{ c.fork_courses }}" data-restart="{{ c.restart }}">
-                <td class="cell-name">{{ c.name }}{% if c.kind == 'relay' %} <span class="chip grey">relay</span>{% endif %}</td>
+                data-forks="{{ c.fork_courses }}" data-restart="{{ c.restart }}"
+                data-results-mode="{{ c.results_mode }}" data-entry-max="{{ c.entry_max }}"
+                data-online-entry="{{ 1 if c.online_entry else 0 }}">
+                <td class="cell-name">{{ c.name }}{% if c.kind == 'relay' %} <span class="chip grey">relay</span>{% endif %}
+                    {% if c.results_mode == 'no_times' %} <span class="chip grey" title="Results show names only">no times</span>{% elif c.results_mode == 'hidden' %} <span class="chip grey" title="Not on public results">hidden</span>{% endif %}
+                    {% if not c.online_entry %} <span class="chip grey">no online entry</span>{% endif %}
+                    {% if c.entry_max %} <span class="chip{% if c.entries >= c.entry_max %} red{% else %} grey{% endif %}">{{ c.entries }}/{{ c.entry_max }}</span>{% endif %}</td>
                 <td>{{ c.type }}</td>
                 <td class="dim">{{ c.course_name }} &middot; {{ c.meta }}</td>
                 <td class="num">{{ c.entries }}</td>
@@ -99,6 +104,24 @@
                 <label class="field">
                     <span class="field-label">Relay restart <span class="hint">HH:MM:SS</span></span>
                     <input type="text" name="restart" class="mono" placeholder="12:30:00">
+                </label>
+            </div>
+            <div class="field-grid">
+                <label class="field">
+                    <span class="field-label">Results</span>
+                    <select name="results_mode">
+                        <option value="normal">Times and places</option>
+                        <option value="no_times">Names only (no times or places)</option>
+                        <option value="hidden">Not on public results</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Max entries <span class="hint">0 = no limit</span></span>
+                    <input type="number" name="entry_max" inputmode="numeric" min="0" placeholder="0">
+                </label>
+                <label class="field check-field">
+                    <span class="field-label">Online entry</span>
+                    <span class="check"><input type="checkbox" name="online_entry" checked> Open on the entry page</span>
                 </label>
             </div>
             <label class="field field-wide">

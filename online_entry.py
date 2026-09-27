@@ -181,10 +181,17 @@ def _supersede_unpaid(cards: set[int]) -> None:
 def _check_items(items: list[dict], *, exclude_order: int | None = None) -> None:
     """Every entry must still be enterable right now. Caller holds store._lock."""
     held = _cards_held_by_open_orders(exclude_order)
+    per_class: dict[int, int] = {}
+    for item in items:
+        per_class[item["class_id"]] = per_class.get(item["class_id"], 0) + 1
     for item in items:
         cls = store.get_class(item["class_id"])
         if cls is None:
             raise EntryError(f"The course for {item['name']} is no longer offered")
+        if cls.get("online_entry") is False:
+            raise EntryError(f"{cls['name']} isn't open for online entry")
+        if not store.class_open_for_entry(cls["id"], per_class[cls["id"]]):
+            raise EntryError(f"{cls['name']} is full")
         owner = store.find_by_card(item["card"])
         if owner is not None:
             raise EntryError(f"SI card {item['card']} is already registered")

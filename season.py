@@ -52,8 +52,10 @@ def _event_setting(settings: dict, key: str):
 # ---------------------------------------------------------------------------
 
 def _classes_of(evaluated: list[dict]) -> list[dict]:
+    """Only classes with times and places take part in prizes and standings."""
     return [{"name": e["class"]["name"], "is_score": e["course"]["type"] == "score",
-             "results": e["results"]} for e in evaluated]
+             "results": e["results"]} for e in evaluated
+            if display.results_mode(e["class"]) == "normal"]
 
 
 def _open_event() -> dict:

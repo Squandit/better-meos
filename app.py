@@ -294,6 +294,9 @@ def classes():
             "fee": cls.get("fee", 0),
             "fork_courses": ",".join(str(i) for i in cls.get("fork_courses") or []),
             "restart": cls.get("restart") or "",
+            "results_mode": cls.get("results_mode") or "normal",
+            "entry_max": cls.get("entry_max") or 0,
+            "online_entry": cls.get("online_entry", True),
             "entries": len(rows),
             "finished": sum(1 for r in rows if r["time"] is not None),
             "flagged": sum(1 for r in rows if r["status"] in display.FLAGGED),
@@ -437,7 +440,8 @@ def api_delete_card_read(read_id):
 @app.route("/results")
 @cached_page
 def results():
-    return render_template("results.html", active="results", classes=display.results_view(),
+    return render_template("results.html", active="results",
+                           classes=display.results_view(public=security.on_public_port()),
                            show_splits=config.get("results_show_splits"))
 
 
@@ -446,10 +450,13 @@ def _splits_data():
     for score classes (legs aren't comparable when everyone picks a route)."""
     classes, _ = store.evaluate()
     fmt = display.time_formatter()
+    public = security.on_public_port()
     view = []
     for entry in display.ordered(classes, name=lambda e: e["class"]["name"]):
         course = entry["course"]
         cls = entry["class"]
+        if public and display.results_mode(cls) != "normal":
+            continue       # hidden, or names only: no splits for the public
         is_score = course["type"] == "score"
         item = {
             "id": cls["id"],
@@ -504,7 +511,7 @@ def slip(comp_id):
 def live():
     """Projector-friendly live leaderboard (no operator chrome). ``?classes=``
     picks this screen's classes (else the event's live screen setting)."""
-    blocks = display.results_view()
+    blocks = [b for b in display.results_view() if b["mode"] == "normal"]
     wanted = request.args.get("classes") or config.get_str("live_classes")
     if wanted:
         names = {n.strip().lower() for n in wanted.replace(";", ",").replace("\n", ",").split(",")
@@ -947,9 +954,13 @@ def enter():
 
 # --- Entry-page backend (mirrors the Node endpoints, backed by the store) ---
 
-def _classes_xml():
+def _classes_xml(*, entry: bool = False):
+    """Classes for the entry page. ``entry``: only those open for online entry
+    and not full."""
     parts = ["<EntryClasses>"]
     for c in store.class_options():
+        if entry and not store.class_open_for_entry(c["id"]):
+            continue
         parts.append(f'<Class id="{c["id"]}"><Name>{xml_escape(c["name"])}</Name></Class>')
     parts.append("</EntryClasses>")
     return "".join(parts)
@@ -964,7 +975,7 @@ def _runner_json(r):
 
 @app.route("/get-classes")
 def entry_get_classes():
-    return Response(_classes_xml(), mimetype="application/xml")
+    return Response(_classes_xml(entry=True), mimetype="application/xml")
 
 
 @app.route("/get-result-classes")
@@ -1040,16 +1051,18 @@ def entry_results():
     out = []
     for entry in display.ordered(classes, name=lambda e: e["class"]["name"]):
         cls = entry["class"]
-        if class_id and cls["id"] != class_id:
+        mode = display.results_mode(cls)
+        if (class_id and cls["id"] != class_id) or mode == "hidden":
             continue
+        timed = mode == "normal"
         comps = []
         for r in entry["results"]:
             if r["status"] == "pending":
                 continue   # still out (or not started): no result to show yet
             comps.append({
                 "name": r["name"], "club": r.get("club") or "",
-                "timeSecs": r["total_seconds"] if r["status"] == "ok" else None,
-                "place": r.get("position"),
+                "timeSecs": r["total_seconds"] if r["status"] == "ok" and timed else None,
+                "place": r.get("position") if timed else None,
                 "status": _STATUS_TO_ENTRY.get(r["status"], r["status"]),
                 "splits": [{"control": s["control"], "time": s["cumulative_seconds"]}
                            for s in r["splits"] if s["control"] != "F"],
@@ -1169,8 +1182,7 @@ def _published_files() -> dict:
         html = render_template("public.html", classes=display.results_view(), inline_css=css,
                                show_splits=config.get("results_show_splits"),
                                published_at=datetime.now().strftime("%H:%M"))
-    classes, _ = store.evaluate()
-    xml = iofxml.export_results(classes, store.EVENT, courses=store._courses,
+    xml = iofxml.export_results(display.public_evaluated(), store.EVENT, courses=store._courses,
                                 split_controls=store.split_controls)
     return {"results.html": html.encode("utf-8"), "results.xml": xml.encode("utf-8")}
 

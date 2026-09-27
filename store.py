@@ -471,11 +471,14 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
 
 
 def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0,
-                  fork_courses=None, restart="") -> int:
+                  fork_courses=None, restart="", results_mode="normal", entry_max=0,
+                  online_entry=True) -> int:
     cid = _next_id("class")
     _classes[cid] = {"id": cid, "name": name, "course_id": course_id,
                      "kind": kind, "legs": legs, "fee": fee,
-                     "fork_courses": fork_courses or [], "restart": restart or ""}
+                     "fork_courses": fork_courses or [], "restart": restart or "",
+                     "results_mode": results_mode, "entry_max": entry_max,
+                     "online_entry": online_entry}
     db.save_class(_active_event_id, _classes[cid])
     return cid
 
@@ -1098,6 +1101,38 @@ def _fork_courses(raw) -> list[int]:
     return out
 
 
+RESULTS_MODES = ("normal", "no_times", "hidden")
+
+
+def class_entries(class_id: int) -> int:
+    """Runners entered in a class (vacant start slots don't count)."""
+    return sum(1 for c in _competitors.values()
+               if c["class_id"] == class_id and not c.get("vacant"))
+
+
+def class_open_for_entry(class_id: int, extra: int = 0) -> bool:
+    """Can ``extra`` more people enter this class online right now?"""
+    cls = _classes.get(class_id)
+    if cls is None or cls.get("online_entry") is False:
+        return False
+    cap = cls.get("entry_max") or 0
+    return not cap or class_entries(class_id) + max(extra, 1) <= cap
+
+
+def _class_options(data: dict, cls: dict) -> None:
+    """Results mode, entry cap and online entry, validated into ``cls``."""
+    if "results_mode" in data:
+        mode = _clean_str(data.get("results_mode"), "Results").lower() or "normal"
+        if mode not in RESULTS_MODES:
+            raise StoreError("Results must be normal, no_times or hidden")
+        cls["results_mode"] = mode
+    if "entry_max" in data:
+        cls["entry_max"] = _as_int(data.get("entry_max"), "Max entries", minimum=0,
+                                   allow_blank=True) or 0
+    if "online_entry" in data:
+        cls["online_entry"] = bool(data.get("online_entry"))
+
+
 def _restart(raw) -> str:
     text = _clean_str(raw, "Restart")
     if text:
@@ -1152,9 +1187,11 @@ def create_class(data: dict) -> dict:
         kind = _class_kind(data.get("kind"))
         legs = _as_int(data.get("legs"), "Legs", minimum=1, allow_blank=True) or 1
         fee = _as_float(data.get("fee"), "Fee")
+        options: dict = {}
+        _class_options(data, options)
         cid = _insert_class(name=name, course_id=course_id, kind=kind, legs=legs, fee=fee,
                             fork_courses=_fork_courses(data.get("fork_courses")),
-                            restart=_restart(data.get("restart")))
+                            restart=_restart(data.get("restart")), **options)
         _audit("class added", name, f"course {_courses[course_id]['name']}")
         return dict(_classes[cid])
 
@@ -1184,6 +1221,7 @@ def update_class(class_id: int, data: dict) -> dict:
             cls["fork_courses"] = _fork_courses(data.get("fork_courses"))
         if "restart" in data:
             cls["restart"] = _restart(data.get("restart"))
+        _class_options(data, cls)
         db.save_class(_active_event_id, cls)
         detail = _changes(before, cls, {"course_id": "course id"})
         if detail:

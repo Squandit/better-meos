@@ -75,6 +75,11 @@ def is_public_path(path: str) -> bool:
     return path in _PUBLIC_EXACT or path.startswith(_PUBLIC_PREFIX)
 
 
+def on_public_port() -> bool:
+    """This request came in on the public (results + entry) port."""
+    return _on_public_port()
+
+
 def _on_public_port() -> bool:
     return request.environ.get("SERVER_PORT") == str(config.public_port())
 
