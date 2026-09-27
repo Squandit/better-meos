@@ -176,6 +176,8 @@ td.dim { color: var(--muted); }
 .badge-dns { background: #8a96a3; }
 .badge-dsq { background: #9b2c4f; }
 .badge-oot { background: #7a5bd0; }
+.badge-nc { background: #5f6b78; }
+.badge-vacant { background: #b9c1ca; color: #1b2330; }
 
 /* ---- Results: per-class cards & expandable splits ----------------------- */
 

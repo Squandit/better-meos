@@ -104,3 +104,50 @@ def test_meos_feature_routes():
     assert c.get("/export/startlist.pdf").data[:4] == b"%PDF"
     assert c.get("/export/bibs.pdf").data[:4] == b"%PDF"
     assert c.post("/api/bibs/assign", json={"start": 1}).status_code == 200
+
+
+def test_linear_max_time_is_overtime():
+    from datetime import datetime
+    from results import build_result
+    d = datetime(2026, 5, 17)
+    course = {"type": "linear", "controls": [31], "time_limit_minutes": 60}
+    card = {"name": "Slow", "class": "M", "start": d.replace(hour=10),
+            "punches": [(31, d.replace(hour=10, minute=30))], "finish": d.replace(hour=11, minute=5)}
+    assert build_result(card, course)["status"] == "oot"
+    card["finish"] = d.replace(hour=10, minute=55)
+    assert build_result(card, course)["status"] == "ok"
+
+
+def test_max_time_round_trips_through_the_editor_api():
+    import app as appmod
+    c = appmod.app.test_client()
+    r = c.post("/api/courses", json={"name": "Max T", "type": "linear", "controls": [31],
+                                     "time_limit_minutes": "90"})
+    cid = r.get_json()["course"]["id"]
+    assert c.get(f"/api/courses/{cid}").get_json()["course"]["time_limit_minutes"] == 90
+    assert "max 90 min" in store.course_meta(store.get_course(cid))
+
+
+def test_not_competing_is_timed_but_unranked():
+    cid = store.class_options()[0]["id"]
+    comp = store.create_competitor({"name": "Guest Runner", "class_id": cid,
+                                    "start": "10:00:00", "finish": "10:20:00",
+                                    "manual_status": "nc"})
+    res = store.result_for(comp["id"])
+    assert res["status"] == "nc" and res["position"] is None and res["total_seconds"] == 1200
+
+
+def test_vacant_slot_hidden_from_results_until_filled():
+    import app as appmod
+    cid = store.class_options()[0]["id"]
+    with store.batch():
+        cid_vac = store._insert_competitor(
+            name=store.VACANT_NAME, club="", class_id=cid, card_number=None,
+            start=store.parse_clock("11:11:00"), finish=None, punches=[],
+            manual_status="", vacant=True)
+    assert store.result_for(cid_vac) is None
+    c = appmod.app.test_client()
+    assert "11:11:00" in c.get("/competitors").get_data(as_text=True)
+    store.update_competitor(cid_vac, {"name": "Late Larry", "card_number": 9800001})
+    assert store.get_competitor(cid_vac)["vacant"] is False
+    assert store.result_for(cid_vac)["name"] == "Late Larry"

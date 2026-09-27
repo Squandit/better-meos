@@ -30,6 +30,7 @@ STATUS_TO_IOF = {
     "dnf": "DidNotFinish",
     "dsq": "Disqualified",
     "oot": "OverTime",
+    "nc": "NotCompeting",
 }
 IOF_TO_STATUS = {v: k for k, v in STATUS_TO_IOF.items()}
 

@@ -604,6 +604,7 @@
         function applyTypeUI(type) {
             currentType = type;
             scoreOnly.hidden = type !== "score";
+            $$("[data-linear-only]", modal).forEach(function (el) { el.hidden = type === "score"; });
             linearHead.hidden = type === "score";
             scoreHead.hidden = type !== "score";
             heading.textContent = type === "score" ? "Controls & points" : "Controls (in order)";
@@ -643,12 +644,15 @@
                     .map(function (r) { return { code: r.code, points: r.points }; });
                 payload.time_limit_minutes = form.elements.time_limit_minutes.value;
                 payload.penalty_per_minute = form.elements.penalty_per_minute.value;
+                payload.score_formula = form.elements.score_formula.value;
             } else {
                 payload.controls = rows.filter(function (r) { return r.code !== ""; })
                     .map(function (r) { return r.code; });
                 payload.start_mode = form.elements.start_mode ? form.elements.start_mode.value : "clock";
                 payload.start_control = form.elements.start_control ? form.elements.start_control.value : "";
                 payload.length_m = form.elements.length_m ? form.elements.length_m.value : "";
+                payload.mass_start = form.elements.mass_start.value;
+                payload.time_limit_minutes = form.elements.max_time_minutes.value;  // max time
             }
             return payload;
         }
@@ -673,12 +677,15 @@
                 if (form.elements.start_mode) { form.elements.start_mode.value = c.start_mode || "clock"; }
                 if (form.elements.start_control) { form.elements.start_control.value = c.start_control == null ? "" : c.start_control; }
                 if (form.elements.length_m) { form.elements.length_m.value = c.length_m == null ? "" : c.length_m; }
+                form.elements.mass_start.value = c.mass_start || "";
+                form.elements.score_formula.value = c.score_formula || "";
                 applyTypeUI(c.type);
                 if (c.type === "score") {
                     form.elements.time_limit_minutes.value = c.time_limit_minutes == null ? "" : c.time_limit_minutes;
                     form.elements.penalty_per_minute.value = c.penalty_per_minute == null ? "" : c.penalty_per_minute;
                     rebuild("score", c.controls.map(function (ctl) { return { code: ctl.code, points: ctl.points }; }));
                 } else {
+                    form.elements.max_time_minutes.value = c.time_limit_minutes == null ? "" : c.time_limit_minutes;
                     rebuild("linear", c.controls.map(function (code) { return { code: code }; }));
                 }
                 titleEl.textContent = "Edit course";

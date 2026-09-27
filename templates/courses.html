@@ -44,7 +44,7 @@
                 {% endfor %}
             </div>
         {% else %}
-            <p class="cell-sub" style="margin-top:0">{{ course.count }} controls, in order, plus the finish.</p>
+            <p class="cell-sub" style="margin-top:0">{{ course.count }} controls, in order, plus the finish.{% if course.max_time %} Max time {{ course.max_time }} min.{% endif %}</p>
             <div class="controls-row">
                 {% for ctl in course.controls %}
                 <span class="control"><span class="seq">{{ ctl.seq }}</span><span class="code">{{ ctl.code }}</span></span>
@@ -97,6 +97,11 @@
                     <span class="field-label">Penalty <span class="hint">pts / min over</span></span>
                     <input type="number" name="penalty_per_minute" inputmode="numeric" min="0" placeholder="10">
                 </label>
+                <label class="field field-wide">
+                    <span class="field-label">Scoring formula <span class="hint">optional, replaces the penalty</span></span>
+                    <input type="text" name="score_formula" class="mono" placeholder="points - over_minutes * 5">
+                    <span class="hint">Variables: controls, points, seconds, minutes, limit, over_minutes. Functions: min, max, abs, round, int.</span>
+                </label>
             </div>
 
             <div class="field-grid">
@@ -105,7 +110,12 @@
                     <select name="start_mode">
                         <option value="clock">Clock (timed start)</option>
                         <option value="punch">Punch (free start)</option>
+                        <option value="mass">Mass start</option>
                     </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Mass start time <span class="hint">mass start</span></span>
+                    <input type="text" name="mass_start" class="mono" placeholder="10:00:00">
                 </label>
                 <label class="field">
                     <span class="field-label">Start control <span class="hint">punch start</span></span>
@@ -114,6 +124,10 @@
                 <label class="field">
                     <span class="field-label">Length <span class="hint">metres</span></span>
                     <input type="number" name="length_m" inputmode="numeric" min="0" placeholder="4800">
+                </label>
+                <label class="field" data-linear-only>
+                    <span class="field-label">Max time <span class="hint">minutes, blank = none</span></span>
+                    <input type="number" name="max_time_minutes" inputmode="numeric" min="1" placeholder="180">
                 </label>
             </div>
 

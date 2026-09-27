@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS competitors (
     hired INTEGER NOT NULL DEFAULT 0,            -- hire/rental card flag
     team_id INTEGER,                             -- relay team membership
     leg INTEGER,                                 -- relay leg number
+    vacant INTEGER NOT NULL DEFAULT 0,           -- drawn start slot, no runner yet
     -- Backs store._check_card_unique at the DB level (NULLs are unconstrained,
     -- so hire-card competitors with no number are allowed).
     UNIQUE (event_id, card_number)
@@ -278,6 +279,7 @@ _MIGRATIONS = [
     ("competitors", "hired", "INTEGER NOT NULL DEFAULT 0"),
     ("competitors", "team_id", "INTEGER"),
     ("competitors", "leg", "INTEGER"),
+    ("competitors", "vacant", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -520,12 +522,12 @@ def save_competitor(event_id: int, comp: dict) -> None:
         db.execute(
             """INSERT OR REPLACE INTO competitors
                (id, event_id, name, club, class_id, card_number, start, finish,
-                manual_status, bib, hired, team_id, leg)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                manual_status, bib, hired, team_id, leg, vacant)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (comp["id"], event_id, comp["name"], comp["club"], comp["class_id"],
              comp["card_number"], _iso(comp["start"]), _iso(comp["finish"]),
              comp["manual_status"], comp.get("bib"), 1 if comp.get("hired") else 0,
-             comp.get("team_id"), comp.get("leg")),
+             comp.get("team_id"), comp.get("leg"), 1 if comp.get("vacant") else 0),
         )
         db.execute("DELETE FROM punches WHERE competitor_id = ?", (comp["id"],))
         for seq, p in enumerate(comp["punches"]):
@@ -839,6 +841,7 @@ def _load_event_conn(db: sqlite3.Connection, event_id: int) -> dict:
                 "hired": bool(row["hired"]),
                 "team_id": row["team_id"],
                 "leg": row["leg"],
+                "vacant": bool(row["vacant"]),
             }
 
         # Highest id per kind across ALL events (ids are table-wide primary keys),

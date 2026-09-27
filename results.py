@@ -233,6 +233,7 @@ STATUS_DNS = "dns"
 STATUS_DNF = "dnf"
 STATUS_DSQ = "dsq"
 STATUS_OOT = "oot"
+STATUS_NC = "nc"     # not competing: timed and shown, never ranked (manual only)
 
 
 def validate_linear(
@@ -361,6 +362,10 @@ def build_result(card: dict, course: dict) -> dict:
         if course["type"] == "linear":
             auto_status, missed = validate_linear(course["controls"], punched_codes)
             result["missed_control"] = missed
+            # Max time: a valid run over the limit is OverTime (unranked).
+            limit = course.get("time_limit_minutes")
+            if auto_status == STATUS_OK and limit and total_seconds > limit * 60:
+                auto_status = STATUS_OOT
 
         elif course["type"] == "score":
             auto_status = STATUS_OK

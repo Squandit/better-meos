@@ -73,7 +73,10 @@ def current_event_path() -> str | None:
 
 # Statuses an operator may force on a competitor. "" / None means "automatic":
 # let the engine decide. These mirror results.STATUS_* values.
-MANUAL_STATUSES = ("ok", "mp", "dns", "dnf", "dsq", "oot")
+MANUAL_STATUSES = ("ok", "mp", "dns", "dnf", "dsq", "oot", "nc")
+
+# Name shown for a drawn-but-unfilled start slot (see draw.py).
+VACANT_NAME = "Vacant"
 
 COURSE_TYPES = ("linear", "score")
 
@@ -235,6 +238,7 @@ def engine_course(course: dict) -> dict:
     return {
         "type": "linear",
         "controls": list(course["controls"]),
+        "time_limit_minutes": course.get("time_limit_minutes"),  # max time
         "start_mode": course.get("start_mode", "clock"),
         "start_control": course.get("start_control"),
         # Mass start is stored as a wall-clock string; pin it to the event date
@@ -345,7 +349,7 @@ def _insert_course(*, name, ctype, controls, time_limit_minutes=None,
         "name": name,
         "type": ctype,
         "controls": controls,
-        "time_limit_minutes": time_limit_minutes if ctype == "score" else None,
+        "time_limit_minutes": time_limit_minutes,  # score: limit; linear: max time
         "penalty_per_minute": penalty_per_minute if ctype == "score" else 0,
         "start_mode": start_mode,
         "start_control": start_control,
@@ -368,7 +372,7 @@ def _insert_class(*, name, course_id, kind="individual", legs=1, fee=0) -> int:
 
 def _insert_competitor(*, name, club, class_id, card_number, start, finish,
                        punches, manual_status, bib=None, hired=False,
-                       team_id=None, leg=None) -> int:
+                       team_id=None, leg=None, vacant=False) -> int:
     cid = _next_id("competitor")
     _competitors[cid] = {
         "id": cid,
@@ -384,6 +388,7 @@ def _insert_competitor(*, name, club, class_id, card_number, start, finish,
         "hired": hired,
         "team_id": team_id,
         "leg": leg,
+        "vacant": vacant,
     }
     db.save_competitor(_active_event_id, _competitors[cid])
     return cid
@@ -405,7 +410,10 @@ def course_meta(course: dict) -> str:
         limit = course["time_limit_minutes"]
         limit_txt = f"{limit} min" if limit is not None else "no limit"
         return f"Score · {limit_txt} · {course_total_points(course)} pts"
-    return f"Linear · {len(course['controls'])} controls"
+    meta = f"Linear · {len(course['controls'])} controls"
+    if course.get("time_limit_minutes"):
+        meta += f" · max {course['time_limit_minutes']} min"
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +475,8 @@ def _evaluate_model(courses: dict, classes: dict,
     by_id: dict[int, dict] = {}
     by_class: dict[int, list] = {}
     for comp in competitors.values():
+        if comp.get("vacant"):
+            continue  # an unfilled start slot isn't a result
         by_class.setdefault(comp["class_id"], []).append(comp)
     for cls in sorted(classes.values(), key=lambda c: c["name"].lower()):
         course = courses[cls["course_id"]]
@@ -666,7 +676,7 @@ def economy_summary() -> dict:
         grand_fee = 0.0
         hire_total = 0
         for cls in _classes_sorted():
-            members = _competitors_in_class(cls["id"])
+            members = [c for c in _competitors_in_class(cls["id"]) if not c.get("vacant")]
             fee = cls.get("fee", 0) or 0
             hired = sum(1 for c in members if c.get("hired"))
             subtotal = fee * len(members)
@@ -681,7 +691,7 @@ def assign_bibs(start: int = 1) -> int:
     """Number every competitor sequentially (by start time, then name)."""
     with batch():
         ordered = sorted(
-            _competitors.values(),
+            (c for c in _competitors.values() if not c.get("vacant")),
             key=lambda c: (c["start"] or datetime.max, c["name"].lower()))
         n = start
         for c in ordered:
@@ -712,6 +722,7 @@ def competitor_json(comp: dict) -> dict:
         "hired": bool(comp.get("hired")),
         "team_id": comp.get("team_id"),
         "leg": comp.get("leg"),
+        "vacant": bool(comp.get("vacant")),
         "punches": [
             {"code": p["code"], "time": format_clock(p["time"])}
             for p in comp["punches"]
@@ -842,6 +853,10 @@ def update_competitor(comp_id: int, data: dict) -> dict:
             raise StoreError("That competitor no longer exists")
         fields = _validated_competitor_fields(data, partial=True, current=comp)
         card_changed = "card_number" in fields and fields["card_number"] != comp["card_number"]
+        # Filling a vacant slot: giving it a real name or a card makes it a runner.
+        if comp.get("vacant") and (
+                fields.get("name", VACANT_NAME) != VACANT_NAME or fields.get("card_number")):
+            fields["vacant"] = False
         if "card_number" in fields:
             _check_card_unique(fields["card_number"], ignore=comp_id)
         comp.update(fields)
@@ -960,6 +975,8 @@ def _validated_course_fields(data: dict) -> dict:
         }
 
     controls = _coerce_linear_controls(data.get("controls"))
+    max_time = _as_int(data.get("time_limit_minutes"), "Max time", minimum=1,
+                       allow_blank=True)
     start_mode = _clean_str(data.get("start_mode"), "Start mode").lower() or "clock"
     if start_mode not in ("clock", "punch", "mass", "chase"):
         raise StoreError("Start mode must be 'clock', 'punch', 'mass' or 'chase'")
@@ -977,7 +994,7 @@ def _validated_course_fields(data: dict) -> dict:
     length_m = _as_int(data.get("length_m"), "Course length", minimum=0, allow_blank=True)
     out = {
         "name": name, "type": "linear", "controls": controls,
-        "time_limit_minutes": None, "penalty_per_minute": 0,
+        "time_limit_minutes": max_time, "penalty_per_minute": 0,
         "start_mode": start_mode, "start_control": start_control,
         "mass_start": mass_start or None,
         "length_m": length_m,

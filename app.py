@@ -174,8 +174,9 @@ STATUS_LABELS = {
     "dnf": "DNF",
     "dsq": "DSQ",
     "oot": "OOT",
+    "nc": "NC",
 }
-STATUS_ORDER = ["ok", "oot", "mp", "dnf", "dns", "dsq"]
+STATUS_ORDER = ["ok", "nc", "oot", "mp", "dnf", "dns", "dsq"]
 FLAGGED = ("mp", "dnf", "dns", "dsq")
 
 
@@ -310,9 +311,26 @@ def index():
     )
 
 
+def _vacant_rows():
+    """Unfilled start slots, shaped like result rows so the competitor list can
+    show them (click one to fill it with an on-the-day entry)."""
+    rows = []
+    for comp in store._competitors.values():
+        if not comp.get("vacant"):
+            continue
+        cls = store.get_class(comp["class_id"]) or {}
+        rows.append({"id": comp["id"], "position": None, "name": comp["name"],
+                     "club": "", "class": cls.get("name", ""), "si": comp["card_number"],
+                     "status": "vacant", "status_label": "Vacant", "is_ok": False,
+                     "manual": False, "time": None, "start": _clock(comp["start"]),
+                     "finish": None, "points": None, "missed_control": None, "splits": []})
+    return rows
+
+
 @app.route("/competitors")
 def competitors():
     rows = [r for c in _console_data() for r in c["rows"]]
+    rows.extend(_vacant_rows())
     rows.sort(key=lambda r: (r["class"], r["position"] is None, r["position"] or 0, r["name"]))
     return render_template(
         "competitors.html", active="competitors", rows=rows,
@@ -370,6 +388,7 @@ def courses():
                 "is_score": False,
                 "classes": item["classes"],
                 "count": len(course["controls"]),
+                "max_time": course.get("time_limit_minutes"),
                 "controls": [{"seq": i + 1, "code": code} for i, code in enumerate(course["controls"])],
             })
     return render_template("courses.html", active="courses", courses=view)
