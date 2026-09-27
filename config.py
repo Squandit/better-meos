@@ -92,6 +92,12 @@ SCHEMA: list[_Setting] = [
              "Station token",
              "Shared secret that secondary download stations and radio controls "
              "send with each punch. Set the same value on every station."),
+    _Setting("silent_print", "BMEOS_SILENT_PRINT", "bool", "Printing",
+             "Print split slips without a dialog",
+             "Opens the console in Edge/Chrome with kiosk printing, so auto-print "
+             "goes straight to the default printer. Restart to apply.", default=False),
+    _Setting("slip_paper", "BMEOS_SLIP_PAPER", "str", "Printing",
+             "Split slip paper", "80mm (thermal receipt printer) or A4.", default="80mm"),
     _Setting("backup_dir", "BMEOS_BACKUP_DIR", "str", "Backups",
              "Backup folder",
              "Blank = this PC's local app data (not synced by OneDrive)."),

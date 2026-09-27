@@ -566,6 +566,12 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
     .slip-page { background: #fff; }
     .slip { box-shadow: none; margin: 0; max-width: none; }
     .slip-head .btn { display: none; }
+    /* 80 mm thermal roll: tighter type, no card chrome. */
+    .slip-thermal .slip { padding: 0; }
+    .slip-thermal .slip-head h1 { font-size: 13px; }
+    .slip-thermal .slip-runner h2 { font-size: 15px; }
+    .slip-thermal .slip-meta td, .slip-thermal .slip-splits td { font-size: 11px; padding: 2px 0; }
+    .slip-thermal .slip-splits th { font-size: 9px; }
 }
 
 /* ---- Live projector screen ---------------------------------------------- */

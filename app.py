@@ -509,7 +509,8 @@ def slip(comp_id):
     if result is None:
         abort(404)
     return render_template("slip.html", row=_view_row(result),
-                           auto_print=request.args.get("print") == "1")
+                           auto_print=request.args.get("print") == "1",
+                           thermal=(config.get_str("slip_paper") or "80mm").lower() != "a4")
 
 
 @app.route("/live")

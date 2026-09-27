@@ -32,6 +32,46 @@ def _use_exe_folder() -> None:
         os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
 
 
+# Where Edge / Chrome usually live on Windows (Edge ships with Windows 10/11).
+_BROWSERS = [
+    r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+    r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+    r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
+]
+
+
+def find_kiosk_browser() -> str | None:
+    for raw in _BROWSERS:
+        path = os.path.expandvars(raw)
+        if "%" not in path and os.path.isfile(path):
+            return path
+    return None
+
+
+def kiosk_command(browser: str, url: str, profile_dir: str) -> list[str]:
+    """Edge/Chrome with --kiosk-printing: window.print() goes straight to the
+    default printer with no dialog. A separate profile is needed, or an
+    already-running browser swallows the flag."""
+    return [browser, "--kiosk-printing", f"--user-data-dir={profile_dir}",
+            "--no-first-run", "--new-window", url]
+
+
+def open_console(url: str, *, silent_print: bool) -> None:
+    import subprocess
+    if silent_print:
+        browser = find_kiosk_browser()
+        if browser:
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+            profile = os.path.join(base, "better-meos", "print-browser")
+            subprocess.Popen(kiosk_command(browser, url, profile))
+            return
+        print("  Silent printing is on but Edge/Chrome wasn't found; "
+              "opening the normal browser (prints will show a dialog).")
+    webbrowser.open(url)
+
+
 def main() -> None:
     _use_exe_folder()
     import app as appmod
@@ -61,7 +101,8 @@ def main() -> None:
     ).start()
 
     url = f"http://127.0.0.1:{admin_port}/start"
-    threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+    threading.Timer(1.2, lambda: open_console(url, silent_print=bool(
+        config.get("silent_print")))).start()
 
     print(f"\n  better-meos admin console:  {url}")
     print(f"  Public entry + results:     http://127.0.0.1:{public_port}/results")
