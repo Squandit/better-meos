@@ -54,7 +54,26 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
   `GET /slip/<id>.png` shows the slip exactly as printed. CI prints a test
   slip to "Microsoft Print to PDF" (`installer/print_check.py`) and the exe
   smoke test checks `/api/printers` says printing is available. Tests stub
-  out pywin32 (conftest) so the suite never prints for real.
+  out pywin32 (conftest) so the suite never prints for real. Confirmed on the
+  Windows runner: a 157 KB PDF comes out.
+- **Eventor** (`eventor.py`, page `/eventor` under More tools), rewritten
+  against the real API (open spec: github.com/orienteering-oss/
+  eventor-api-openapi-spec). The old fetch expected IOF 3.0 from `/entries`,
+  but Eventor answers in its own IOF 2.0-style XML, so it could never have
+  worked. Now: check the key (`/organisation/apiKey`), list the club's events
+  (`/events?organisationIds=`), link the event (`eventor_event_id`, event-only
+  setting), fetch entries (`/eventclasses` + `/entries`, parsed by
+  `parse_eventor_entries`; team entries give one row per member), safe to
+  repeat (same card, or same name in the same class, is "already entered"),
+  optionally making missing classes on a chosen course; club members + SI
+  cards into the runner DB (`/export/competitors?version=3.0`); upload results
+  (`POST /import/resultlist`, IOF 3.0 from `public_evaluated`, with Eventor's
+  event id and class ids). Eventor address defaults to the Australian one.
+  Tests fake Eventor's answers (tests/test_eventor.py). Not yet run against a
+  live Eventor (the sandbox can't reach it): first real use should be
+  "Check the connection" then "Find our club's events".
+- Saved API keys / passwords can now be removed in Settings ("Remove");
+  before, blank meant keep and there was no reset, so a key could never go.
 
 ### 1.5 DONE: settings, flow and MeOS parity (2026-09-27, cloud session)
 Committed straight to main, one commit per feature. Tests: **256 passing**

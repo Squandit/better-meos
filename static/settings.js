@@ -176,15 +176,20 @@
         var status = el("span", "set-status");
         meta.appendChild(status);
         // Reset: clear the value at this level so it falls back.
-        var resettable = (opts.target === "event" && f.source === "event") ||
-                         (opts.target === "computer" && f.source === "computer" && f.type !== "password");
+        // A saved password or key can't be shown, only removed (from this computer).
+        var secret = f.type === "password";
+        var resettable = secret ? f.source === "computer" && f.key !== "admin_password" :
+                         (opts.target === "event" && f.source === "event") ||
+                         (opts.target === "computer" && f.source === "computer");
         if (resettable) {
-            var reset = el("button", "link-btn set-reset", opts.target === "event" ? "Use default" : "Reset");
+            var reset = el("button", "link-btn set-reset",
+                           secret ? "Remove" : opts.target === "event" ? "Use default" : "Reset");
             reset.type = "button";
             reset.addEventListener("click", function () {
                 status.textContent = "Saving…";
-                post(opts.target, {}, [f.key]).then(function () {
-                    status.textContent = "Reset";
+                post(secret ? "computer" : opts.target, {}, [f.key]).then(function () {
+                    status.textContent = secret ? "Removed" : "Reset";
+                    if (secret) { c.input.placeholder = "not set"; reset.remove(); }
                     if (APPEARANCE[f.key]) { refreshAppearance(f.key); }
                     opts.onChange && opts.onChange(f.key, true);
                 }).catch(function (err) { status.className = "set-status err"; status.textContent = err.message; });

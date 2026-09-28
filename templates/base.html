@@ -43,7 +43,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
                 Results
             </a>
-            <details class="nav-more" data-nav-more{{ ' open' if active in ('draw', 'entries', 'controls', 'splits', 'live', 'speaker', 'teams', 'prizes', 'season', 'stages', 'clubs', 'economy', 'audit') else '' }}>
+            <details class="nav-more" data-nav-more{{ ' open' if active in ('draw', 'entries', 'eventor', 'controls', 'splits', 'live', 'speaker', 'teams', 'prizes', 'season', 'stages', 'clubs', 'economy', 'audit') else '' }}>
             <summary class="nav-label">More tools</summary>
             <a href="{{ url_for('draw_page') }}" class="{{ 'active' if active == 'draw' else '' }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><polyline points="12 9 12 13 14.5 15"/><line x1="10" y1="2" x2="14" y2="2"/></svg>
@@ -52,6 +52,10 @@
             <a href="{{ url_for('entries_page') }}" class="{{ 'active' if active == 'entries' else '' }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                 Entries
+            </a>
+            <a href="{{ url_for('eventor_page') }}" class="{{ 'active' if active == 'eventor' else '' }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></svg>
+                Eventor
             </a>
             <a href="{{ url_for('controls_page') }}" class="{{ 'active' if active == 'controls' else '' }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M20 4 4 20"/></svg>

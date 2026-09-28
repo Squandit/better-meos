@@ -976,16 +976,80 @@ def api_import_eventor():
     return jsonify(importers.import_competitors(rows))
 
 
-@app.route("/api/eventor/fetch", methods=["POST"])
-def api_eventor_fetch():
-    """Pull entries for an Eventor event straight from the Eventor API."""
+def _eventor(call):
+    """Run an Eventor request; its errors become ordinary 400 messages."""
     try:
-        rows = eventor.fetch_entries(_payload().get("event_id"))
+        return call()
     except eventor.EventorError as err:
         raise StoreError(str(err))
-    outcome = importers.import_competitors(rows)
+
+
+@app.route("/eventor")
+def eventor_page():
+    return render_template("eventor.html", active="eventor", enabled=eventor.is_enabled(),
+                           base_url=eventor.base_url(),
+                           event_id=config.get_str("eventor_event_id"),
+                           course_options=store.course_options())
+
+
+@app.route("/api/eventor/test", methods=["POST"])
+def api_eventor_test():
+    return jsonify({"ok": True, "club": _eventor(eventor.whoami)})
+
+
+@app.route("/api/eventor/events")
+def api_eventor_events():
+    return jsonify({"events": _eventor(eventor.list_events)})
+
+
+@app.route("/api/eventor/link", methods=["POST"])
+def api_eventor_link():
+    """Remember which Eventor event this event is (for fetching and uploading)."""
+    event_id = str(_payload().get("event_id") or "").strip()
+    if event_id and not event_id.isdigit():
+        raise StoreError("The Eventor event id is a number")
+    config.save({"eventor_event_id": event_id}, target="event")
+    return jsonify({"ok": True, "event_id": event_id})
+
+
+@app.route("/api/eventor/fetch", methods=["POST"])
+def api_eventor_fetch():
+    """Pull entries for an Eventor event straight from the Eventor API. Safe to
+    repeat: people already entered are left alone."""
+    data = _payload()
+    event_id = data.get("event_id") or config.get_str("eventor_event_id")
+    rows = _eventor(lambda: eventor.fetch_entries(event_id))
+    course_id = store._as_int(data.get("course_id"), "Course", allow_blank=True)
+    outcome = eventor.import_entries(rows, course_id=course_id)
     events.publish("competitor", action="import")
     return jsonify(outcome)
+
+
+@app.route("/api/eventor/members", methods=["POST"])
+def api_eventor_members():
+    """The club's members and SI cards into the runner database (autofill)."""
+    rows = _eventor(eventor.fetch_members)
+    return jsonify(runners.import_rows(rows))
+
+
+@app.route("/api/eventor/upload-results", methods=["POST"])
+def api_eventor_upload_results():
+    """Send the results (as on the public results) to the linked Eventor event."""
+    event_id = config.get_str("eventor_event_id")
+    if not event_id:
+        raise StoreError("Pick this event's Eventor event first")
+    classes = _eventor(lambda: eventor.event_classes(event_id))
+    ids = {}
+    for c in classes:
+        for name in (c["name"], c["short_name"]):
+            if name:
+                ids.setdefault(name.lower(), c["id"])
+    xml = iofxml.export_results(display.public_evaluated(), store.EVENT, courses=store._courses,
+                                split_controls=store.split_controls, event_id=event_id,
+                                class_ids=ids)
+    outcome = _eventor(lambda: eventor.upload_results(xml))
+    store._audit("results uploaded to Eventor", f"event {event_id}", outcome.get("result_url") or "")
+    return jsonify({"ok": True, **outcome})
 
 
 @app.route("/api/radio/punch", methods=["POST"])

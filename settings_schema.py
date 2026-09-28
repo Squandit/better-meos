@@ -376,11 +376,16 @@ SCHEMA: list[Setting] = [
 
     # ---- Eventor ---------------------------------------------------------------
     S("eventor_base_url", "Eventor address", "str", "", "Eventor",
-      "e.g. https://eventor.orienteering.asn.au", env="EVENTOR_BASE_URL",
-      pages=("tools",)),
+      "Blank = Australian Eventor (https://eventor.orienteering.asn.au). Others: "
+      "eventor.orientering.se, eventor.orientering.no, eventor.orienteering.sport.",
+      env="EVENTOR_BASE_URL", pages=("tools", "eventor")),
     S("eventor_api_key", "Eventor API key", "password", "", "Eventor",
-      "Your club's API key (Eventor -> club admin).", env="EVENTOR_API_KEY",
-      pages=("tools",)),
+      "Your club's API key (in Eventor: club admin, API key).", env="EVENTOR_API_KEY",
+      pages=("tools", "eventor")),
+    S("eventor_event_id", "Eventor event", "str", "", "Eventor",
+      "This event's id in Eventor (the number in its Eventor address). Set by "
+      "picking the event on the Eventor page.", scope="event", inherit=False,
+      pages=("eventor",)),
 
     # ---- Network & security ------------------------------------------------------
     S("admin_port", "Admin port", "int", 8799, "Network & security",

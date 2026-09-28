@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Eventor{% endblock %}
+{% block heading %}Eventor{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h3>Eventor</h3>
+    <p>Entries in, results out, using your club's Eventor API key. Everything here only runs when you press
+       its button.</p>
+</div>
+
+<section class="panel" data-eventor-page>
+    <div class="panel-head"><h4>1. Connection</h4>
+        {% if enabled %}<span class="chip grey">{{ base_url }}</span>{% endif %}</div>
+    {% if enabled %}
+    <div class="tool-form">
+        <button class="btn btn-soft" type="button" data-ev="test">Check the connection</button>
+        <span class="tool-result" data-out="test"></span>
+    </div>
+    {% else %}
+    <p class="tool-note">Add your club's API key first: press the gear (top right) or go to
+        <a href="{{ url_for('config_page') }}?q=eventor">Settings</a>. In Eventor you'll find it under your
+        club's admin pages, "API key". It stays on this computer.</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>2. This event in Eventor</h4></div>
+    <div class="tool-form">
+        <label>Eventor event id <input name="event_id" inputmode="numeric" size="8" value="{{ event_id }}" data-ev-id></label>
+        <button class="btn btn-soft" type="button" data-ev="link">Save</button>
+        {% if enabled %}<button class="btn btn-ghost" type="button" data-ev="events">Find our club's events</button>{% endif %}
+        <span class="tool-result" data-out="link">{% if event_id %}<a href="{{ base_url }}/Events/Show/{{ event_id }}" target="_blank" rel="noopener">Open it in Eventor</a>{% endif %}</span>
+    </div>
+    <div class="set-helper-list" data-ev-list></div>
+    <p class="tool-note">The id is the number at the end of the event's Eventor address, e.g. …/Events/Show/<strong>12345</strong>.</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>3. Entries</h4></div>
+    <div class="tool-form">
+        <button class="btn btn-primary" type="button" data-ev="fetch"{% if not enabled %} disabled{% endif %}>Fetch entries</button>
+        <label>Classes you don't have yet
+            <select data-ev-course>
+                <option value="">Leave those entries out and tell me</option>
+                {% for c in course_options %}<option value="{{ c.id }}">Make them, on course {{ c.name }}</option>{% endfor %}
+            </select>
+        </label>
+        <span class="tool-result" data-out="fetch"></span>
+    </div>
+    <div data-ev-report></div>
+    <p class="tool-note">Fetch again whenever you like (late entries): anyone already entered, by SI card or by name
+        in the same class, is left alone. Eventor only lists entries made through Eventor.</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>4. Runner database</h4></div>
+    <div class="tool-form">
+        <button class="btn btn-soft" type="button" data-ev="members"{% if not enabled %} disabled{% endif %}>Load our club's members</button>
+        <span class="tool-result" data-out="members"></span>
+    </div>
+    <p class="tool-note">Names and SI cards of your members, so reading an unentered card fills in who it is.</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h4>5. Results</h4></div>
+    <div class="tool-form">
+        <button class="btn btn-soft" type="button" data-ev="upload"{% if not enabled or not event_id %} disabled{% endif %}>Upload results to Eventor</button>
+        <span class="tool-result" data-out="upload"></span>
+    </div>
+    <p class="tool-note">Sends the results as they are on the public results page (IOF XML 3.0, with splits).
+        Uploading again replaces the earlier upload. Or download the file from
+        <a href="{{ url_for('tools') }}">Import / Export</a> and upload it in Eventor yourself.</p>
+</section>
+
+<script>
+(function () {
+    function out(name, text, ok) {
+        var el = document.querySelector("[data-out='" + name + "']");
+        el.className = "tool-result" + (ok === true ? " ok" : ok === false ? " err" : "");
+        el.textContent = text;
+        return el;
+    }
+    function call(method, url, body) {
+        return fetch(url, { method: method, headers: { "Content-Type": "application/json" },
+                            body: body ? JSON.stringify(body) : undefined })
+            .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) {
+                if (!r.ok) { throw new Error(d.error || "Failed"); }
+                return d;
+            }); });
+    }
+    var idInput = document.querySelector("[data-ev-id]");
+    var list = document.querySelector("[data-ev-list]");
+    var report = document.querySelector("[data-ev-report]");
+
+    function link(id) {
+        out("link", "Saving…");
+        return call("POST", "/api/eventor/link", { event_id: id }).then(function () {
+            window.location.reload();
+        }).catch(function (e) { out("link", e.message, false); });
+    }
+
+    var actions = {
+        test: function () {
+            out("test", "Asking Eventor…");
+            call("POST", "/api/eventor/test").then(function (d) {
+                out("test", "Connected: the key belongs to " + d.club.name, true);
+            }).catch(function (e) { out("test", e.message, false); });
+        },
+        link: function () { link(idInput.value.trim()); },
+        events: function () {
+            list.textContent = "Looking…";
+            call("GET", "/api/eventor/events").then(function (d) {
+                list.textContent = d.events.length ? "" : "Eventor has no events for your club from a month ago to six months ahead.";
+                d.events.forEach(function (ev) {
+                    var b = document.createElement("button");
+                    b.type = "button"; b.className = "btn btn-ghost btn-sm";
+                    b.textContent = ev.date + " · " + ev.name + " (" + ev.id + ")";
+                    b.addEventListener("click", function () { link(ev.id); });
+                    list.appendChild(b);
+                });
+            }).catch(function (e) { list.textContent = e.message; });
+        },
+        fetch: function () {
+            out("fetch", "Fetching…");
+            report.textContent = "";
+            var course = document.querySelector("[data-ev-course]").value;
+            call("POST", "/api/eventor/fetch", { event_id: idInput.value.trim(), course_id: course }).then(function (d) {
+                var text = d.created + " added, " + d.already + " already entered";
+                if (d.new_classes.length) { text += ", new classes: " + d.new_classes.join(", "); }
+                out("fetch", text, true);
+                var lines = [];
+                d.missing_classes.forEach(function (m) {
+                    lines.push(m.entries + " in " + m.name + ": that class doesn't exist here yet (add it, or pick a course above and fetch again)");
+                });
+                d.skipped.forEach(function (s) { lines.push((s.name || "Row " + s.row) + ": " + s.reason); });
+                lines.forEach(function (l) {
+                    var p = document.createElement("p"); p.className = "tool-note"; p.textContent = l;
+                    report.appendChild(p);
+                });
+            }).catch(function (e) { out("fetch", e.message, false); });
+        },
+        members: function () {
+            out("members", "Fetching…");
+            call("POST", "/api/eventor/members").then(function (d) {
+                out("members", d.imported + " members with SI cards loaded" + (d.skipped ? ", " + d.skipped + " without a card" : ""), true);
+            }).catch(function (e) { out("members", e.message, false); });
+        },
+        upload: function () {
+            if (!window.confirm("Upload the results to Eventor now? Anyone can see them there.")) { return; }
+            out("upload", "Uploading…");
+            call("POST", "/api/eventor/upload-results").then(function (d) {
+                var el = out("upload", "Uploaded. ", true);
+                if (d.result_url) {
+                    var a = document.createElement("a");
+                    a.href = d.result_url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "See them in Eventor";
+                    el.appendChild(a);
+                }
+            }).catch(function (e) { out("upload", e.message, false); });
+        }
+    };
+    document.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-ev]");
+        if (b && actions[b.dataset.ev]) { actions[b.dataset.ev](); }
+    });
+})();
+</script>
+{% endblock %}

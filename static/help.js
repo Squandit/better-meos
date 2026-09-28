@@ -23,6 +23,11 @@
             what: "Everyone entered. Click a row to edit: card, class, start and finish, punches, status, fee. The panel on the right re-checks the run as you type, so you see OK / MP before saving.",
             show: [["Add a runner", "[data-new-competitor]"], ["Search the list", "[data-filter] .search"]]
         },
+        eventor: {
+            title: "Eventor", meos: "MeOS: Competition > Eventor connection.",
+            what: "With your club's API key: check the connection, link this event to its Eventor event, fetch entries (again for late entries, nobody gets doubled up), load your members' SI cards for autofill, and upload the results.",
+            show: [["Fetch entries", "[data-ev=fetch]"], ["Upload results", "[data-ev=upload]"]]
+        },
         entries: {
             title: "Entries", meos: "MeOS: entries from Eventor or the online entry form.",
             what: "Online entries and payments. Paid orders become competitors automatically; anything that needs a look (paid but not entered, pending) is flagged here.",

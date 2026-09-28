@@ -281,7 +281,8 @@ def _parse_iso(text):
 # ---------------------------------------------------------------------------
 
 def export_results(classes_eval: list[dict], event: dict,
-                   courses: dict | None = None, split_controls=None) -> str:
+                   courses: dict | None = None, split_controls=None,
+                   event_id: str | None = None, class_ids: dict | None = None) -> str:
     """
     Build an IOF ``ResultList`` XML document from evaluated classes.
 
@@ -289,12 +290,16 @@ def export_results(classes_eval: list[dict], event: dict,
     ``{"class", "course", "results"}`` with results already ranked. Returns the
     XML as a unicode string (with declaration). ``split_controls(course)``
     gives the controls that get a SplitTime (default: all of the course's).
+    ``event_id`` and ``class_ids`` (class name -> id) are the ids another system
+    knows them by (Eventor, for a result upload).
     """
     root = ET.Element(f"{{{NS}}}ResultList", {
         "iofVersion": "3.0",
         "creator": "better-meos",
     })
     ev = ET.SubElement(root, f"{{{NS}}}Event")
+    if event_id:
+        _sub(ev, "Id", str(event_id))
     _sub(ev, "Name", event.get("name", ""))
     if event.get("date_iso"):
         start = ET.SubElement(ev, f"{{{NS}}}StartTime")
@@ -305,6 +310,8 @@ def export_results(classes_eval: list[dict], event: dict,
         course = entry.get("course") or {}
         cr = ET.SubElement(root, f"{{{NS}}}ClassResult")
         class_el = ET.SubElement(cr, f"{{{NS}}}Class")
+        if class_ids and class_ids.get(cls["name"].lower()):
+            _sub(class_el, "Id", str(class_ids[cls["name"].lower()]))
         _sub(class_el, "Name", cls["name"])
         if course.get("name"):
             course_el = ET.SubElement(cr, f"{{{NS}}}Course")

@@ -94,3 +94,13 @@ def test_appearance_settings_reach_the_page(cfg):
     html = c.get("/competitors").get_data(as_text=True)
     assert 'data-theme="dark"' in html and 'data-accent="ocean"' in html and 'data-text="125"' in html
     assert 'data-theme="dark"' in c.get("/start").get_data(as_text=True)
+
+
+def test_a_saved_api_key_can_be_removed(cfg):
+    cfg.save({"eventor_api_key": "old-key"}, target="computer")
+    cfg.save({"eventor_api_key": ""}, target="computer")        # blank keeps it
+    assert cfg.get_str("eventor_api_key") == "old-key"
+    c = __import__("app").app.test_client()
+    c.post("/api/settings", json={"target": "computer", "values": {},
+                                  "reset": ["eventor_api_key"]})
+    assert cfg.get_str("eventor_api_key") == ""

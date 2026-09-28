@@ -282,7 +282,8 @@ def save(updates: dict, *, target: str = "auto", reset: list | tuple = ()) -> No
 
     A blank value clears the setting at that target so it falls back (to the
     computer default for an event, to env/default for the computer), except a
-    blank password, which means "keep". ``reset`` clears keys the same way.
+    blank password, which means "keep". ``reset`` clears keys the same way,
+    passwords and API keys included (that's how one is removed).
     ``admin_password`` is hashed, never stored in the clear. Unknown keys are
     ignored; invalid values raise :class:`SettingError` before anything is saved.
     """
@@ -320,8 +321,8 @@ def save(updates: dict, *, target: str = "auto", reset: list | tuple = ()) -> No
             computer[key] = value
     for key in reset:
         spec = _BY_KEY.get(key)
-        if spec is None or spec.type == "password":
-            continue
+        if spec is None or key == "admin_password":
+            continue          # removing a key is a reset; the admin password has its own page
         if to_event and spec.scope == "event":
             event_reset.append(key)
         else:
