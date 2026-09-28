@@ -63,7 +63,7 @@
             what: "Every leg of every runner, with leg places and the fastest leg highlighted.",
             show: []
         },
-        teams: { title: "Teams", meos: "MeOS: Teams tab.", what: "Relay and patrol teams and their legs.", show: [] },
+        teams: { title: "Teams", meos: "MeOS: Teams tab.", what: "Relay teams and their legs.", show: [] },
         prizes: {
             title: "Prizes", meos: "MeOS: Lists tab > Prize list.",
             what: "Who gets a prize under this event's rules (gear menu): places, share of starters, which classes, one prize per season.",
@@ -96,7 +96,7 @@
         ["Competition", "Setup, and the start page (new / open event). Settings for everything else.", "/setup"],
         ["Runners", "Competitors. Click a row to edit.", "/competitors"],
         ["Teams", "Teams.", "/teams"],
-        ["Classes", "Classes; drawing start times has its own page, Start draw.", "/classes"],
+        ["Classes", "Classes; drawing start times has its own page, Start draw (under More tools).", "/classes"],
         ["Courses", "Courses; import from OCAD on Import / Export.", "/courses"],
         ["Controls", "Controls, with the same Bad / Optional / No timing statuses.", "/controls"],
         ["Clubs", "Clubs; invoices are on Economy.", "/clubs"],

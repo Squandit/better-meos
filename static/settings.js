@@ -153,6 +153,7 @@
                 status.textContent = "Saving…";
                 post(opts.target, {}, [f.key]).then(function () {
                     status.textContent = "Reset";
+                    if (APPEARANCE[f.key]) { refreshAppearance(f.key); }
                     opts.onChange && opts.onChange(f.key, true);
                 }).catch(function (err) { status.className = "set-status err"; status.textContent = err.message; });
             });
@@ -181,6 +182,7 @@
             post(opts.target, values).then(function () {
                 last = value;
                 status.textContent = "Saved";
+                if (APPEARANCE[f.key]) { document.documentElement.setAttribute(APPEARANCE[f.key], value); }
                 if (f.type === "password") { c.input.value = ""; c.input.placeholder = "•••••••• (set)"; }
                 badge.className = "set-source set-source-" + (opts.target === "event" && f.scope === "event" ? "event" : "computer");
                 badge.textContent = SOURCE_LABEL[opts.target === "event" && f.scope === "event" ? "event" : "computer"];
@@ -203,6 +205,18 @@
             });
         }
         return r;
+    }
+
+    // Appearance settings take effect on this page straight away, not on the next load.
+    var APPEARANCE = { theme: "data-theme", accent: "data-accent", density: "data-density", text_size: "data-text" };
+    function refreshAppearance(key) {
+        load({ q: key }).then(function (d) {
+            d.groups.forEach(function (g) {
+                g.fields.forEach(function (f) {
+                    if (f.key === key) { document.documentElement.setAttribute(APPEARANCE[key], f.value); }
+                });
+            });
+        });
     }
 
     /*

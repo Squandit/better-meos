@@ -90,10 +90,10 @@
                     <select name="kind">
                         <option value="individual">Individual</option>
                         <option value="relay">Relay</option>
-                        <option value="patrol">Patrol</option>
+                        <option value="patrol" data-old-patrol hidden>Patrol (old event)</option>
                     </select>
                 </label>
-                <label class="field">
+                <label class="field" data-relay-only>
                     <span class="field-label">Relay legs</span>
                     <input type="number" name="legs" inputmode="numeric" min="1" value="1">
                 </label>
@@ -101,8 +101,8 @@
                     <span class="field-label">Entry fee</span>
                     <input type="number" name="fee" inputmode="decimal" min="0" step="0.01" placeholder="0">
                 </label>
-                <label class="field">
-                    <span class="field-label">Relay restart <span class="hint">HH:MM:SS</span></span>
+                <label class="field" data-relay-only>
+                    <span class="field-label">Relay mass start <span class="hint">HH:MM:SS</span></span>
                     <input type="text" name="restart" class="mono" placeholder="12:30:00">
                 </label>
             </div>

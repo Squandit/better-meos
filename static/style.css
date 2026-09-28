@@ -419,6 +419,8 @@ tr[data-class-row] { cursor: pointer; }
 
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field.is-off { opacity: .45; }
+.field.is-off input { cursor: not-allowed; }
 .field-wide { grid-column: 1 / -1; }
 .field-label { font-size: 12px; font-weight: 600; color: var(--muted); }
 .field-label .hint, .hint { font-weight: 500; color: var(--hint); font-size: 11px; }

@@ -3,7 +3,8 @@ Download simulator (hardware-free testing).
 
 Each call to :func:`simulate_one` pretends a different person walked up and
 downloaded their SI card -- exactly what the brick would feed in, but with no
-real data. It picks a random person from a built-in pool, makes sure they're
+real data. It picks someone who hasn't downloaded yet (from a built-in pool,
+then made-up extras once the pool has all been read), makes sure they're
 entered (creating an on-the-day entry if needed), generates a plausible run for
 their class's course, and pushes it through the same path a real download uses
 (``si_reader.process_card`` -> ``store.apply_card_read``), so results, the "still
@@ -22,8 +23,7 @@ import runners
 import si_reader
 import store
 
-# Fabricated people (no real data). Distinct card numbers so repeats land on the
-# same competitor (a re-download), and different people arrive in any order.
+# Fabricated people (no real data), each with their own card number.
 POOL = [
     {"name": "Ada Lovelace", "club": "LOST", "card": 8000001},
     {"name": "Boris Bracken", "club": "BO", "card": 8000002},
@@ -38,6 +38,35 @@ POOL = [
     {"name": "Kira Nash", "club": "LOST", "card": 8000011},
     {"name": "Liam Ortega", "club": "BO", "card": 8000012},
 ]
+
+
+# Extra made-up people once everyone in POOL has downloaded.
+FIRST = ["Maya", "Noah", "Olive", "Piet", "Quinn", "Rosa", "Sami", "Tove", "Uma", "Viggo"]
+LAST = ["Aske", "Birk", "Crane", "Dahl", "Eide", "Frost", "Gill", "Holm", "Ivers", "Juhl"]
+EXTRA_CARD = 8000100
+
+
+def _next_person() -> dict:
+    """Someone whose card hasn't been read yet.
+
+    Only people who haven't downloaded are picked. Picking an already-read card
+    and inventing a new random run for it would replace their real one (that is
+    how a clean run could turn into a mispunch, or the other way round). A real
+    re-read of the same card gives the same punches, so it never changes a result.
+    """
+    def unread(card):
+        comp = store.find_by_card(card)
+        return comp is None or comp.get("read_at") is None
+
+    fresh = [p for p in POOL if unread(p["card"])]
+    if fresh:
+        return random.choice(fresh)
+    card = EXTRA_CARD
+    while not unread(card):
+        card += 1
+    n = card - EXTRA_CARD
+    return {"name": f"{FIRST[n % len(FIRST)]} {LAST[(n // len(FIRST)) % len(LAST)]}",
+            "club": POOL[n % len(POOL)]["club"], "card": card}
 
 
 def _base_start() -> datetime:
@@ -77,7 +106,7 @@ def simulate_one() -> dict:
             return {"ok": False,
                     "error": "Add at least one class before simulating downloads."}
 
-        person = random.choice(POOL)
+        person = _next_person()
         existing = store.find_by_card(person["card"])
         if existing is None:
             cls = random.choice(class_opts)

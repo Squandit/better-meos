@@ -28,6 +28,13 @@ def test_simulator_creates_and_downloads():
     assert runners.lookup(out["card"])["name"] == out["name"]
 
 
+def test_simulator_never_rereads_someone_already_in():
+    # Twenty clicks, twenty different people: a finished run is never replaced
+    # by a new random one (which could turn an OK into an MP).
+    cards = [simulator.simulate_one()["card"] for _ in range(20)]
+    assert len(set(cards)) == 20
+
+
 def test_simulate_requires_a_class_no_demo_pollution(tmp_path, monkeypatch):
     monkeypatch.setenv("BMEOS_EVENTS_DIR", str(tmp_path))
     original = store.current_event_path()

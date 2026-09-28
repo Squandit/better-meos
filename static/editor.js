@@ -476,10 +476,25 @@
         var form = $("[data-class-form]", modal);
         var titleEl = $("[data-modal-title]", modal);
         var editId = null;
+        var oldPatrol = $("[data-old-patrol]", form);
+
+        // Legs and the mass start only mean something for a relay.
+        function syncKind() {
+            var relay = form.elements.kind.value === "relay";
+            Array.prototype.forEach.call(form.querySelectorAll("[data-relay-only]"), function (field) {
+                field.classList.toggle("is-off", !relay);
+                Array.prototype.forEach.call(field.querySelectorAll("input"), function (input) {
+                    input.disabled = !relay;
+                });
+            });
+        }
+        form.elements.kind.addEventListener("change", syncKind);
 
         function openNew() {
             editId = null;
             form.reset();
+            if (oldPatrol) { oldPatrol.hidden = true; }
+            syncKind();
             clearError(form);
             titleEl.textContent = "New class";
             openOverlay(modal);
@@ -490,7 +505,9 @@
             clearError(form);
             form.elements.name.value = row.dataset.name || "";
             if (row.dataset.courseId) { form.elements.course_id.value = row.dataset.courseId; }
-            if (form.elements.kind) { form.elements.kind.value = row.dataset.kind || "individual"; }
+            // Patrol classes from older events stay editable; new ones can't be made.
+            if (oldPatrol) { oldPatrol.hidden = row.dataset.kind !== "patrol"; }
+            form.elements.kind.value = row.dataset.kind || "individual";
             if (form.elements.legs) { form.elements.legs.value = row.dataset.legs || "1"; }
             if (form.elements.fee) { form.elements.fee.value = row.dataset.fee || ""; }
             form.elements.restart.value = row.dataset.restart || "";
@@ -501,6 +518,7 @@
             Array.prototype.forEach.call(form.elements.fork_courses.options, function (o) {
                 o.selected = forks.indexOf(o.value) !== -1;
             });
+            syncKind();
             titleEl.textContent = "Edit class";
             openOverlay(modal);
         }
@@ -508,12 +526,13 @@
         form.addEventListener("submit", function (e) {
             e.preventDefault();
             clearError(form);
+            var relay = form.elements.kind.value === "relay";
             var payload = {
                 name: form.elements.name.value, course_id: form.elements.course_id.value,
-                kind: form.elements.kind ? form.elements.kind.value : "individual",
-                legs: form.elements.legs ? form.elements.legs.value : 1,
+                kind: form.elements.kind.value,
+                legs: relay ? form.elements.legs.value : 1,
                 fee: form.elements.fee ? form.elements.fee.value : 0,
-                restart: form.elements.restart.value,
+                restart: relay ? form.elements.restart.value : "",
                 results_mode: form.elements.results_mode.value,
                 entry_max: form.elements.entry_max.value,
                 online_entry: form.elements.online_entry.checked,
