@@ -75,6 +75,9 @@ security.install(app)
 # after an event opens (below) -- never at import, so it can't create a stray DB
 # before any event file is connected.
 auth.install(app)
+# With logins on, the first operator account must exist before any event is
+# open: logging in is how you get to open one.
+auth.ensure_admin()
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +152,7 @@ def cached_page(view):
 @app.context_processor
 def inject_user():
     return {"current_user": auth.current_user(), "auth_enabled": auth.is_enabled(),
+            "on_public": security.on_public_port(),
             "admin_lock_enabled": config.admin_password_set(),
             "page_has_settings": config.page_has_settings,
             "appearance": _appearance(), "app_version": __version__}

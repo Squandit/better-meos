@@ -88,7 +88,8 @@ def ensure_admin() -> None:
     """Seed a first admin from env when auth is on and no users exist yet."""
     if not is_enabled():
         return
-    adopt_event_users()
+    if db.is_open():
+        adopt_event_users()
     if runners.count_users() > 0:
         return
     username = os.environ.get("BMEOS_ADMIN_USER")
