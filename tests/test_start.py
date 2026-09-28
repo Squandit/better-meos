@@ -106,8 +106,8 @@ def test_old_bmeos_events_are_renamed_and_still_open(tmp_path):
     made = store.new_event({"name": "Old Champs", "date": "2026-03-01"}, folder=str(tmp_path))
     assert made["path"].endswith(".ctrl")
     old = tmp_path / "old-champs.bmeos"
+    store.open_event(before)                      # Windows can't rename an open file
     os.rename(made["path"], old)
-    store.open_event(before)                      # not open while it's renamed
     try:
         store.open_event(str(old))               # a .bmeos anywhere still opens
         store.open_event(before)

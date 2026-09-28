@@ -69,7 +69,10 @@ jobs:
           # Direct printing needs pywin32 inside the exe: the printer list proves it's there.
           $printers = $null
           if ($ok) { $printers = Invoke-RestMethod http://127.0.0.1:18799/api/printers }
-          Stop-Process -Id $p.Id -Force
+          # By name: the one-file exe runs as two processes, and stopping only
+          # the outer one leaves the app running (holding its folder and ports).
+          Get-Process control-orienteering -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
           if (-not $ok) { throw "exe did not serve /start" }
           if (-not $printers.available) { throw "exe can't print directly (pywin32 missing?)" }
           Write-Host "printers seen by the exe: $($printers.printers -join ', ')"
@@ -119,14 +122,17 @@ jobs:
           $exe = Join-Path $env:LOCALAPPDATA "Programs\control-orienteering\control-orienteering.exe"
           if (-not (Test-Path $exe)) { throw "control-orienteering.exe not installed at $exe" }
           if (Test-Path (Join-Path $env:LOCALAPPDATA "Programs\better-meos")) { throw "the old better-meos program folder is still there" }
-          $env:BMEOS_PORT = "18799"; $env:BMEOS_PUBLIC_PORT = "18800"
-          $app = Start-Process -FilePath $exe -PassThru
+          # Ports of its own, so nothing left over from the smoke test can answer.
+          $env:BMEOS_PORT = "18801"; $env:BMEOS_PUBLIC_PORT = "18802"
+          $app = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput app-out.txt -RedirectStandardError app-err.txt
           $ok = $false
-          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+          for ($i = 0; $i -lt 30 -and -not $ok -and -not $app.HasExited; $i++) {
             Start-Sleep -Seconds 2
-            try { $ok = (Invoke-WebRequest http://127.0.0.1:18799/start -UseBasicParsing).StatusCode -eq 200 } catch {}
+            try { $ok = (Invoke-WebRequest http://127.0.0.1:18801/start -UseBasicParsing).StatusCode -eq 200 } catch {}
           }
-          Stop-Process -Id $app.Id -Force
+          Get-Process control-orienteering -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          Write-Host "--- app output ---"; Get-Content app-out.txt, app-err.txt -ErrorAction SilentlyContinue
           if (-not $ok) { throw "installed app did not serve /start" }
           $data = Join-Path $env:USERPROFILE "control-orienteering"
           if (-not (Test-Path (Join-Path $data "config.json"))) { throw "settings were not written to the user's control-orienteering folder" }
