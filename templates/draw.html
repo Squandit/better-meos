@@ -8,6 +8,18 @@
        Classes on the same course take turns, so nobody on one course starts on the same minute.</p>
 </div>
 
+{% if clashes %}
+<section class="panel warn-panel" data-clashes>
+    <div class="panel-body">
+        <strong>Runners on the same course start at the same minute</strong>
+        {% for c in clashes %}
+        <p>Course {{ c.course }}: {{ c.classes|join(" and ") }} have {{ c.count }} start{{ "s" if c.count != 1 }} together (first at {{ c.first }}).</p>
+        {% endfor %}
+        <p class="hint">Tick those classes and draw them together: classes on one course then take turns.</p>
+    </div>
+</section>
+{% endif %}
+
 <form data-draw>
 <section class="panel">
     <div class="panel-body">

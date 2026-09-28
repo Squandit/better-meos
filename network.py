@@ -57,6 +57,9 @@ def card_payload(card: dict) -> dict:
         "card_number": card.get("card_number"),
         "start": store.format_clock(card.get("start")),
         "finish": store.format_clock(card.get("finish")),
+        # The check time filters punches left over from before the card was
+        # cleared; without it a forwarded read could count an old run's punches.
+        "check": store.format_clock(card.get("check")),
         "punches": [{"code": code, "time": store.format_clock(time)}
                     for code, time in card.get("punches", [])],
         "station_id": card.get("station_id"),

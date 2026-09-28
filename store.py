@@ -1538,6 +1538,7 @@ def coerce_card(data: dict) -> dict:
             "card_number": _as_int(data.get("card_number"), "SI card number", minimum=1),
             "start": parse_clock(data.get("start"), "Start time"),
             "finish": parse_clock(data.get("finish"), "Finish time"),
+            "check": parse_clock(data.get("check"), "Check time"),
             "punches": punches,
             "station_id": data.get("station_id"),
         }

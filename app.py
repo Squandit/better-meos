@@ -778,6 +778,7 @@ def draw_page():
                      "first": display.clock(starts[0]) if starts else "",
                      "last": display.clock(starts[-1]) if starts else ""})
     return render_template("draw.html", active="draw", classes=rows,
+                           clashes=draw.course_clashes(),
                            first_start=store.EVENT.get("first_start") or "10:00:00")
 
 

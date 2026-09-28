@@ -240,6 +240,7 @@ CREATE TABLE IF NOT EXISTS card_reads (
     station_id TEXT,
     start TEXT,
     finish TEXT,
+    check_time TEXT,
     punches_json TEXT NOT NULL,
     competitor_id INTEGER          -- set once assigned
 );
@@ -316,6 +317,7 @@ _MIGRATIONS = [
     ("competitors", "pay_method", "TEXT"),
     ("classes", "entry_max", "INTEGER NOT NULL DEFAULT 0"),
     ("classes", "online_entry", "INTEGER NOT NULL DEFAULT 1"),
+    ("card_reads", "check_time", "TEXT"),
     # Files from before read_at: anyone with a finish or punches was read.
     ("competitors", "read_at", "TEXT",
      "UPDATE competitors SET read_at = COALESCE(finish, start, "
@@ -788,11 +790,11 @@ def insert_card_read(card: dict) -> int:
     with _lock:
         cur = _c().execute(
             """INSERT INTO card_reads
-               (card_number, read_at, station_id, start, finish, punches_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (card_number, read_at, station_id, start, finish, check_time, punches_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (card["card_number"], datetime.now().isoformat(timespec="seconds"),
              card.get("station_id"), _iso(card.get("start")), _iso(card.get("finish")),
-             json.dumps(punches)),
+             _iso(card.get("check")), json.dumps(punches)),
         )
         _commit()
         return cur.lastrowid
@@ -802,7 +804,8 @@ def _card_read_row(row) -> dict:
     return {
         "id": row["id"], "card_number": row["card_number"], "read_at": row["read_at"],
         "station_id": row["station_id"], "start": _dt(row["start"]),
-        "finish": _dt(row["finish"]), "competitor_id": row["competitor_id"],
+        "finish": _dt(row["finish"]), "check": _dt(row["check_time"]),
+        "competitor_id": row["competitor_id"],
         "punches": [(code, _dt(t)) for code, t in json.loads(row["punches_json"])],
     }
 

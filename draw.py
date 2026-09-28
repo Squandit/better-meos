@@ -121,7 +121,37 @@ def draw_classes(class_ids: list[int], *, first_start: str, interval_seconds: in
                      f"{method}, first {first_start}, every {interval_seconds}s"
                      + (f", {vacants} vacant per class" if vacants else "")
                      + (", late entries only" if keep_existing else ""))
-    return {"classes": sorted(summary, key=lambda s: s["class"].lower())}
+    return {"classes": sorted(summary, key=lambda s: s["class"].lower()),
+            "clashes": course_clashes()}
+
+
+def course_clashes() -> list[dict]:
+    """
+    Start times where runners of *different* classes on the same course go at
+    the same moment, which happens when classes sharing a course are drawn
+    separately. ``[{course, classes, count, first}]``, one per course and
+    group of classes. (Runners of one class never clash: the draw spaces them.)
+    """
+    slots: dict = defaultdict(list)
+    for comp in store._competitors.values():
+        cls = store._classes.get(comp["class_id"])
+        if comp["start"] is None or cls is None:
+            continue
+        course = comp.get("course_id") if comp.get("course_id") in store._courses \
+            else cls["course_id"]
+        slots[(course, comp["start"])].append(cls["name"])
+    groups: dict = {}
+    for (course, when), names in slots.items():
+        classes = tuple(sorted(set(names), key=str.lower))
+        if len(classes) < 2:
+            continue
+        g = groups.setdefault((course, classes), {"count": 0, "first": when})
+        g["count"] += 1
+        g["first"] = min(g["first"], when)
+    return [{"course": store._courses[course]["name"], "classes": list(classes),
+             "count": g["count"], "first": store.format_clock(g["first"])}
+            for (course, classes), g in sorted(groups.items(),
+                                               key=lambda kv: kv[1]["first"])]
 
 
 def _draw_one(cls: dict, first: datetime, step: timedelta, method: str,

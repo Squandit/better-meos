@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import backups
 import config
+import draw
 import payments
 import publish
 import si_reader
@@ -60,6 +61,9 @@ def race_day() -> list[dict]:
                            + ("…" if len(undrawn) > 6 else ""), "/draw"))
     elif runners:
         items.append(_item("ok", "Everyone has a start time (or a punch / mass start)", "/draw"))
+    for clash in draw.course_clashes():
+        items.append(_item("warn", f"Course {clash['course']}: {' and '.join(clash['classes'])} "
+                           f"have {_plural(clash['count'], 'start')} at the same minute", "/draw"))
     if si_reader.reader_enabled():
         broken = [r for r in si_reader.reader_status() if r["state"] != "running"]
         items.append(_item("bad", "SI reader isn't running: " + ", ".join(
@@ -100,7 +104,9 @@ def close_out() -> list[dict]:
     not_started = [r for e in store.evaluate()[0] for r in e["results"]
                    if r["status"] == "pending" and r["id"] not in out_ids]
     if out:
-        names = ", ".join(r["name"] for r in out[:5]) + ("…" if len(out) > 5 else "")
+        # Everyone, not the first few: this is the list of people to find.
+        out.sort(key=lambda r: (r["start"], r["name"].lower()))
+        names = ", ".join(f"{r['name']} ({r['class']}, out {r['start']:%H:%M})" for r in out)
         items.append(_item("bad", f"{_plural(len(out), 'runner')} started but never read out: "
                            f"{names}. Check they're safe before anyone packs up.",
                            "/speaker", "out"))
