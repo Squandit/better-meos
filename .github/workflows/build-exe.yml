@@ -37,6 +37,8 @@ jobs:
       - run: python -m pytest -q
       - name: Direct slip printing works (prints to Microsoft Print to PDF)
         run: python installer/print_check.py
+      - name: Stress suite (whole events against real app processes)
+        run: python scripts/stress/run.py
 
   build:
     # Independent of the test job: a failing test shows up red on the run,
