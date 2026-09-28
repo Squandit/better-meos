@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from datetime import datetime
 from xml.etree.ElementTree import ParseError as ET_ERROR
 from xml.sax.saxutils import escape as xml_escape
@@ -110,6 +111,44 @@ def _cached(key, revision):
         return _page_cache.get(key) if _page_cache_revision == revision else None
 
 
+# The public port (phones, projectors) can have a crowd reloading while cards
+# come in every second or two. There, a page that's being re-rendered after a
+# change is served in its previous version to everyone who arrives meanwhile,
+# instead of making them all queue for the render. The request that starts the
+# render waits for it, so a lone viewer always gets the new results; a crowd
+# sees them a moment later, and the app never has more than one render of a
+# page under way.
+_public_cache: dict = {}         # key -> (revision, body, mimetype)
+_public_locks: dict = {}
+
+
+def _public_cached(view, args, kwargs, key, revision):
+    with _page_cache_lock:
+        hit = _public_cache.get(key)
+        if hit is not None and hit[0] == revision:
+            return Response(hit[1], mimetype=hit[2])
+        lock = _public_locks.get(key)
+        if lock is None and len(_public_locks) < _PAGE_CACHE_MAX:
+            lock = _public_locks[key] = threading.Lock()
+    if lock is None:
+        return view(*args, **kwargs)
+    if not lock.acquire(blocking=hit is None):
+        return Response(hit[1], mimetype=hit[2])      # being re-rendered: the last version
+    try:
+        with _page_cache_lock:
+            hit = _public_cache.get(key)
+        if hit is None or hit[0] != revision:
+            resp = make_response(view(*args, **kwargs))
+            if resp.status_code != 200:
+                return resp
+            hit = (revision, resp.get_data(), resp.mimetype)
+            with _page_cache_lock:
+                _public_cache[key] = hit
+    finally:
+        lock.release()
+    return Response(hit[1], mimetype=hit[2])
+
+
 def cached_page(view):
     @functools.wraps(view)
     def wrapper(*args, **kwargs):
@@ -120,6 +159,8 @@ def cached_page(view):
         # clock rather than the data ("still out" once a start time passes).
         revision = (db.revision(), datetime.now().strftime("%H:%M"))
         key = _page_key()
+        if security.on_public_port():
+            return _public_cached(view, args, kwargs, key, revision)
         with _page_cache_lock:
             if _page_cache_revision != revision:
                 _page_cache.clear()
