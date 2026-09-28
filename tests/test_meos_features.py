@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import pytest
+
 import app as appmod
 import iofxml
 import store
@@ -201,3 +203,38 @@ def test_relay_forks_restart_and_leg_places():
     # T2 leg 2 went at the 12:40 restart, not T2's 12:45 changeover.
     assert [l["seconds"] for l in teams["T2"]["legs"]] == [2700, 1200]
     assert teams["T1"]["legs"][0]["place"] == 1 and teams["T2"]["legs"][1]["place"] == 1
+
+
+def test_the_draw_leaves_relay_teams_alone():
+    import draw
+    course = store.create_course({"name": "Relay Draw C", "type": "linear", "controls": [31]})
+    cls = store.create_class({"name": "Relay Draw", "course_id": course["id"], "kind": "relay",
+                              "legs": 2})
+    team = store.create_team({"name": "Draw Team", "class_id": cls["id"], "start": "11:00:00"})
+    legs = [store.create_competitor({"name": f"Draw Leg {n}", "class_id": cls["id"],
+                                     "team_id": team["id"], "leg": n}) for n in (1, 2)]
+    out = draw.draw_classes([cls["id"]], first_start="10:00:00", interval_seconds=60)
+    assert out["classes"][0].get("skipped")
+    assert all(store.get_competitor(c["id"])["start"] is None for c in legs)
+    for c in legs:
+        store.delete_competitor(c["id"])
+    store.delete_team(team["id"])
+    store.delete_class(cls["id"])
+    store.delete_course(course["id"])
+
+
+def test_redrawing_a_class_with_finishers_is_refused_whole():
+    import draw
+    course = store.create_course({"name": "Redraw C", "type": "linear", "controls": [31]})
+    cls = store.create_class({"name": "Redraw", "course_id": course["id"]})
+    done = store.create_competitor({"name": "Done Dan", "class_id": cls["id"], "read": True,
+                                    "start": "10:00:00", "finish": "10:20:00"})
+    other = store.create_competitor({"name": "Out Olly", "class_id": cls["id"],
+                                     "start": "10:05:00"})
+    with pytest.raises(store.StoreError, match="finished"):
+        draw.draw_classes([cls["id"]], first_start="11:00:00", interval_seconds=60)
+    assert store.get_competitor(other["id"])["start"].strftime("%H:%M") == "10:05"  # untouched
+    for c in (done, other):
+        store.delete_competitor(c["id"])
+    store.delete_class(cls["id"])
+    store.delete_course(course["id"])

@@ -12,6 +12,9 @@ def _stage(name, date, runs):
     course = store.create_course({"name": "S", "type": "linear", "controls": [31]})
     cls = store.create_class({"name": "M21", "course_id": course["id"]})
     for runner, card, secs in runs:
+        if secs is None:                     # entered, not run yet
+            store.create_competitor({"name": runner, "class_id": cls["id"], "card_number": card})
+            continue
         finish = store.format_clock(store.parse_clock("10:00:00").replace(
             minute=secs // 60, second=secs % 60))
         store.create_competitor({"name": runner, "class_id": cls["id"], "card_number": card,
@@ -31,7 +34,7 @@ def test_stages_page_and_chase_start():
         # Ana 25:00 + 20:00 = 45:00 beats Ben 20:00 + 30:00 = 50:00.
         assert html.index("Ana") < html.index("Ben") and "00:45:00" in html
 
-        _stage("Stage Three", "2026-07-03", [("Ana", 9600001, 0), ("Ben", 9600002, 0)])
+        _stage("Stage Three", "2026-07-03", [("Ana", 9600001, None), ("Ben", 9600002, None)])
         r = c.post("/api/stages/chase", json={
             "stages": [os.path.basename(s1), os.path.basename(s2)], "first_start": "09:00:00"})
         assert r.get_json()["assigned"] == 2

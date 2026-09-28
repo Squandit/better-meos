@@ -3,6 +3,8 @@
 import app as appmod
 import pytest
 
+import store
+
 
 @pytest.fixture
 def client():
@@ -125,3 +127,12 @@ def test_sidebar_groups_and_help_panel(client):
         assert page in more
     assert "data-help-panel" in html and "help.js" in html and "data-help-open" in html
     assert "Take the tour" in client.get("/setup").get_data(as_text=True)
+
+
+def test_editor_preview_of_an_unsaved_runner(client):
+    cid = store.class_options()[0]["id"]
+    r = client.post("/api/preview", json={"class_id": str(cid), "name": "Typing", "punches": [],
+                                          "start": "10:00:00", "finish": "10:30:00",
+                                          "manual_status": "", "course_id": ""})
+    assert r.status_code == 200
+    assert r.get_json()["result"]["status"] in ("mp", "ok")

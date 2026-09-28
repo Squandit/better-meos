@@ -92,7 +92,7 @@ def view_row(result: dict, fmt=None, now: datetime | None = None) -> dict:
         label = pending_label(result.get("start"), now or store.event_now())
     return {
         "id": result["id"],
-        "position": result["position"],
+        "position": result.get("position"),   # an unsaved preview has no place
         "name": result["name"],
         "club": result["club"],
         "class": result["class"],

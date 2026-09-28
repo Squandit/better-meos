@@ -821,6 +821,7 @@ def draw_page():
         members = store._competitors_in_class(cls["id"])
         starts = sorted(c["start"] for c in members if c["start"] is not None)
         rows.append({"id": cls["id"], "name": cls["name"],
+                     "teams": cls.get("kind") in ("relay", "patrol"),
                      "course": (store.get_course(cls["course_id"]) or {}).get("name", ""),
                      "runners": sum(1 for c in members if not c.get("vacant")),
                      "vacants": sum(1 for c in members if c.get("vacant")),

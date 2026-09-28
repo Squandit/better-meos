@@ -98,12 +98,30 @@ def draw_classes(class_ids: list[int], *, first_start: str, interval_seconds: in
     rng = random.Random(seed)
 
     with store.batch():
-        classes = []
+        classes, teams = [], []
         for cid in class_ids:
             cls = store.get_class(cid)
             if cls is None:
                 raise StoreError("One of the chosen classes no longer exists")
-            classes.append(cls)
+            # Relays and patrols start as teams (team start, mass start, the
+            # changeover): a drawn time per runner would override all of that.
+            (teams if cls.get("kind") in ("relay", "patrol") else classes).append(cls)
+
+        # Check before changing anything: a draw that stopped halfway would
+        # leave a start list nobody chose.
+        done = []
+        for cls in classes:
+            for comp in store._competitors_in_class(cls["id"]):
+                redrawn = comp["start"] is None if keep_existing else not comp.get("vacant")
+                if redrawn and (comp.get("finish") is not None or comp.get("read_at") is not None):
+                    done.append(cls["name"])
+                    break
+        if done:
+            raise StoreError(
+                f"{', '.join(done)} already {'has' if len(done) == 1 else 'have'} runners who've "
+                "finished: redrawing would change their start times. Leave "
+                f"{'it' if len(done) == 1 else 'them'} out, or tick 'Only runners with no start "
+                "time' to draw late entries.")
 
         # Classes sharing a course take turns: each gets a slot offset within
         # a combined cycle, and its own runners go out once per cycle.
@@ -121,6 +139,8 @@ def draw_classes(class_ids: list[int], *, first_start: str, interval_seconds: in
                      f"{method}, first {first_start}, every {interval_seconds}s"
                      + (f", {vacants} vacant per class" if vacants else "")
                      + (", late entries only" if keep_existing else ""))
+    summary += [{"class": cls["name"], "drawn": 0, "vacants": 0, "first": "", "last": "",
+                 "skipped": "teams start together"} for cls in teams]
     return {"classes": sorted(summary, key=lambda s: s["class"].lower()),
             "clashes": course_clashes()}
 

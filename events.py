@@ -33,7 +33,7 @@ _MAX_BACKLOG = 100
 MAX_STREAMS = 12
 # Seconds between keep-alive comments. A write to a closed tab fails, which is
 # how the server notices the tab went away and frees the thread.
-KEEPALIVE = 10
+KEEPALIVE = 4
 
 
 def subscribe(port: str = "") -> queue.Queue | None:

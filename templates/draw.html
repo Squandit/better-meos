@@ -63,8 +63,8 @@
         <tbody>
             {% for c in classes %}
             <tr>
-                <td><input type="checkbox" name="class_ids" value="{{ c.id }}" checked aria-label="{{ c.name }}"></td>
-                <td class="cell-name">{{ c.name }}</td>
+                <td>{% if c.teams %}<input type="checkbox" disabled aria-label="{{ c.name }} starts as teams">{% else %}<input type="checkbox" name="class_ids" value="{{ c.id }}" checked aria-label="{{ c.name }}">{% endif %}</td>
+                <td class="cell-name">{{ c.name }}{% if c.teams %} <span class="chip grey" title="Relay and patrol runners start with their team (team start, mass start or the changeover), so they aren't drawn">team start</span>{% endif %}</td>
                 <td class="dim">{{ c.course }}</td>
                 <td class="num">{{ c.runners }}</td>
                 <td class="num">{{ c.undrawn }}</td>

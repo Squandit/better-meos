@@ -180,6 +180,8 @@ def apply_chase_starts(prior_paths: list[str], first_start: str) -> int:
     assigned = 0
     with store.batch():
         for comp in list(store._competitors.values()):
+            if comp.get("finish") is not None or comp.get("read_at") is not None:
+                continue          # already ran this stage: their start is history now
             key = who.of(comp)
             if key in deficit:
                 start = base + timedelta(seconds=deficit[key])

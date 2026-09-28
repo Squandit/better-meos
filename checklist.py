@@ -53,7 +53,9 @@ def race_day() -> list[dict]:
             items.append(_item("warn", f"{_plural(len(no_card), 'runner')} with no SI card "
                                "(and no hire card)", "/competitors"))
     undrawn = sorted({store._classes[c["class_id"]]["name"] for c in runners
-                      if c["start"] is None and store._courses.get(
+                      if c["start"] is None
+                      and store._classes[c["class_id"]].get("kind") not in ("relay", "patrol")
+                      and store._courses.get(
                           store._classes[c["class_id"]]["course_id"], {}).get("start_mode", "clock")
                       == "clock"})
     if undrawn:

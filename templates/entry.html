@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Event Entry</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#2d5a3d">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,7 +20,7 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'DM Sans', sans-serif; min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; min-height: 100vh;
       display: flex; align-items: flex-start; justify-content: center;
       padding: 1rem 0.75rem; position: relative; overflow-x: hidden; background: #2a2a2a;
     }
@@ -31,7 +30,7 @@
     .card-header::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, transparent 60%); pointer-events: none; }
     .header-logo { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid rgba(255,255,255,0.2); background: var(--forest); }
     .header-text { flex: 1; }
-    .header-text h1 { font-family: 'DM Sans', sans-serif; color: var(--cream); font-size: 1.3rem; line-height: 1.1; margin-bottom: 0.15rem; }
+    .header-text h1 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--cream); font-size: 1.3rem; line-height: 1.1; margin-bottom: 0.15rem; }
     .header-text p { color: rgba(245,240,232,0.6); font-size: 0.82rem; }
     .price-badge { display: inline-block; background: var(--gold); color: #3a2800; font-weight: 600; font-size: 0.75rem; padding: 0.18rem 0.55rem; border-radius: 20px; margin-top: 0.5rem; }
     .card-body { padding: 1.25rem 1.5rem; }
@@ -39,7 +38,7 @@
     label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.4rem; }
     input[type=text], input[type=email], input[type=tel], select {
       width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid var(--sand); border-radius: 8px;
-      font-family: 'DM Sans', sans-serif; font-size: 0.88rem; color: var(--text); background: white;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 0.88rem; color: var(--text); background: white;
       transition: border-color 0.2s, box-shadow 0.2s; appearance: none;
     }
     input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(74,140,92,0.15); }
@@ -47,12 +46,12 @@
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7a65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: right 0.85rem center; padding-right: 2.5rem; cursor: pointer;
     }
-    .btn { border: none; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.1s; }
+    .btn { border: none; border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.1s; }
     .btn:active { transform: scale(0.97); }
     .btn-primary { background: var(--moss); color: white; padding: 0.6rem 1rem; font-size: 0.88rem; width: 100%; }
     .btn-primary:hover { background: var(--forest); }
     .btn-danger-sm { background: none; border: none; color: var(--error); cursor: pointer; font-size: 1.1rem; padding: 0.1rem 0.3rem; line-height: 1; }
-    .btn-edit-sm { background: none; border: none; color: var(--leaf); cursor: pointer; font-size: 0.8rem; padding: 0.1rem 0.3rem; font-family: 'DM Sans', sans-serif; font-weight: 600; }
+    .btn-edit-sm { background: none; border: none; color: var(--leaf); cursor: pointer; font-size: 0.8rem; padding: 0.1rem 0.3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 600; }
 
     .not-member-msg { background: #fff8e6; border-left: 3px solid var(--gold); color: #7a5800; border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.875rem; margin-bottom: 1rem; display: none; }
     .not-member-msg.show { display: block; }
@@ -75,18 +74,18 @@
     .edit-field label { font-size: 0.72rem; }
     .edit-field input, .edit-field select { padding: 0.45rem 0.65rem; font-size: 0.85rem; }
     .edit-actions { display: flex; gap: 0.5rem; }
-    .btn-save-edit { background: var(--moss); color: white; padding: 0.4rem 0.9rem; font-size: 0.82rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 600; }
-    .btn-cancel-edit { background: var(--sand); color: var(--text); padding: 0.4rem 0.9rem; font-size: 0.82rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 600; }
+    .btn-save-edit { background: var(--moss); color: white; padding: 0.4rem 0.9rem; font-size: 0.82rem; border-radius: 6px; border: none; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 600; }
+    .btn-cancel-edit { background: var(--sand); color: var(--text); padding: 0.4rem 0.9rem; font-size: 0.82rem; border-radius: 6px; border: none; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 600; }
 
     .cart-total { display: flex; justify-content: space-between; align-items: center; background: var(--sand); border-radius: 8px; padding: 0.75rem 1rem; margin-top: 0.5rem; margin-bottom: 1.25rem; }
     .cart-total-label { font-size: 0.85rem; color: var(--muted); font-weight: 500; }
-    .cart-total-amount { font-family: 'DM Sans', sans-serif; font-size: 1.5rem; color: var(--forest); }
+    .cart-total-amount { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 1.5rem; color: var(--forest); }
     .cart-cap-note { font-size: 0.75rem; color: var(--bark); font-weight: 600; margin-top: 0.15rem; }
 
     .fee-display { display: flex; justify-content: space-between; align-items: center; background: var(--sand); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.1rem; }
     .fee-display span:first-child { font-size: 0.85rem; color: var(--muted); font-weight: 500; }
-    .fee-amount { font-family: 'DM Sans', sans-serif; font-size: 1.3rem; color: var(--forest); }
-    .fee-amount.unset { color: var(--muted); font-size: 0.9rem; font-family: 'DM Sans', sans-serif; }
+    .fee-amount { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 1.3rem; color: var(--forest); }
+    .fee-amount.unset { color: var(--muted); font-size: 0.9rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 
     #paypal-button-container { margin-top: 0.5rem; }
     #paypal-button-container.hidden { display: none; }
@@ -98,7 +97,7 @@
     .success-screen { display: none; text-align: center; padding: 2rem; }
     .success-screen.show { display: block; }
     .success-icon { font-size: 3rem; margin-bottom: 1rem; }
-    .success-screen h2 { font-family: 'DM Sans', sans-serif; font-size: 1.6rem; color: var(--forest); margin-bottom: 0.5rem; }
+    .success-screen h2 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 1.6rem; color: var(--forest); margin-bottom: 0.5rem; }
     .success-screen p { color: var(--muted); margin-bottom: 0.5rem; font-size: 0.9rem; }
     .success-list { list-style: none; margin: 0.75rem 0 1.5rem; text-align: left; background: white; border-radius: 8px; padding: 0.75rem 1rem; }
     .success-list li { font-size: 0.9rem; color: var(--text); padding: 0.25rem 0; border-bottom: 1px solid var(--sand); }
@@ -118,22 +117,22 @@
     .remember-banner { background: var(--sand); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1rem; display: none; }
     .remember-banner-title { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.5rem; }
     .remember-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
-    .remember-chip { background: white; border: 1.5px solid var(--sand); border-radius: 20px; padding: 0.3rem 0.75rem; font-size: 0.82rem; cursor: pointer; color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; transition: border-color 0.2s, background 0.2s; }
+    .remember-chip { background: white; border: 1.5px solid var(--sand); border-radius: 20px; padding: 0.3rem 0.75rem; font-size: 0.82rem; cursor: pointer; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 500; transition: border-color 0.2s, background 0.2s; }
     .remember-chip:hover { border-color: var(--leaf); background: rgba(74,140,92,0.08); }
     .remember-chip.added { background: var(--moss); color: white; border-color: var(--moss); }
-    .remember-clear { font-size: 0.72rem; color: var(--muted); background: none; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; text-decoration: underline; padding: 0; }
+    .remember-clear { font-size: 0.72rem; color: var(--muted); background: none; border: none; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-decoration: underline; padding: 0; }
 
     /* Countdown */
     .countdown-bar { background: var(--sand); border-radius: 8px; padding: 0.6rem 1rem; margin-bottom: 1rem; display: none; text-align: center; }
     .countdown-bar.urgent { background: #fdecea; }
-    .countdown-time { font-family: 'DM Sans', sans-serif; font-size: 1.4rem; color: var(--forest); }
+    .countdown-time { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 1.4rem; color: var(--forest); }
     .countdown-label { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
 
     /* Organiser's note */
     .organiser-msg { background: var(--cream); border-left: 4px solid var(--leaf); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; white-space: pre-line; }
     /* Entries closed */
     .entries-closed { display: none; background: var(--error); color: white; text-align: center; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
-    .entries-closed h3 { font-family: 'DM Sans', sans-serif; font-size: 1.2rem; margin-bottom: 0.25rem; }
+    .entries-closed h3 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 1.2rem; margin-bottom: 0.25rem; }
     .entries-closed p { font-size: 0.85rem; opacity: 0.85; }
 
     /* PayPal expiry warning */
@@ -156,7 +155,7 @@
 
     /* Page tabs */
     .page-tabs { display: flex; background: var(--forest); border-bottom: 2px solid rgba(255,255,255,0.08); }
-    .page-tab { flex: 1; padding: 0.65rem 0.5rem; text-align: center; font-size: 0.82rem; font-weight: 600; color: rgba(245,240,232,0.5); cursor: pointer; border: none; background: none; font-family: 'DM Sans', sans-serif; transition: color 0.2s, border-bottom 0.2s; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .page-tab { flex: 1; padding: 0.65rem 0.5rem; text-align: center; font-size: 0.82rem; font-weight: 600; color: rgba(245,240,232,0.5); cursor: pointer; border: none; background: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; transition: color 0.2s, border-bottom 0.2s; border-bottom: 3px solid transparent; margin-bottom: -2px; }
     .page-tab.active { color: var(--cream); border-bottom-color: var(--lime); }
     .page-tab.disabled { opacity: 0.3; cursor: not-allowed; }
     .page-panel { display: none; }
@@ -169,17 +168,17 @@
 
     /* Results */
     .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; gap: 0.5rem; flex-wrap: wrap; }
-    .results-class-filter { flex: 1; min-width: 120px; padding: 0.5rem 0.75rem; border: 1.5px solid var(--sand); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; background: white; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7a65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2rem; cursor: pointer; }
+    .results-class-filter { flex: 1; min-width: 120px; padding: 0.5rem 0.75rem; border: 1.5px solid var(--sand); border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; background: white; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7a65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2rem; cursor: pointer; }
     .results-refresh { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
     .results-class-section { margin-bottom: 1.25rem; }
     .results-class-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.5rem; padding-bottom: 0.35rem; border-bottom: 2px solid var(--sand); }
-    .results-class-name { font-family: 'DM Sans', sans-serif; font-size: 1rem; color: var(--forest); }
+    .results-class-name { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 1rem; color: var(--forest); }
     .results-class-updated { font-size: 0.68rem; color: var(--muted); }
     .results-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     .results-table th { text-align: left; padding: 0.45rem 0.4rem; font-size: 0.68rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; background: var(--sand); }
     .results-table td { padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--sand); color: var(--text); vertical-align: middle; }
     .results-table tr:last-child td { border-bottom: none; }
-    .results-place { font-family: 'DM Sans', sans-serif; font-size: 1.1rem; color: var(--forest); min-width: 1.5rem; display: inline-block; text-align: center; }
+    .results-place { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 1.1rem; color: var(--forest); min-width: 1.5rem; display: inline-block; text-align: center; }
     .results-place.gold { color: #b8860b; }
     .results-place.silver { color: #888; }
     .results-place.bronze { color: #a0522d; }
@@ -331,7 +330,7 @@
         <div style="display:flex;align-items:center;gap:0.75rem">
           <img src="/static/entry/OWA_LOGO.jpg" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.2)">
           <div>
-            <div style="font-family:'DM Sans',sans-serif;color:var(--cream);font-size:1.2rem;line-height:1.1" id="success-event-name"></div>
+            <div style="color:var(--cream);font-size:1.2rem;line-height:1.1" id="success-event-name"></div>
             <div style="color:rgba(245,240,232,0.65);font-size:0.78rem;margin-top:0.1rem">Entry Confirmation ✓</div>
           </div>
         </div>
