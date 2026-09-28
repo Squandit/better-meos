@@ -1,5 +1,7 @@
 """Persistence, card-read and reload behaviour of the store."""
 
+import threading
+import time
 from datetime import datetime
 
 import db
@@ -91,6 +93,32 @@ def test_backup_restore_round_trip(tmp_path):
     assert store.get_competitor(comp["id"]) is None
     store.restore(backup)
     assert store.get_competitor(comp["id"])["name"] == "Backup Bea"
+
+
+def test_backup_waits_for_a_card_read_in_progress(tmp_path):
+    # A backup that started while a batch had uncommitted writes used to spin
+    # inside SQLite holding the db lock, so the batch could never commit and
+    # the whole app froze (seen as a hung stress run).
+    cls_id = next(iter(store._classes))
+    finished = threading.Event()
+
+    def slow_batch():
+        with store.batch():
+            store.create_competitor({"name": "Mid Batch", "class_id": cls_id,
+                                     "card_number": 7700002})
+            time.sleep(0.5)
+        finished.set()
+
+    writer = threading.Thread(target=slow_batch, daemon=True)
+    writer.start()
+    time.sleep(0.1)
+    backup = threading.Thread(target=db.backup_to, args=(str(tmp_path / "b.db"),),
+                              daemon=True)
+    backup.start()
+    writer.join(10)
+    backup.join(10)
+    assert finished.is_set() and not backup.is_alive()
+    assert (tmp_path / "b.db").exists()
 
 
 def test_restore_rejects_non_backup(tmp_path):

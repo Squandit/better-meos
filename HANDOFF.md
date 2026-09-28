@@ -89,6 +89,15 @@ Bugs found and fixed (each commit message has the details):
   disk one card read waited 6.8 s. The snapshot is now taken in memory under
   the lock and written to disk after (worst read since: 0.125 s).
 - A card read (and a radio punch) is one disk commit now, not two.
+- Deadlock, found when that change made reads into transactions: a backup
+  starting while a transaction had uncommitted writes spun forever inside
+  SQLite's backup API holding `db._lock`, and the transaction needed that
+  lock to commit. The whole app froze (waitress queue full). `backup_to` and
+  `restore_from` now wait on `db._tx_done` (a Condition on `_lock`) until no
+  transaction is open; test in test_persistence. The CI stress step has a
+  30 minute timeout so a hang fails the run.
+- `test_runner_analysis_page_and_json` was flaky on Windows (depended on
+  M21A runners left by other tests); it has its own class now.
 - Journal mode: `scripts/stress/diskbench.py` on the Windows runner gave
   DELETE (the default) p50 16 ms / max 137 ms per read's save, WAL (sync
   full) 3 ms / 18 ms. Kept DELETE: 16 ms is fine and WAL's -wal/-shm side
@@ -802,7 +811,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 291 passing) + stress suite (`scripts/stress/`, see 1.7)
+## 7. Test suite (`tests/`, 293 passing) + stress suite (`scripts/stress/`, see 1.7)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:

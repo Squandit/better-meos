@@ -173,8 +173,18 @@ def test_exports_and_entry_page_skip_or_mark_pending(scratch):
 
 
 def test_runner_analysis_page_and_json(cfg, scratch):
+    # Its own class with three steady runners, so the reference leg times don't
+    # depend on whoever earlier tests left in M21A.
+    course = store.get_class(m21a())["course_id"]
+    cls = store.create_class({"name": "Analysis", "course_id": course})["id"]
+    for i in range(3):
+        store.create_competitor({
+            "name": f"Steady {i}", "class_id": cls, "read": True, "start": "10:00:00",
+            "finish": "10:40:00", "punches": [{"code": c, "time": t} for c, t in
+                                              ((138, "10:10:00"), (130, "10:14:00"),
+                                               (142, "10:24:00"), (155, "10:34:00"))]})
     runner = store.create_competitor({
-        "name": "Analyse Ann", "class_id": m21a(), "read": True, "start": "10:00:00",
+        "name": "Analyse Ann", "class_id": cls, "read": True, "start": "10:00:00",
         "finish": "11:05:00", "punches": [{"code": c, "time": t} for c, t in
                                            ((138, "10:12:00"), (130, "10:16:00"),
                                             (142, "10:50:00"), (155, "11:00:00"))]})

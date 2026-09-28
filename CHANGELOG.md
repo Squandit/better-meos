@@ -35,7 +35,9 @@ fixing what it found is most of this release.
 - The close-out check lists everyone still out.
 - The public results stay quick with a crowd of phones on them.
 - One runner-database import box for CSV or IOF XML.
-- Automatic backups no longer hold up card reads while they're written.
+- Automatic backups no longer hold up card reads while they're written,
+  and a backup that starts in the middle of a card read, import or draw
+  waits for it instead of freezing the app.
 - Pages are sent compressed: a big event's results reach phones about 15
   times smaller.
 - A second desk shows its link to the main computer correctly when that

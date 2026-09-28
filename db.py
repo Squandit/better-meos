@@ -44,6 +44,9 @@ _conn: sqlite3.Connection | None = None
 _revision = 0
 # >0 while inside transaction(): writes are grouped into one commit.
 _tx_depth = 0
+_tx_owner: int | None = None
+# Signalled when the last open transaction commits (see _no_open_transaction).
+_tx_done = threading.Condition(_lock)
 
 
 def revision() -> int:
@@ -93,16 +96,39 @@ def transaction():
     already holds every change made so far, and the file must match it.
     Callers hold ``store._lock`` first (store -> db lock order).
     """
-    global _tx_depth
+    global _tx_depth, _tx_owner
     with _lock:
         _tx_depth += 1
+        _tx_owner = threading.get_ident()
     try:
         yield
     finally:
         with _lock:
             _tx_depth -= 1
-            if _tx_depth == 0 and _conn is not None:
-                _timed_commit()
+            if _tx_depth == 0:
+                _tx_owner = None
+                if _conn is not None:
+                    _timed_commit()
+                _tx_done.notify_all()
+
+
+@contextmanager
+def _no_open_transaction(timeout: float = 60):
+    """
+    Hold the lock at a moment when no transaction has uncommitted writes.
+
+    SQLite's backup API can't copy from (or into) a connection that is part way
+    through a write: it retries forever, holding our lock, and the transaction
+    can then never take the lock to commit. So backups and restores wait here
+    for the open transaction to finish first; the wait releases the lock, so
+    the transaction can.
+    """
+    with _tx_done:
+        if _tx_depth and _tx_owner == threading.get_ident():
+            raise RuntimeError("can't back up from inside a transaction")
+        if not _tx_done.wait_for(lambda: _tx_depth == 0, timeout):
+            raise TimeoutError("the event was busy for too long; try again")
+        yield
 
 
 SCHEMA = """
@@ -394,7 +420,7 @@ def backup_to(dest_path: str) -> None:
     """
     snapshot = sqlite3.connect(":memory:")
     try:
-        with _lock:
+        with _no_open_transaction():
             _c().backup(snapshot)
         dest = sqlite3.connect(dest_path)
         try:
@@ -415,7 +441,7 @@ def restore_from(src_path: str) -> None:
     as a better-meos backup first, so a bad upload can't clobber live data.
     Raises ``ValueError`` if the file isn't a recognisable backup.
     """
-    with _lock:
+    with _no_open_transaction():
         src = sqlite3.connect(src_path)
         try:
             tables = {
