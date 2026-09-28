@@ -10,4 +10,4 @@ event file in a way older versions can't read; MINOR for new features; PATCH
 for fixes.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

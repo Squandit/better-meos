@@ -178,7 +178,11 @@
             return;
         }
         if (item.setting) {
-            window.BMSettings.post("computer", item.setting).then(function () { window.location.reload(); });
+            window.BMSettings.post("computer", item.setting).then(function () {
+                if (item.setting.theme) { document.documentElement.setAttribute("data-theme", item.setting.theme); }
+                else { window.location.reload(); }
+            });
+            close();
             return;
         }
         if (item.tab) { window.open(item.href, "_blank", "noopener"); return; }

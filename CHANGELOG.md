@@ -9,6 +9,23 @@ release. The number lives in `version.py`.
 - **Minor** (1.1.0): new features.
 - **Patch** (1.0.1): fixes only.
 
+## 1.1.0 (2026-09-28)
+
+- Split slips print straight to the printer with no print dialog: the app
+  draws the slip itself and sends it to Windows. Auto-print works with no
+  page open. New settings: Print slips, Slip printer (with a test print).
+- Eventor: check the API key, pick the event, fetch entries (again for late
+  entries without duplicates), load club members' SI cards, upload results.
+- Relays: runners are placed against their own leg only, the results pages
+  show team standings, prizes go to teams.
+- Class editor: relay legs and the relay mass start are greyed out unless
+  the class is a relay; patrol is gone for new classes.
+- Start draw moved under More tools. Theme and other appearance settings
+  apply straight away.
+- Giving a stray card read to someone who already has a run now asks first.
+- Saved API keys can be removed in Settings.
+- The download simulator never replaces a finished run.
+
 ## 1.0.0 (2026-09-28)
 
 The first numbered release: everything up to here.
