@@ -337,6 +337,9 @@ def engine_course(course: dict, control_rules: dict | None = None) -> dict:
             "score_formula": course.get("score_formula") or None,
             "alternates": linear_course_rules([c["code"] for c in course["controls"]],
                                               ctl)["alternates"],
+            "start_mode": course.get("start_mode", "clock"),
+            "start_control": course.get("start_control"),
+            "mass_start": parse_clock(course.get("mass_start"), "Mass start"),
         }
     return {
         "type": "linear",
@@ -589,9 +592,11 @@ def get_competitor(comp_id: int) -> dict | None:
 
 
 def _evaluate_model(courses: dict, classes: dict, competitors: dict,
-                    control_rules: dict | None = None) -> tuple[list[dict], dict[int, dict]]:
+                    control_rules: dict | None = None,
+                    teams: dict | None = None) -> tuple[list[dict], dict[int, dict]]:
     """Run a (courses, classes, competitors) model through the engine.
-    ``control_rules``: that event's control statuses (None = the open event's)."""
+    ``control_rules``: that event's control statuses (None = the open event's).
+    ``teams``: that event's relay teams (their start times time leg 1)."""
     if control_rules is None:
         control_rules = control_config()
     out = []
@@ -614,13 +619,16 @@ def _evaluate_model(courses: dict, classes: dict, competitors: dict,
 
         members = by_class.get(cls["id"], [])
         relay = cls.get("kind") == "relay"
-        starts = _relay_leg_starts(members, cls) if relay else {}
+        starts = _relay_leg_starts(members, cls, teams or {}) if relay else {}
         results_in = []
         for comp in members:
             cid, ecourse = course_of(comp)
             card = _engine_card(comp, classes)
             if card["start"] is None and comp["id"] in starts:
                 card["start"] = starts[comp["id"]]
+            if relay and (comp.get("leg") or 1) > 1 and ecourse.get("start_mode") == "mass":
+                # Only leg 1 goes on the gun; later legs start at the changeover.
+                ecourse = {**ecourse, "start_mode": "clock"}
             res = build_result(card, ecourse)
             res["course_id"] = cid
             res["leg"] = comp.get("leg")
@@ -661,7 +669,8 @@ def evaluate() -> tuple[list[dict], dict[int, dict]]:
     with _lock:
         rev = db.revision()
         if _eval_cache["revision"] != rev:
-            _eval_cache["value"] = _evaluate_model(_courses, _classes, _competitors)
+            _eval_cache["value"] = _evaluate_model(_courses, _classes, _competitors,
+                                                   teams=_teams)
             _eval_cache["revision"] = rev
         return _eval_cache["value"]
 
@@ -761,20 +770,23 @@ def _relay_team(team: dict, members: list[dict], course: dict | None,
             "total_seconds": total if ok else None, "ok": ok}
 
 
-def _relay_leg_starts(members: list[dict], cls: dict) -> dict:
-    """When each relay runner with no start of their own set off: at the
-    changeover (the previous leg's finish), or at the class's mass start when
-    the previous runner hadn't finished by then. Leg 1 is left alone (the team
-    start or the course's mass start applies). ``{competitor id: start}``."""
+def _relay_leg_starts(members: list[dict], cls: dict, teams: dict) -> dict:
+    """When each relay runner with no start of their own set off: leg 1 at the
+    team's start (if it has one; otherwise the course's mass start applies),
+    later legs at the changeover (the previous leg's finish), or at the class's
+    mass restart when the previous runner hadn't finished by then.
+    ``{competitor id: start}``."""
     restart = parse_clock(cls.get("restart"), "Restart") if cls.get("restart") else None
     by_team: dict = {}
     for comp in members:
         if comp.get("team_id"):
             by_team.setdefault(comp["team_id"], []).append(comp)
     starts = {}
-    for team in by_team.values():
+    for team_id, team in by_team.items():
         prev_finish = None
         for i, comp in enumerate(sorted(team, key=lambda c: c.get("leg") or 0)):
+            if i == 0 and comp["start"] is None and (teams.get(team_id) or {}).get("start"):
+                starts[comp["id"]] = teams[team_id]["start"]
             if i > 0 and comp["start"] is None:
                 if restart is not None and (prev_finish is None or prev_finish > restart):
                     starts[comp["id"]] = restart
@@ -1395,11 +1407,27 @@ def _validated_course_fields(data: dict) -> dict:
             "name": name, "type": "score", "controls": controls,
             "time_limit_minutes": limit, "penalty_per_minute": penalty,
             "score_formula": formula or None,
+            **_start_fields(data),       # score-O is often a mass start
         }
 
     controls = _coerce_linear_controls(data.get("controls"))
     max_time = _as_int(data.get("time_limit_minutes"), "Max time", minimum=1,
                        allow_blank=True)
+    out = {
+        "name": name, "type": "linear", "controls": controls,
+        "time_limit_minutes": max_time, "penalty_per_minute": 0,
+        **_start_fields(data),
+    }
+    # Only carry leg_lengths when explicitly supplied (the IOF importer sends
+    # them; the course editor doesn't). update_course preserves the existing
+    # value when absent, so editing a course can't wipe imported leg lengths.
+    if isinstance(data.get("leg_lengths"), list):
+        out["leg_lengths"] = data["leg_lengths"]
+    return out
+
+
+def _start_fields(data: dict) -> dict:
+    """How a course starts (clock, punch, mass, chase) and its length."""
     start_mode = _clean_str(data.get("start_mode"), "Start mode").lower() or "clock"
     if start_mode not in ("clock", "punch", "mass", "chase"):
         raise StoreError("Start mode must be 'clock', 'punch', 'mass' or 'chase'")
@@ -1415,19 +1443,8 @@ def _validated_course_fields(data: dict) -> dict:
     else:
         mass_start = ""
     length_m = _as_int(data.get("length_m"), "Course length", minimum=0, allow_blank=True)
-    out = {
-        "name": name, "type": "linear", "controls": controls,
-        "time_limit_minutes": max_time, "penalty_per_minute": 0,
-        "start_mode": start_mode, "start_control": start_control,
-        "mass_start": mass_start or None,
-        "length_m": length_m,
-    }
-    # Only carry leg_lengths when explicitly supplied (the IOF importer sends
-    # them; the course editor doesn't). update_course preserves the existing
-    # value when absent, so editing a course can't wipe imported leg lengths.
-    if isinstance(data.get("leg_lengths"), list):
-        out["leg_lengths"] = data["leg_lengths"]
-    return out
+    return {"start_mode": start_mode, "start_control": start_control,
+            "mass_start": mass_start or None, "length_m": length_m}
 
 
 def create_course(data: dict) -> dict:

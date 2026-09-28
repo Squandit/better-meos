@@ -698,12 +698,13 @@
             } else {
                 payload.controls = rows.filter(function (r) { return r.code !== ""; })
                     .map(function (r) { return r.code; });
-                payload.start_mode = form.elements.start_mode ? form.elements.start_mode.value : "clock";
-                payload.start_control = form.elements.start_control ? form.elements.start_control.value : "";
-                payload.length_m = form.elements.length_m ? form.elements.length_m.value : "";
-                payload.mass_start = form.elements.mass_start.value;
                 payload.time_limit_minutes = form.elements.max_time_minutes.value;  // max time
             }
+            // Both kinds of course: a score-O is often a mass start.
+            payload.start_mode = form.elements.start_mode ? form.elements.start_mode.value : "clock";
+            payload.start_control = form.elements.start_control ? form.elements.start_control.value : "";
+            payload.length_m = form.elements.length_m ? form.elements.length_m.value : "";
+            payload.mass_start = form.elements.mass_start.value;
             return payload;
         }
 

@@ -96,7 +96,7 @@ def load(path: str) -> dict | None:
     settings = db.read_event_settings(path)
     evaluated, _ = store._evaluate_model(
         data["courses"], data["classes"], data["competitors"],
-        parse_control_config(settings.get("control_config")))
+        parse_control_config(settings.get("control_config")), teams=data.get("teams"))
     event = {"path": path, "name": data["meta"]["name"], "date_iso": data["meta"]["date_iso"],
              "settings": settings, "classes": _classes_of(evaluated), "open": False}
     with _cache_lock:

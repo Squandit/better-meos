@@ -322,12 +322,14 @@ def _team_rows(class_id: int, fmt) -> list[dict]:
             "position": t.get("position"), "name": t["team"]["name"],
             "club": t["team"].get("club") or "",
             "time": fmt(t["total_seconds"]) if t["ok"] else None,
+            "seconds": t["total_seconds"] if t["ok"] else None,
             "behind": ("+" + fmt(t["total_seconds"] - best)) if t["ok"] and best is not None
                       and t["total_seconds"] != best else "",
             "status": "ok" if t["ok"] else "",
             "legs": [{"leg": leg["leg"], "name": leg["name"], "place": leg.get("place"),
                       "time": fmt(leg["seconds"]) if leg["seconds"] is not None else None,
-                      "status": leg["status"]} for leg in t["legs"]],
+                      "seconds": leg["seconds"], "status": leg["status"]}
+                     for leg in t["legs"]],
         })
     return rows
 
@@ -519,5 +521,9 @@ def public_results_json() -> dict:
                          "class": r["class"], "status": r["status"],
                          "time": r["time"], "seconds": r["seconds"], "points": r["points"],
                          "behind": r.get("behind") or None} for r in b["rows"]],
+            # Relay classes: the team standings, each with its legs.
+            **({"teams": [{"place": t["position"], "name": t["name"], "club": t["club"],
+                           "time": t["time"], "seconds": t["seconds"],
+                           "legs": t["legs"]} for t in b["teams"]]} if b.get("teams") else {}),
         } for b in blocks],
     }
