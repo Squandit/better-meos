@@ -15,7 +15,7 @@
             <h1>{{ event.name }}</h1>
             <p class="slip-date">{{ event.date }}</p>
         </div>
-        <button class="btn" onclick="window.print()">Print</button>
+        <button class="btn btn-primary" onclick="window.print()">Print</button>
     </div>
 
     <div class="slip-runner">
@@ -76,7 +76,7 @@
     </table>
     {% endif %}
 
-    <p class="slip-foot">{{ footer or "Printed from better-meos" }}</p>
+    <p class="slip-foot">{{ footer or "Printed from Control" }}</p>
 </div>
 {% if auto_print %}<script>
 window.addEventListener("afterprint", function () { if (window.top === window) { window.close(); } });

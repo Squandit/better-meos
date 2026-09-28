@@ -87,7 +87,7 @@ def _send(to: str, subject: str, body: str) -> bool:
     port = int(config.get("smtp_port") or 587)
     user = config.get_str("smtp_user") or None
     password = config.get_str("smtp_pass") or None
-    sender = config.get_str("smtp_from") or user or "no-reply@better-meos.local"
+    sender = config.get_str("smtp_from") or user or "no-reply@control-orienteering.local"
 
     msg = EmailMessage()
     msg["Subject"] = subject

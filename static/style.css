@@ -98,12 +98,9 @@ body {
     overflow-y: auto;  /* the nav is taller than a laptop screen: scroll it */
 }
 .sidebar .brand { display: flex; align-items: center; gap: 11px; padding: 4px 6px 16px; }
-.sidebar .mark {
-    display: grid; place-items: center;
-    width: 38px; height: 38px;
-    background: var(--green); color: #fff;
-    border-radius: 10px; font-weight: 700; font-size: 15px; letter-spacing: .5px;
-}
+/* The logo is a control flag (same as favicon.svg). */
+.sidebar .mark { display: block; width: 38px; height: 38px; flex: none; }
+.mark svg { display: block; width: 100%; height: 100%; }
 .sidebar .brand h1 { margin: 0; font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -.2px; }
 .sidebar .brand small { color: #7f8b99; font-size: 11px; letter-spacing: .4px; text-transform: uppercase; }
 
@@ -294,7 +291,7 @@ table.splits th:not(:first-child), table.splits td:not(:first-child) { text-alig
     padding: 9px 14px; border-radius: 9px;
     font-size: 13.5px; font-weight: 600; line-height: 1;
     border: 1px solid transparent; cursor: pointer;
-    background: none; color: var(--ink);
+    background: none; color: var(--ink); text-decoration: none;
     transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .btn svg { width: 15px; height: 15px; }
@@ -575,7 +572,7 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 .start-page { background: var(--bg); }
 .start-wrap { max-width: 920px; margin: 0 auto; padding: 36px 24px 60px; }
 .start-head { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
-.start-head .mark { display: grid; place-items: center; width: 44px; height: 44px; background: var(--green); color: #fff; border-radius: 11px; font-weight: 700; }
+.start-head .mark { display: block; width: 44px; height: 44px; flex: none; }
 .start-head h1 { margin: 0; font-size: 22px; }
 .start-head small { color: var(--muted); }
 .start-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -682,7 +679,7 @@ input[type=file]::file-selector-button:hover { filter: brightness(1.05); }
 
 .tool-links { display: flex; flex-wrap: wrap; gap: 10px; }
 .btn.ghost { background: transparent; color: var(--green); border: 1px solid var(--green); }
-.btn.danger { background: #b8302f; }
+.btn.danger { background: #b8302f; color: #fff; }
 .tool-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tool-form label { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .tool-note { color: var(--muted); font-size: 12.5px; margin-top: 10px; }

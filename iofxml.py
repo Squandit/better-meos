@@ -10,7 +10,7 @@ Two directions:
 * :func:`export_results` turns the engine's evaluated classes into a
   ``ResultList`` document for publishing or upload.
 
-Only the parts better-meos needs are implemented; unknown elements are ignored.
+Only the parts Control needs are implemented; unknown elements are ignored.
 The namespace is the IOF v3 standard ``http://www.orienteering.org/datastandard/3.0``.
 """
 
@@ -301,7 +301,7 @@ def export_results(classes_eval: list[dict], event: dict,
     """
     root = ET.Element(f"{{{NS}}}ResultList", {
         "iofVersion": "3.0",
-        "creator": "better-meos",
+        "creator": "Control",
     })
     ev = ET.SubElement(root, f"{{{NS}}}Event")
     if event_id:

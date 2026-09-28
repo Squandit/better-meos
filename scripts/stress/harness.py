@@ -35,7 +35,7 @@ def free_port() -> int:
 
 
 class App:
-    """One running better-meos: ``admin`` / ``public`` base URLs, ``dir``."""
+    """One running Control: ``admin`` / ``public`` base URLs, ``dir``."""
 
     def __init__(self, name: str, env: dict | None = None, keep: bool = False):
         self.name = name

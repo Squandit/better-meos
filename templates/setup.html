@@ -30,7 +30,7 @@
 {%- endmacro %}
 
 <div class="tour-banner">
-    <div><strong>New to better-meos, or coming from MeOS?</strong>
+    <div><strong>New to Control, or coming from MeOS?</strong>
         <span>A short tour walks through setting up an event and points at every button you'll need.</span></div>
     <button type="button" class="btn btn-primary" onclick="window.BMHelp && BMHelp.tour('first')">Take the tour</button>
     <button type="button" class="btn btn-soft" data-help-open="meos">MeOS → here</button>
@@ -94,7 +94,7 @@
         {% if remote_url %}
         <button class="btn btn-soft" data-remote="stop">Stop remote</button>
         {% else %}
-        <button class="btn" data-remote="start">Start remote entry</button>
+        <button class="btn btn-primary" data-remote="start">Start remote entry</button>
         {% endif %}
     </div>
     {% if not remote_configured %}<p class="tool-note">Tip: set the ngrok token (and optional domain) in <a href="{{ url_for('config_page') }}">Settings</a> for a stable URL without the ngrok warning page.</p>{% endif %}

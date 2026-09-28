@@ -132,7 +132,7 @@ def slip_lines(comp_id: int) -> dict | None:
                                (1, "r", s.get("cumulative") or "")))
 
     lines.append(_rule(gap=0.4))
-    lines.append(_line((0.5, "c", view.get("footer") or "Printed by better-meos"), size="small"))
+    lines.append(_line((0.5, "c", view.get("footer") or "Printed by Control"), size="small"))
     for line in lines:            # every cell as text (leg numbers are ints)
         for cell in line.get("cells", []):
             cell[2] = str(cell[2])
@@ -143,7 +143,7 @@ def slip_lines(comp_id: int) -> dict | None:
 def test_slip() -> dict:
     """A sample slip for the "Print a test slip" button."""
     now = datetime.now().strftime("%H:%M:%S")
-    lines = [_line((0, "l", "better-meos test print"), size="title", bold=True),
+    lines = [_line((0, "l", "Control test print"), size="title", bold=True),
              _line((0, "l", f"Printed at {now}"), size="small"), _rule(),
              _line((0, "l", "If you can read this, split slips"), gap=0.2),
              _line((0, "l", "will print here with no dialog.")),
@@ -154,7 +154,7 @@ def test_slip() -> dict:
                    (0.72, "r", "3"), (1, "r", "2:04")),
              _line((0, "l", "2"), (0.1, "l", "32"), (0.55, "r", "1:47"),
                    (0.72, "r", "1"), (1, "r", "3:51"), bold=True)]
-    return {"title": "better-meos test print", "status": "ok", "competitor_id": None,
+    return {"title": "Control test print", "status": "ok", "competitor_id": None,
             "lines": lines}
 
 

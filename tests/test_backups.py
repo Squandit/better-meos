@@ -42,8 +42,8 @@ def test_maybe_backup_only_when_changed(cfg, tmp_path):
 
 
 def test_onedrive_detection_and_setup_page(cfg, tmp_path):
-    assert backups.in_synced_folder(r"C:\Users\q\OneDrive - school\.better-meos\events")
-    assert not backups.in_synced_folder(r"C:\better-meos\events")
+    assert backups.in_synced_folder(r"C:\Users\q\OneDrive - school\.control-orienteering\events")
+    assert not backups.in_synced_folder(r"C:\control-orienteering\events")
     cfg.save({"backup_dir": str(tmp_path / "s")})
     c = appmod.app.test_client()
     assert c.post("/api/backups/now").status_code == 200

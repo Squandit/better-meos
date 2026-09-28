@@ -438,7 +438,7 @@ def restore_from(src_path: str) -> None:
     Copies the uploaded database *into* the open connection (again via the
     backup API), so there is no closing/reopening of the live file -- which on
     Windows would otherwise risk a "file in use" error. The source is validated
-    as a better-meos backup first, so a bad upload can't clobber live data.
+    as a Control backup first, so a bad upload can't clobber live data.
     Raises ``ValueError`` if the file isn't a recognisable backup.
     """
     with _no_open_transaction():
@@ -449,7 +449,7 @@ def restore_from(src_path: str) -> None:
                     "SELECT name FROM sqlite_master WHERE type='table'")
             }
             if not {"events", "competitors"} <= tables:
-                raise ValueError("not a better-meos backup database")
+                raise ValueError("not a Control backup database")
             src.backup(_c())
             # A backup from an older version lacks newer tables/columns.
             _c().executescript(SCHEMA)
@@ -508,7 +508,7 @@ def read_event_meta(path: str) -> dict | None:
     Read the event row from another event file without disturbing the open one.
 
     Used by the start page to list events in a folder. Returns the event dict
-    (id 1) or None if the file isn't a readable better-meos event.
+    (id 1) or None if the file isn't a readable Control event.
     """
     try:
         conn = sqlite3.connect(path)

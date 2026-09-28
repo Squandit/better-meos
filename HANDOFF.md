@@ -1,4 +1,4 @@
-# better-meos — full project handoff
+# Control (formerly better-meos) — full project handoff
 
 A complete record of everything built so you can continue on another computer.
 Read top-to-bottom once; after that the **Architecture** and **Routes** sections
@@ -26,13 +26,32 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
-### Naming (2026-09-28): leading candidate "Control", not decided
-The owner is considering **Control** (orienteering controls + you control the
-event). In this project "Control" means this app, NOT the mobile orienteering
-analysis app of the same name. Not applied anywhere yet; the old "Punchcard"
-plan in 1.0 is superseded. Wrinkle if chosen: don't ship the exe as
-`control.exe`, since Windows already has one (it opens Control Panel from Run
-and the command line).
+### 1.8 DONE: renamed to Control (2026-09-28, cloud session, v1.3.0)
+The app is **Control** (orienteering controls + you control the event). In
+this project "Control" means this app, NOT the mobile orienteering analysis
+app of the same name. Always written with a capital C. The old "Punchcard"
+plan in 1.0 is dead.
+- Human-facing name: "Control" in every template, slip footer, PDF title,
+  IOF XML creator, console window, release name.
+- Files: `control-orienteering.exe`, `control-orienteering-setup.exe`,
+  `control-orienteering.spec`, `installer/control-orienteering.iss`,
+  `installer/control-orienteering.ico` (same control-flag icon). Never
+  `control.exe`: Windows already has one (Control Panel).
+- Data folder `%USERPROFILE%\control-orienteering`, backups
+  `%LOCALAPPDATA%\control-orienteering\backups`. `launcher.move_renamed_folder`
+  renames the old `better-meos` folders on first start (an empty new folder
+  made by the installer doesn't count; if both hold files it copies across
+  what's missing; if the rename fails because a file is open it uses the old
+  folder that run and tries again next start).
+- Installer keeps the same AppId, so it upgrades a better-meos install;
+  `UsePreviousAppDir=no`, and `[InstallDelete]` removes
+  `{autopf}\better-meos`, the old Start menu group and desktop shortcut. CI
+  installs the real v1.2.0 release, adds an event to its folder, installs the
+  new build over it and checks the event moved and the old program is gone.
+- Kept on purpose: the `.bmeos` extension, `BMEOS_*` environment variables,
+  the repo slug `Squandit/better-meos` (renaming the repo on GitHub is fine
+  later; GitHub redirects the old URLs, but update the v1.2.0 download URL in
+  build-exe.yml's upgrade test), and `START-laptop.bat`'s venv path.
 
 ### 1.7 DONE: stress suite, and everything it found (2026-09-28, cloud session)
 `scripts/stress/` runs whole events against real app processes, each with
@@ -263,13 +282,13 @@ Committed straight to main, one commit per feature. Tests: **256 passing**
   button (state in sessionStorage). Tour steps are data at the top of help.js;
   a step whose element is missing shows as a centred card.
 - **Installer + data folder**: the packaged app keeps everything in
-  `%USERPROFILE%\better-meos` (events\, config.json, runners.db; backups stay in
+  `%USERPROFILE%\control-orienteering` (events\, config.json, runners.db; backups stay in
   %LOCALAPPDATA%), wherever the exe runs from; data an older exe left beside
   itself is copied in once; `portable.txt` next to the exe keeps data beside it
-  (USB stick). `installer/better-meos.iss` (Inno Setup) builds
-  `better-meos-setup.exe` in CI: per-user install, no admin, shortcuts,
+  (USB stick). `installer/control-orienteering.iss` (Inno Setup) builds
+  `control-orienteering-setup.exe` in CI: per-user install, no admin, shortcuts,
   uninstall leaves data alone. CI installs it silently and checks the app
-  serves /start and writes to the user folder. Icon: installer/better-meos.ico.
+  serves /start and writes to the user folder. Icon: installer/control-orienteering.ico.
 - **Versions**: `version.py` (1.0.0 = everything up to the installer),
   CHANGELOG.md, shown in the sidebar footer, start page and console window.
   Tag `vX.Y.Z` after bumping version.py; CI checks they match and publishes a
@@ -424,7 +443,7 @@ Mid-task, paused to switch back to the PC. **Nothing here is committed and the
 new code has NOT been run through pytest yet** — treat it as a work-in-progress
 checkpoint, not a known-good state.
 
-- **New product name chosen: `Punchcard`** (replaces the "better-meos" *display*
+- **(Superseded: the app is now Control, see 1.8.) New product name chosen: `Punchcard`** (replaces the "better-meos" *display*
   name in the UI/docs). Decision: keep internal identifiers — the `.bmeos` file
   extension, `BMEOS_*` env vars, `better-meos.exe`, the GitHub repo slug — AS-IS
   for compatibility; only the human-facing name changes. **The rename has NOT
@@ -506,7 +525,7 @@ checkpoint, not a known-good state.
      but `venv/`, `dist/`, `*.bmeos`, `runners.db` are gitignored, not OneDrive-
      ignored, so they sync too and can bloat/conflict; prefer git).
 - **Tests:** 99 passing (`venv\Scripts\python -m pytest -q`).
-- **The exe** (`dist/better-meos.exe`, ~20 MB) is built locally and gitignored;
+- **The exe** (`dist/control-orienteering.exe`, ~20 MB) is built locally and gitignored;
   rebuild it on the other machine.
 
 ### 1.1 DONE — port-surface split, admin unlock, Settings dashboard (2026-06-15, PC)
@@ -555,8 +574,8 @@ REM   ...or START.bat, or for the raw Flask dev server: venv\Scripts\python app.
 REM 4. Tests
 venv\Scripts\python -m pytest -q
 
-REM 5. Build the operator exe -> dist\better-meos.exe
-venv\Scripts\pyinstaller better-meos.spec
+REM 5. Build the operator exe -> dist\control-orienteering.exe
+venv\Scripts\pyinstaller control-orienteering.spec
 ```
 
 Requirements (in `requirements.txt`): Flask, waitress, sportident, pyngrok,
@@ -636,7 +655,7 @@ is open.
   admin after an event opens.
 - **`remote.py`** — ngrok tunnel (pyngrok) for remote entry hosting.
 - **`launcher.py`** — serves the app with **waitress** + opens the browser; the
-  entry point baked into the exe. **`better-meos.spec`** — PyInstaller one-file
+  entry point baked into the exe. **`control-orienteering.spec`** — PyInstaller one-file
   build. **`START.bat`** — double-click dev launcher.
 
 ### 3.3 Data model (inside one `.bmeos` file)
@@ -819,7 +838,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 293 passing) + stress suite (`scripts/stress/`, see 1.7)
+## 7. Test suite (`tests/`, 296 passing) + stress suite (`scripts/stress/`, see 1.7)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:

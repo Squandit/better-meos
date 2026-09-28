@@ -1927,7 +1927,7 @@ def open_event(path: str) -> dict:
         # Validate on a throwaway connection FIRST, so a foreign/corrupt file
         # never swaps the live connection (which would route saves to it).
         if db.read_event_meta(path) is None:
-            raise StoreError("That file isn't a better-meos event")
+            raise StoreError("That file isn't a Control event")
         db.connect(path)
         _load_active()
         row = db.get_event(_active_event_id)

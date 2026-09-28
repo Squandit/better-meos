@@ -2,8 +2,8 @@
 """
 PyInstaller spec for the operator app.
 
-Build:  venv\\Scripts\\pyinstaller better-meos.spec
-Output: dist\\better-meos.exe  (one file; double-click to run -- it starts the
+Build:  venv\\Scripts\\pyinstaller control-orienteering.spec
+Output: dist\\control-orienteering.exe  (one file; double-click to run -- it starts the
 server and opens the browser at the event start page).
 """
 
@@ -39,7 +39,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='better-meos',
+    name='control-orienteering',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -47,7 +47,7 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
-    icon='installer/better-meos.ico',
+    icon='installer/control-orienteering.ico',
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

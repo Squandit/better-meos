@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Operator{% endblock %} · better-meos</title>
+    <title>{% block title %}Operator{% endblock %} · Control</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
 </head>
@@ -11,9 +11,9 @@
 <div class="app">
     <aside class="sidebar">
         <div class="brand">
-            <span class="mark">bm</span>
+            <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32"><rect x="3" y="3" width="26" height="26" rx="3" fill="#fff" stroke="#c9d0d7" stroke-width="1.5"/><path d="M29 3v23a3 3 0 0 1-3 3H3z" fill="#f47c20"/></svg></span>
             <div>
-                <h1>{{ event.name if on_public else "better-meos" }}</h1>
+                <h1>{{ event.name if on_public else "Control" }}</h1>
                 <small>{{ "Results" if on_public else "Operator" }}</small>
             </div>
         </div>
@@ -139,7 +139,7 @@
             </button>
         </nav>
         {% endif %}
-        <div class="foot">{{ event.name }}<br>{{ event.date }}<br><span class="version">better-meos {{ app_version }}</span></div>
+        <div class="foot">{{ event.name }}<br>{{ event.date }}<br><span class="version">Control {{ app_version }}</span></div>
     </aside>
 
     <div class="content">

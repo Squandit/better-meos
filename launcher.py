@@ -1,5 +1,5 @@
 """
-Operator launcher: serve better-meos and open the browser at the start page.
+Operator launcher: serve Control and open the browser at the start page.
 
 Used by the packaged Windows .exe (and ``python launcher.py``). Serves with
 waitress -- a real WSGI server -- instead of Flask's dev reloader, binds to the
@@ -59,7 +59,7 @@ def open_console(url: str, *, silent_print: bool) -> None:
         browser = find_kiosk_browser()
         if browser:
             base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-            profile = os.path.join(base, "better-meos", "print-browser")
+            profile = os.path.join(base, DATA_FOLDER, "print-browser")
             subprocess.Popen(kiosk_command(browser, url, profile))
             return
         print("  Silent printing is on but Edge/Chrome wasn't found; "
@@ -68,7 +68,9 @@ def open_console(url: str, *, silent_print: bool) -> None:
 
 
 # Everything the packaged app writes, in one folder per Windows user.
-DATA_FOLDER = "better-meos"
+DATA_FOLDER = "control-orienteering"
+# The app was called better-meos until 1.3.0; its folders move across once.
+OLD_DATA_FOLDER = "better-meos"
 PORTABLE_MARKER = "portable.txt"
 _DATA_FILES = ("config.json", "runners.db")
 
@@ -76,7 +78,7 @@ _DATA_FILES = ("config.json", "runners.db")
 def data_root(exe_dir: str, home: str) -> str:
     """Where the packaged app keeps its data.
 
-    Normally ``<user profile>\\better-meos``: one folder with the events, the
+    Normally ``<user profile>\\control-orienteering``: one folder with the events, the
     settings and the runner database, the same wherever the exe was started
     from (not Downloads, not Program Files) and outside OneDrive, which
     redirects Documents and Desktop but not the profile folder itself. A
@@ -85,6 +87,30 @@ def data_root(exe_dir: str, home: str) -> str:
     if os.path.isfile(os.path.join(exe_dir, PORTABLE_MARKER)):
         return exe_dir
     return os.path.join(home, DATA_FOLDER)
+
+
+def move_renamed_folder(parent: str) -> str | None:
+    """Before the rename the data folder was ``better-meos``. Move it to the
+    new name the first time (a rename, so there's one folder, not two copies).
+    The installer creates the new folder empty, so an empty one doesn't count.
+    Returns the old folder when it can't be moved yet (a file in it is open;
+    the next start tries again), else None: use the new one."""
+    old, new = os.path.join(parent, OLD_DATA_FOLDER), os.path.join(parent, DATA_FOLDER)
+    if not os.path.isdir(old):
+        return None
+    if os.path.isdir(new):
+        if any(files for _, _, files in os.walk(new)):
+            # Both in use (the new exe ran before the old folder could move):
+            # copy in whatever the new one doesn't have yet.
+            adopt_old_data(old, new)
+            return None
+        import shutil
+        shutil.rmtree(new)
+    try:
+        os.rename(old, new)
+    except OSError:
+        return old
+    return None
 
 
 def adopt_old_data(exe_dir: str, root: str) -> list[str]:
@@ -115,7 +141,13 @@ def _use_data_folder() -> None:
     if not getattr(sys, "frozen", False):
         return
     exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-    root = data_root(exe_dir, os.path.expanduser("~"))
+    home = os.path.expanduser("~")
+    root = data_root(exe_dir, home)
+    if root == os.path.join(home, DATA_FOLDER):
+        root = move_renamed_folder(home) or root
+        local = os.environ.get("LOCALAPPDATA")
+        if local:                            # backups and the print browser's profile
+            move_renamed_folder(local)
     os.makedirs(os.path.join(root, "events"), exist_ok=True)
     try:
         copied = adopt_old_data(exe_dir, root)
@@ -166,7 +198,7 @@ def main() -> None:
         config.get("silent_print")))).start()
 
     from version import __version__
-    print(f"\n  better-meos {__version__}")
+    print(f"\n  Control {__version__}")
     print(f"  Admin console:              {url}")
     print(f"  Public entry + results:     http://127.0.0.1:{public_port}/results")
     print(f"  Same-WiFi devices: http://<this-PC-IP>:{public_port}")

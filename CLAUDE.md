@@ -1,4 +1,4 @@
-Project: better-meos
+Project: Control (repo and older files: better-meos)
 Purpose: Web-based orienteering event management system
 
 IMPORTANT: At the start of every new session, read HANDOFF.md first. It is the

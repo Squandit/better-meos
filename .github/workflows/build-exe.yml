@@ -1,7 +1,7 @@
 # Builds the operator's Windows exe on GitHub's Windows machines, so nobody
-# needs Python installed to get a working better-meos.exe.
+# needs Python installed to get a working control-orienteering.exe (Control).
 #
-# Every push: download the installer (better-meos-installer) or the bare exe
+# Every push: download the installer (control-orienteering-installer) or the bare exe
 # from the run's "Artifacts" section (Actions tab).
 # Release: bump version.py + CHANGELOG.md, then either push a tag like v1.2.0,
 # or run this workflow by hand (Actions > Build Windows exe > Run workflow)
@@ -53,14 +53,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -r requirements.txt
-      - run: pyinstaller --noconfirm better-meos.spec
+      - run: pyinstaller --noconfirm control-orienteering.spec
       - name: Check the exe starts and serves the start page
         shell: pwsh
         run: |
           $env:BMEOS_PORT = "18799"; $env:BMEOS_PUBLIC_PORT = "18800"
           New-Item -ItemType Directory -Force smoke | Out-Null
-          Copy-Item dist\better-meos.exe smoke\
-          $p = Start-Process -FilePath smoke\better-meos.exe -WorkingDirectory smoke -PassThru
+          Copy-Item dist\control-orienteering.exe smoke\
+          $p = Start-Process -FilePath smoke\control-orienteering.exe -WorkingDirectory smoke -PassThru
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
             Start-Sleep -Seconds 2
@@ -100,15 +100,25 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           $version = python -c "from version import __version__; print(__version__)"
           if ("${{ github.ref }}" -notlike "refs/tags/v*") { $version = "$version.${{ github.run_number }}" }
-          & $iscc "/DAppVersion=$version" installer\better-meos.iss
+          & $iscc "/DAppVersion=$version" installer\control-orienteering.iss
           if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
-      - name: Check the installer installs and the app starts
+      - name: Check the installer upgrades a better-meos install and the app starts
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist\better-meos-setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru -Wait
+          # An operator on 1.2.0 (still called better-meos), with an event. The
+          # smoke test above made a control-orienteering folder; a real operator
+          # upgrading wouldn't have one.
+          Remove-Item -Recurse -Force (Join-Path $env:USERPROFILE "control-orienteering") -ErrorAction SilentlyContinue
+          Invoke-WebRequest https://github.com/Squandit/better-meos/releases/download/v1.2.0/better-meos-setup.exe -OutFile old-setup.exe
+          $p = Start-Process -FilePath old-setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "old installer exited with $($p.ExitCode)" }
+          $oldData = Join-Path $env:USERPROFILE "better-meos"
+          Set-Content (Join-Path $oldData "events\club-champs.bmeos") "not really sqlite"
+          $p = Start-Process -FilePath dist\control-orienteering-setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode)" }
-          $exe = Join-Path $env:LOCALAPPDATA "Programs\better-meos\better-meos.exe"
-          if (-not (Test-Path $exe)) { throw "better-meos.exe not installed at $exe" }
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\control-orienteering\control-orienteering.exe"
+          if (-not (Test-Path $exe)) { throw "control-orienteering.exe not installed at $exe" }
+          if (Test-Path (Join-Path $env:LOCALAPPDATA "Programs\better-meos")) { throw "the old better-meos program folder is still there" }
           $env:BMEOS_PORT = "18799"; $env:BMEOS_PUBLIC_PORT = "18800"
           $app = Start-Process -FilePath $exe -PassThru
           $ok = $false
@@ -118,23 +128,26 @@ jobs:
           }
           Stop-Process -Id $app.Id -Force
           if (-not $ok) { throw "installed app did not serve /start" }
-          if (-not (Test-Path (Join-Path $env:USERPROFILE "better-meos\config.json"))) { throw "settings were not written to the user's better-meos folder" }
+          $data = Join-Path $env:USERPROFILE "control-orienteering"
+          if (-not (Test-Path (Join-Path $data "config.json"))) { throw "settings were not written to the user's control-orienteering folder" }
+          if (-not (Test-Path (Join-Path $data "events\club-champs.bmeos"))) { throw "the old better-meos event didn't move into control-orienteering" }
+          if (Test-Path $oldData) { throw "the old better-meos data folder is still there" }
       - uses: actions/upload-artifact@v4
         with:
-          name: better-meos-exe
-          path: dist/better-meos.exe
+          name: control-orienteering-exe
+          path: dist/control-orienteering.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: better-meos-installer
-          path: dist/better-meos-setup.exe
+          name: control-orienteering-installer
+          path: dist/control-orienteering-setup.exe
       - name: Publish the release (v* tag pushed, or run by hand with "release" ticked)
         if: startsWith(github.ref, 'refs/tags/v') || inputs.release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: better-meos ${{ steps.ver.outputs.version }}
+          name: Control ${{ steps.ver.outputs.version }}
           body_path: release-notes.md
           files: |
-            dist/better-meos-setup.exe
-            dist/better-meos.exe
+            dist/control-orienteering-setup.exe
+            dist/control-orienteering.exe

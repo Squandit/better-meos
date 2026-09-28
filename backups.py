@@ -38,11 +38,11 @@ CHECK_EVERY = 15.0   # seconds between "anything changed?" checks
 
 
 def default_dir() -> str:
-    """Local app data (never synced by OneDrive), else ~/.better-meos."""
+    """Local app data (never synced by OneDrive), else ~/.control-orienteering."""
     local = os.environ.get("LOCALAPPDATA")
     if local:
-        return os.path.join(local, "better-meos", "backups")
-    return os.path.join(os.path.expanduser("~"), ".better-meos", "backups")
+        return os.path.join(local, "control-orienteering", "backups")
+    return os.path.join(os.path.expanduser("~"), ".control-orienteering", "backups")
 
 
 def folders() -> list[str]:

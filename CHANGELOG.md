@@ -9,6 +9,23 @@ release. The number lives in `version.py`.
 - **Minor** (1.1.0): new features.
 - **Patch** (1.0.1): fixes only.
 
+## 1.3.0 (2026-09-28)
+
+better-meos is now called **Control**.
+
+- The installer is `control-orienteering-setup.exe` and the app
+  `control-orienteering.exe`. Installing it over better-meos upgrades that
+  install and removes the old program folder and shortcuts.
+- Events, settings and the runner database now live in
+  `C:\Users\<you>\control-orienteering`. The old `better-meos` folder moves
+  there by itself the first time Control starts (backups in local app data
+  too). Nothing is deleted.
+- Event files keep the `.bmeos` extension, so every existing event opens as
+  before.
+- The logo is a control flag.
+- Sign in, Create & open, the import buttons and the export links look like
+  buttons again (they had lost their background and showed as plain text).
+
 ## 1.2.0 (2026-09-28)
 
 A stress suite now runs whole events against the app on every build, and

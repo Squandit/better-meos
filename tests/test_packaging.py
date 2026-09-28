@@ -48,14 +48,14 @@ def test_packaged_data_lives_in_one_user_folder(tmp_path):
     import launcher
     exe_dir, home = tmp_path / "Downloads", tmp_path / "home"
     exe_dir.mkdir(); home.mkdir()
-    assert launcher.data_root(str(exe_dir), str(home)) == str(home / "better-meos")
+    assert launcher.data_root(str(exe_dir), str(home)) == str(home / "control-orienteering")
     (exe_dir / "portable.txt").write_text("")
     assert launcher.data_root(str(exe_dir), str(home)) == str(exe_dir)
 
 
 def test_old_data_next_to_the_exe_is_copied_once(tmp_path):
     import launcher
-    exe_dir, root = tmp_path / "Downloads", tmp_path / "home" / "better-meos"
+    exe_dir, root = tmp_path / "Downloads", tmp_path / "home" / "control-orienteering"
     (exe_dir / "events").mkdir(parents=True); (root / "events").mkdir(parents=True)
     (exe_dir / "config.json").write_text('{"theme": "dark"}')
     (exe_dir / "events" / "club-champs.bmeos").write_bytes(b"sqlite")
@@ -74,4 +74,39 @@ def test_version_is_shown_and_matches_the_changelog():
     from version import __version__
     assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
     assert f"## {__version__} " in open("CHANGELOG.md", encoding="utf-8").read()
-    assert f"better-meos {__version__}" in appmod.app.test_client().get("/results").get_data(as_text=True)
+    assert f"Control {__version__}" in appmod.app.test_client().get("/results").get_data(as_text=True)
+
+
+def test_old_better_meos_folder_moves_to_the_new_name(tmp_path):
+    import launcher
+    old = tmp_path / "better-meos"
+    (old / "events").mkdir(parents=True)
+    (old / "events" / "club-champs.bmeos").write_bytes(b"sqlite")
+    (tmp_path / "control-orienteering" / "events").mkdir(parents=True)  # the installer's empty one
+    assert launcher.move_renamed_folder(str(tmp_path)) is None
+    assert (tmp_path / "control-orienteering" / "events" / "club-champs.bmeos").read_bytes() == b"sqlite"
+    assert not old.exists()
+    assert launcher.move_renamed_folder(str(tmp_path)) is None     # nothing left to move
+
+
+def test_both_folders_in_use_copies_what_is_missing(tmp_path):
+    import launcher
+    old, new = tmp_path / "better-meos", tmp_path / "control-orienteering"
+    (old / "events").mkdir(parents=True); (new / "events").mkdir(parents=True)
+    (old / "events" / "club-champs.bmeos").write_bytes(b"old event")
+    (old / "config.json").write_text('{"theme": "dark"}')
+    (new / "config.json").write_text('{"theme": "light"}')
+    assert launcher.move_renamed_folder(str(tmp_path)) is None
+    assert (new / "events" / "club-champs.bmeos").read_bytes() == b"old event"
+    assert (new / "config.json").read_text() == '{"theme": "light"}'   # never overwritten
+    assert old.exists()                                                # copied, not moved
+
+
+def test_old_folder_is_used_while_it_can_not_move(tmp_path, monkeypatch):
+    import launcher
+    (tmp_path / "better-meos").mkdir()
+
+    def locked(*_):
+        raise PermissionError("a file in it is open")
+    monkeypatch.setattr(launcher.os, "rename", locked)
+    assert launcher.move_renamed_folder(str(tmp_path)) == str(tmp_path / "better-meos")
