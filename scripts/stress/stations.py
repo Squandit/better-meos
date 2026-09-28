@@ -119,6 +119,13 @@ def run(check: Check) -> None:
                 time.sleep(0.5)
             check(status.get("secondary") and status.get("reachable"), "station status: connected",
                   status)
+            s.setting("computer", station_token="wrong-again")
+            time.sleep(5.5)
+            status = s.get("/api/station/status")
+            check(not status.get("reachable") and "token" in status.get("error", ""),
+                  "a desk with the wrong token is told so", status.get("error"))
+            s.setting("computer", station_token=TOKEN)
+            time.sleep(5.5)
             start_page = s.page("/start")
             check("Second download desk" in start_page and "7800021" in start_page,
                   "the station's start page shows its reads")

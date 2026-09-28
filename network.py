@@ -52,9 +52,19 @@ def primary_status() -> dict:
     if url is None:
         return {"secondary": False}
     if time.time() - _reach["at"] > 5:
+        req = urllib.request.Request(
+            url + "/api/station/ping", data=b"{}", method="POST",
+            headers={"Content-Type": "application/json",
+                     STATION_HEADER: config.get_str("station_token")})
         try:
-            with urllib.request.urlopen(url + "/api/version", timeout=2) as resp:
-                _reach.update(ok=resp.status == 200, error="")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                answer = json.loads(resp.read().decode("utf-8") or "{}")
+                _reach.update(ok=True, error="" if answer.get("event_open") else
+                              "no event is open there yet")
+        except urllib.error.HTTPError as err:
+            _reach.update(ok=False, error="it refused this desk: the station token must be "
+                          "the same on both computers" if err.code in (401, 403)
+                          else f"it answered {err.code}")
         except (urllib.error.URLError, OSError) as err:
             _reach.update(ok=False, error=str(getattr(err, "reason", err)))
         _reach["at"] = time.time()

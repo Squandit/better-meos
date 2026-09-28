@@ -37,6 +37,9 @@ jobs:
       - run: python -m pytest -q
       - name: Direct slip printing works (prints to Microsoft Print to PDF)
         run: python installer/print_check.py
+      - name: Disk benchmark (journal modes; experiment branch only)
+        if: github.ref_name == 'claude/project-review-roadmap-gi2jih'
+        run: python scripts/stress/diskbench.py 1500
       - name: Stress suite (whole events against real app processes)
         run: python scripts/stress/run.py
 

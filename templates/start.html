@@ -19,7 +19,7 @@
         <h2>Second download desk</h2>
         <p>Every card read at this computer goes to the one running the event,
            <code>{{ station.primary }}</code>.
-           <strong class="station-link" data-station-link>{% if station.reachable %}Connected{% else %}Can't reach it{% if station.error %} ({{ station.error }}){% endif %}{% endif %}</strong></p>
+           <strong class="station-link" data-station-link>{% if station.reachable %}Connected{% if station.error %} ({{ station.error }}){% endif %}{% else %}Not connected{% if station.error %}: {{ station.error }}{% endif %}{% endif %}</strong></p>
         {% if not station.token_set %}<p class="start-warning">No station token set here: the main computer refuses reads without it. Set the same Station token in Settings on both computers.</p>{% endif %}
         <table class="table station-reads">
             <thead><tr><th>Read</th><th>SI card</th><th>Runner</th></tr></thead>
@@ -42,7 +42,8 @@
         function esc(t) { var d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; }
         setInterval(function () {
             fetch("/api/station/status", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
-                link.textContent = d.reachable ? "Connected" : "Can't reach it" + (d.error ? " (" + d.error + ")" : "");
+                link.textContent = d.reachable ? "Connected" + (d.error ? " (" + d.error + ")" : "")
+                                               : "Not connected" + (d.error ? ": " + d.error : "");
                 link.classList.toggle("bad", !d.reachable);
                 body.innerHTML = (d.reads || []).map(function (r) {
                     return "<tr><td class='mono'>" + esc(r.time) + "</td><td class='mono'>" + esc(r.card_number) + "</td><td>" +

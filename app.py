@@ -208,7 +208,7 @@ def _appearance() -> dict:
 # Paths reachable with no event open (the start page + its actions + assets +
 # the admin unlock + Settings and the printer check, which are event-independent).
 _NO_EVENT_OK = ("/static/", "/api/events/", "/api/config", "/api/settings", "/api/serial-ports",
-                "/api/printers", "/api/print/test", "/api/station/status")
+                "/api/printers", "/api/print/test", "/api/station/status", "/api/station/ping")
 # A second download desk holds no event: its reads go to the main computer.
 _STATION_OK = ("/api/reader/simulate", "/api/readout/latest", "/readout")
 
@@ -1460,6 +1460,13 @@ def _station_status() -> dict:
         status["reads"] = si_reader.recent_reads()[:12]
         status["readers"] = si_reader.reader_status()
     return status
+
+
+@app.route("/api/station/ping", methods=["POST"])
+def api_station_ping():
+    """A second desk checking its link: answers only with the right token
+    (security passes the token; without it the admin gate answers 401)."""
+    return jsonify({"ok": True, "event_open": store.has_open_event()})
 
 
 @app.route("/api/station/status")

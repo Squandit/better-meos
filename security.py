@@ -65,7 +65,7 @@ _PUBLIC_PREFIX = ("/static/", "/public/")
 _UNLOCK_EXEMPT = {"/unlock", "/lock", "/favicon.ico"}
 
 # Machine endpoints that accept the station token instead of a session.
-STATION_PATHS = {"/api/station/push", "/api/radio/punch"}
+STATION_PATHS = {"/api/station/push", "/api/station/ping", "/api/radio/punch"}
 STATION_HEADER = "X-Station-Token"
 
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
