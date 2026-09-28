@@ -11,8 +11,10 @@ It is read-only over the stage files (loaded on throwaway connections via
 :func:`apply_chase_starts`, which writes the computed start times onto the
 *open* event's competitors.
 
-Competitors are matched across stages by SI card number, falling back to
-name+club for hire-card runs that have no number.
+Competitors are matched across stages by their own SI card number or by
+name + club: either one is enough, so a runner on a hire card one day (or
+with their name typed differently) is still one person. Hire card numbers
+never link people, since the same hire card goes to someone else next day.
 """
 
 from __future__ import annotations
@@ -24,11 +26,39 @@ import store
 from results import format_duration, parse_control_config
 
 
-def _identity(name: str, club: str, card) -> tuple:
-    """A stable key matching one runner across stages."""
-    if card:
-        return ("card", card)
-    return ("name", (name or "").strip().lower(), (club or "").strip().lower())
+def _keys(comp: dict) -> list[tuple]:
+    """Everything that identifies a runner: name + club, and their own card."""
+    keys = [("name", " ".join((comp.get("name") or "").lower().split()),
+             " ".join((comp.get("club") or "").lower().split()))]
+    if comp.get("card_number") and not comp.get("hired"):
+        keys.append(("card", comp["card_number"]))
+    return keys
+
+
+class _People:
+    """Groups the keys that belong to one person (a small union-find)."""
+
+    def __init__(self):
+        self.parent: dict[tuple, tuple] = {}
+
+    def find(self, key: tuple) -> tuple:
+        self.parent.setdefault(key, key)
+        while self.parent[key] != key:
+            self.parent[key] = self.parent[self.parent[key]]
+            key = self.parent[key]
+        return key
+
+    def link(self, keys: list[tuple]) -> None:
+        first = self.find(keys[0])
+        for key in keys[1:]:
+            self.parent[self.find(key)] = first
+
+    def of(self, comp: dict) -> tuple | None:
+        """The person a competitor is, if any of their keys has been seen."""
+        for key in _keys(comp):
+            if key in self.parent:
+                return self.find(key)
+        return None
 
 
 def _evaluate_file(path: str) -> dict | None:
@@ -55,15 +85,27 @@ def combined_results(paths: list[str]) -> list[dict]:
     rankable) only with an OK result in every stage; otherwise they are listed
     after the ranked runners with the stages they did finish.
     """
+    return _combine(paths)[0]
+
+
+def _combine(paths: list[str]) -> tuple[list[dict], "_People", dict]:
+    """combined_results, plus who is who and each person's row."""
     stages = [s for s in (_evaluate_file(p) for p in paths) if s is not None]
     n = len(stages)
     stage_names = [s["meta"]["name"] for s in stages]
+    who = _People()
+    for stage in stages:
+        for comp in stage["competitors"].values():
+            if not comp.get("vacant"):
+                who.link(_keys(comp))
 
-    # identity -> {name, club, class, times: [seconds|None per stage]}
+    # person -> {name, club, class, times: [seconds|None per stage]}
     people: dict[tuple, dict] = {}
     for i, stage in enumerate(stages):
         for comp in stage["competitors"].values():
-            key = _identity(comp["name"], comp.get("club", ""), comp.get("card_number"))
+            if comp.get("vacant"):
+                continue
+            key = who.of(comp)
             cls = stage["classes"].get(comp["class_id"])
             person = people.setdefault(key, {
                 "name": comp["name"], "club": comp.get("club", ""),
@@ -79,7 +121,8 @@ def combined_results(paths: list[str]) -> list[dict]:
 
     # Group by class, then rank the complete runners by summed time.
     by_class: dict[str, list[dict]] = {}
-    for person in people.values():
+    row_of: dict[tuple, dict] = {}
+    for key, person in people.items():
         complete = n > 0 and all(t is not None for t in person["times"])
         total = sum(person["times"]) if complete else None
         row = {
@@ -89,8 +132,9 @@ def combined_results(paths: list[str]) -> list[dict]:
                             for t in person["times"]],
             "total_seconds": total,
             "total": format_duration(total) if total is not None else "",
-            "complete": complete, "position": None,
+            "complete": complete, "position": None, "class": person["class"],
         }
+        row_of[key] = row
         by_class.setdefault(person["class"], []).append(row)
 
     out = []
@@ -106,7 +150,7 @@ def combined_results(paths: list[str]) -> list[dict]:
         unranked = [r for r in rows if not r["complete"]]
         out.append({"class": class_name, "stages": stage_names,
                     "rows": ranked + unranked})
-    return out
+    return out, who, row_of
 
 
 def apply_chase_starts(prior_paths: list[str], first_start: str) -> int:
@@ -118,39 +162,25 @@ def apply_chase_starts(prior_paths: list[str], first_start: str) -> int:
     five minutes down starts five minutes later. Runners with no combined time
     (an incomplete prior record) are left untouched for a manual start. Returns
     how many competitors were assigned a start time. Matches the open event's
-    competitors to the combined standings by card number, then name+club.
+    competitors to the earlier stages by their own card or by name + club.
     """
     base = store.parse_clock(first_start, "First start")
     if base is None:
         raise store.StoreError("A chase start needs a first-start time")
 
-    # leader total per class, and each runner's deficit, keyed by identity.
+    # Each complete runner's deficit to their class leader, by person.
+    classes, who, row_of = _combine(prior_paths)
+    lead = {cls["class"]: next((r["total_seconds"] for r in cls["rows"] if r["position"] == 1),
+                               None) for cls in classes}
     deficit: dict[tuple, int] = {}
-    for cls in combined_results(prior_paths):
-        leader = next((r for r in cls["rows"] if r["position"] == 1), None)
-        if leader is None:
-            continue
-        lead_total = leader["total_seconds"]
-        for r in cls["rows"]:
-            if r["complete"]:
-                key = _identity(r["name"], r["club"], None)
-                deficit[key] = r["total_seconds"] - lead_total
-
-    # The combined rows don't carry the card number, so also key by card via a
-    # second pass over the prior stages -- a card maps to its name/club identity.
-    card_to_name: dict = {}
-    for stage in (s for s in (_evaluate_file(p) for p in prior_paths) if s):
-        for comp in stage["competitors"].values():
-            if comp.get("card_number"):
-                card_to_name[comp["card_number"]] = _identity(
-                    comp["name"], comp.get("club", ""), None)
+    for key, row in row_of.items():
+        if row["complete"] and lead.get(row["class"]) is not None:
+            deficit[key] = row["total_seconds"] - lead[row["class"]]
 
     assigned = 0
     with store.batch():
         for comp in list(store._competitors.values()):
-            key = card_to_name.get(comp.get("card_number"))
-            if key is None:
-                key = _identity(comp["name"], comp.get("club", ""), None)
+            key = who.of(comp)
             if key in deficit:
                 start = base + timedelta(seconds=deficit[key])
                 store.update_competitor(comp["id"], {"start": store.format_clock(start)})

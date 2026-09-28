@@ -16,6 +16,8 @@ The namespace is the IOF v3 standard ``http://www.orienteering.org/datastandard/
 
 from __future__ import annotations
 
+import os
+
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -258,11 +260,15 @@ def parse_competitorlist(source) -> list[dict]:
 
 
 def _parse_root(source):
-    if isinstance(source, (bytes, bytearray)):
-        return ET.fromstring(source)
-    if isinstance(source, str) and source.lstrip().startswith("<"):
-        return ET.fromstring(source)
-    return ET.parse(source).getroot()
+    """The root element of an XML document given as text, bytes, an open file
+    or a path object. Text is always parsed as XML, never taken as a file name:
+    uploads arrive as text, and one must not be able to name a file on this
+    computer for the app to open."""
+    if isinstance(source, (bytes, bytearray, str)):
+        return ET.fromstring(source.lstrip() if isinstance(source, str) else source)
+    if hasattr(source, "read") or isinstance(source, os.PathLike):
+        return ET.parse(source).getroot()
+    raise TypeError(f"can't read XML from {type(source).__name__}")
 
 
 def _parse_iso(text):

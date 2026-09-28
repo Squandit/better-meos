@@ -47,16 +47,17 @@
 </section>
 
 <section class="panel">
-    <div class="panel-head"><h4>Import members (CSV)</h4></div>
-    <form class="tool-form" data-upload="/api/import/members">
-        <input type="file" name="file" accept=".csv,.txt" required>
-        <button class="btn" type="submit">Import members</button>
+    <div class="panel-head"><h4>Import runner database (CSV or IOF XML)</h4></div>
+    <form class="tool-form" data-upload="/api/import/runners">
+        <input type="file" name="file" accept=".csv,.txt,.xml" required>
+        <button class="btn" type="submit">Import runners</button>
         <span class="tool-result" data-result></span>
     </form>
     <p class="tool-note">The runner database the <a href="{{ url_for('enter') }}" target="_blank" rel="noopener">entry page</a>
-        and the editor autofill from. Columns: <code>name</code> (or <code>first</code> + <code>last</code>),
-        <code>club</code>, <code>card</code>, optional <code>class</code>. Keyed by SI card: rows without a
-        card are skipped, re-importing a card updates it.</p>
+        and the editor autofill from, kept for every future event. A CSV with <code>name</code> (or
+        <code>first</code> + <code>last</code>), <code>club</code>, <code>card</code> and optional
+        <code>class</code>, or MeOS's runner database export / an Eventor member list (IOF XML
+        CompetitorList). Keyed by SI card: rows without a card are skipped, re-importing a card updates it.</p>
 </section>
 
 <section class="panel">
@@ -81,18 +82,6 @@
         runners, times and punches are recreated and re-checked here. Import the courses first for exact
         courses; otherwise each missing class gets a course built from its winner's splits.</p>
 </section>
-
-<section class="panel">
-    <div class="panel-head"><h4>Import runner database (IOF XML CompetitorList)</h4></div>
-    <form class="tool-form" data-upload="/api/import/runners">
-        <input type="file" name="file" accept=".xml" required>
-        <button class="btn" type="submit">Import runners</button>
-        <span class="tool-result" data-result></span>
-    </form>
-    <p class="tool-note">MeOS's runner database export (or an Eventor member list). Fills card → name/club
-        autofill for every future event.</p>
-</section>
-
 <section class="panel">
     <div class="panel-head"><h4>Import Eventor entries (IOF XML EntryList)</h4></div>
     <form class="tool-form" data-upload="/api/import/eventor">

@@ -938,10 +938,23 @@ def api_import_courses():
                     "message": "Imported " + "; ".join(parts)})
 
 
+def _import_runner_db():
+    """Fill the shared runner database (autofill) from a CSV roster or an IOF
+    CompetitorList (MeOS's runner database, an Eventor member list): whichever
+    the file is."""
+    text = _uploaded_text()
+    if not text.lstrip().startswith("<"):
+        return jsonify(runners.import_csv(text))
+    try:
+        rows = iofxml.parse_competitorlist(text)
+    except (ValueError, ET_ERROR) as err:
+        raise StoreError(f"Could not read competitor list: {err}")
+    return jsonify(runners.import_rows(rows))
+
+
 @app.route("/api/import/members", methods=["POST"])
 def api_import_members():
-    """Seed the shared runner database (autofill) from a CSV roster."""
-    return jsonify(runners.import_csv(_uploaded_text()))
+    return _import_runner_db()
 
 
 @app.route("/api/import/results", methods=["POST"])
@@ -959,13 +972,7 @@ def api_import_results():
 
 @app.route("/api/import/runners", methods=["POST"])
 def api_import_runners():
-    """Fill the shared runner database from an IOF CompetitorList (MeOS's
-    runner-database export) so entry autofill knows everyone."""
-    try:
-        rows = iofxml.parse_competitorlist(_uploaded_text())
-    except (ValueError, ET_ERROR) as err:
-        raise StoreError(f"Could not read competitor list: {err}")
-    return jsonify(runners.import_rows(rows))
+    return _import_runner_db()
 
 
 @app.route("/api/import/eventor", methods=["POST"])

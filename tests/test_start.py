@@ -83,3 +83,17 @@ def test_start_clock_call_up_and_beeps(cfg):
     cfg.save({"start_beeps": "off"}, target="computer")
     html = c.get("/starter").get_data(as_text=True)
     assert "Call up" not in html and '<button class="sound"' not in html
+
+
+def test_stage_matching_survives_a_card_change(tmp_path, monkeypatch):
+    """A runner on a hire card in stage 2 is still one person across stages."""
+    import stages
+
+    who = stages._People()
+    day1 = {"name": "Ada  Lovelace", "club": "LOST", "card_number": 111}
+    day2 = {"name": "ada lovelace", "club": "lost", "card_number": 999, "hired": True}
+    other = {"name": "Bo Brown", "club": "LOST", "card_number": 999, "hired": True}
+    for comp in (day1, day2, other):
+        who.link(stages._keys(comp))
+    assert who.of(day1) == who.of(day2)          # same name + club
+    assert who.of(other) != who.of(day2)          # a shared hire card links nobody
