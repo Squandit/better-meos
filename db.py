@@ -23,11 +23,15 @@ server threads and the SI-reader thread, guarded by ``_lock``.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime
+
+log = logging.getLogger("db")
 
 DEFAULT_PATH = os.environ.get("BMEOS_DB", "meos.db")
 
@@ -58,11 +62,24 @@ def mark_changed() -> None:
         _revision += 1
 
 
+# How long this thread's last disk commit took (slow-read diagnostics).
+timing = threading.local()
+
+
+def _timed_commit() -> None:
+    t0 = time.perf_counter()
+    _c().commit()
+    took = time.perf_counter() - t0
+    timing.commit = took
+    if took > 0.5:
+        log.warning("slow disk: saving to the event file took %.1f s", took)
+
+
 def _commit() -> None:
     """Commit a write (deferred inside :func:`transaction`) and bump the revision."""
     mark_changed()
     if _tx_depth == 0:
-        _c().commit()
+        _timed_commit()
 
 
 @contextmanager
@@ -85,7 +102,7 @@ def transaction():
         with _lock:
             _tx_depth -= 1
             if _tx_depth == 0 and _conn is not None:
-                _conn.commit()
+                _timed_commit()
 
 
 SCHEMA = """

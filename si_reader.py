@@ -29,6 +29,7 @@ from collections import deque
 from datetime import datetime
 
 import config
+import db
 import events
 import network
 import slip_printer
@@ -100,8 +101,16 @@ def process_card(card: dict, *, station_id: str | None = None,
         card = {**card, "station_id": station_id}
     if auto_create is None:
         auto_create = auto_create_enabled()
+    t0 = time.perf_counter()
+    db.timing.commit = 0.0
     with store.acting_as(f"SI reader ({station_id or 'main'})"):
         outcome = _process_card(card, station_id, auto_create)
+    took = time.perf_counter() - t0
+    if took > 1:
+        # A runner is waiting at the desk: say where the time went.
+        log.warning("slow card read %s: %.1f s (saving to disk %.1f s, the rest waiting "
+                    "for the event or the main computer)", card.get("card_number"), took,
+                    getattr(db.timing, "commit", 0.0))
     if not print_here:
         return outcome
     if outcome.get("slip"):                      # read on a secondary, laid out by the primary
