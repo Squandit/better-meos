@@ -126,6 +126,38 @@
             });
             box.appendChild(btn);
             box.appendChild(list);
+        },
+        slip_printer: function (box, input) {
+            var btn = el("button", "btn btn-soft btn-sm set-helper", "Choose printer");
+            btn.type = "button";
+            var test = el("button", "btn btn-ghost btn-sm set-helper", "Print a test slip");
+            test.type = "button";
+            var list = el("div", "set-helper-list");
+            btn.addEventListener("click", function () {
+                list.textContent = "Looking…";
+                fetch("/api/printers").then(function (r) { return r.json(); }).then(function (d) {
+                    list.textContent = d.printers.length ? "" : "No printers found (direct printing needs the Windows app).";
+                    d.printers.forEach(function (name) {
+                        var pick = el("button", "btn btn-ghost btn-sm", name + (name === d["default"] ? " (default)" : ""));
+                        pick.type = "button";
+                        pick.addEventListener("click", function () {
+                            input.value = name;
+                            input.dispatchEvent(new Event("input"));
+                            input.dispatchEvent(new Event("blur"));
+                        });
+                        list.appendChild(pick);
+                    });
+                });
+            });
+            test.addEventListener("click", function () {
+                list.textContent = "Printing…";
+                fetch("/api/print/test", { method: "POST" })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { list.textContent = d.error || "Test slip sent. Nothing came out? Check the Download page's printer line."; });
+            });
+            box.appendChild(btn);
+            box.appendChild(test);
+            box.appendChild(list);
         }
     };
 

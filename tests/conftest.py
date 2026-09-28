@@ -27,7 +27,12 @@ import pytest  # noqa: E402
 
 import config  # noqa: E402
 import online_entry  # noqa: E402
+import slip_printer  # noqa: E402
 import store  # noqa: E402
+
+# The suite never prints on a real printer, even on Windows (CI checks real
+# printing separately with installer/print_check.py).
+slip_printer._win32 = lambda: None
 
 store.new_event({"name": "Test Event", "date": "2026-05-17",
                  "first_start": "09:00:00", "type": "linear"})

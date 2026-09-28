@@ -267,6 +267,9 @@ table.splits th:not(:first-child), table.splits td:not(:first-child) { text-alig
 }
 .search:focus { outline: 2px solid var(--green); outline-offset: -1px; border-color: var(--green); }
 .muted-count { color: var(--muted); font-size: 13px; }
+.print-line { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.print-line svg { width: 15px; height: 15px; flex: none; }
+.print-line.is-bad { color: var(--red-ink); font-weight: 600; }
 
 /* ---- Course/control list ------------------------------------------------ */
 

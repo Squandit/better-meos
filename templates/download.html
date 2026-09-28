@@ -8,13 +8,24 @@
     <p>Cards read at the finish, latest finish first. Click a row to inspect its splits.</p>
 </div>
 
-<div class="toolbar" data-download>
+<div class="toolbar" data-download{% if printing.direct %} data-print-direct{% endif %}>
     <button class="btn btn-primary" data-simulate>Simulate download</button>
     <label class="check">Auto-print
         <select data-autoprint title="Print split slips on this computer as cards are read">
             {% for value, label in auto_print_choices %}<option value="{{ value }}"{% if value == auto_print %} selected{% endif %}>{{ label }}</option>{% endfor %}
         </select>
     </label>
+    {% if printing.direct %}
+    {% set last = printing.last %}
+    <span class="print-line{% if last and last.state == 'failed' %} is-bad{% endif %}" data-print-line
+          title="Slips print straight to the printer (Settings: Readout & printing)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        {% if last and last.state == 'failed' %}Last slip didn't print: {{ last.error }}
+        {% elif last %}{{ printing.printer or 'Printer' }} · {{ last.state }}: {{ last.title }} at {{ last.time }}
+        {% else %}{{ printing.printer or 'Windows default printer' }}{% endif %}
+    </span>
+    <button class="btn btn-ghost btn-sm" type="button" data-print-test>Test print</button>
+    {% endif %}
     <span class="muted-count" data-sim-result></span>
     <a class="btn btn-soft" href="{{ url_for('readout_page') }}" target="_blank" rel="noopener">Readout screen</a>
     <span class="toolbar-spacer"></span>
@@ -166,8 +177,11 @@
         if (rule.value === "not_ok") { return status !== "ok"; }
         return false;
     }
+    // Printing straight to the printer happens on the server as cards are read,
+    // so this page only prints through the browser when that's switched off.
+    var direct = bar.hasAttribute("data-print-direct");
     var last = parseInt(recall("bm-print-seq") || "", 10);
-    if (recall("bm-print-boot") === data.boot && !isNaN(last)) {
+    if (!direct && recall("bm-print-boot") === data.boot && !isNaN(last)) {
         data.reads.filter(function (r) { return r.seq > last && wanted(r.status); })
             .sort(function (a, b) { return a.seq - b.seq; })
             .forEach(function (r) { window.BMPrint.slip(r.id); });
@@ -181,6 +195,16 @@
             .then(function () { out.textContent = "Auto-print saved for this computer"; })
             .catch(function (err) { out.textContent = err.message; });
     });
+
+    var testBtn = bar.querySelector("[data-print-test]");
+    if (testBtn) {
+        testBtn.addEventListener("click", function () {
+            out.textContent = "Printing a test slip…";
+            json(fetch("/api/print/test", { method: "POST" }))
+                .then(function () { out.textContent = "Test slip sent to the printer"; })
+                .catch(function (err) { out.textContent = err.message; });
+        });
+    }
 
     // ---- Unmatched cards: assign, discard, or enter a new runner.
     var unmatched = document.querySelector("[data-unmatched]");

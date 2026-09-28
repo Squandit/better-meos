@@ -19,7 +19,8 @@ a = Analysis(
     # PyInstaller's import scan can't see. Missing sportident/serial here means
     # the real SI reader fails only in the exe, only on the day.
     hiddenimports=['waitress', 'pyngrok', 'pyngrok.ngrok',
-                   'sportident', 'serial', 'serial.tools.list_ports', 'stripe'],
+                   'sportident', 'serial', 'serial.tools.list_ports', 'stripe',
+                   'win32print', 'win32ui', 'win32con', 'PIL.ImageWin'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

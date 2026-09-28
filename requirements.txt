@@ -4,6 +4,8 @@ Flask>=3.0
 waitress>=3.0          # production WSGI server used by the launcher / exe
 sportident>=1.2        # SI card reader (real hardware path)
 pyngrok>=7.0           # remote entry hosting (ngrok tunnel)
+Pillow>=10.1           # draws split slips for direct printing
+pywin32>=306; sys_platform == "win32"   # prints slips with no dialog (Windows)
 
 # Optional integrations (scaffolded behind config):
 reportlab>=4.0         # PDF printouts (results, splits, start lists, bib labels)

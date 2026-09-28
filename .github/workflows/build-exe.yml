@@ -35,6 +35,8 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt
       - run: python -m pytest -q
+      - name: Direct slip printing works (prints to Microsoft Print to PDF)
+        run: python installer/print_check.py
 
   build:
     # Independent of the test job: a failing test shows up red on the run,
@@ -60,8 +62,13 @@ jobs:
             Start-Sleep -Seconds 2
             try { $ok = (Invoke-WebRequest http://127.0.0.1:18799/start -UseBasicParsing).StatusCode -eq 200 } catch {}
           }
+          # Direct printing needs pywin32 inside the exe: the printer list proves it's there.
+          $printers = $null
+          if ($ok) { $printers = Invoke-RestMethod http://127.0.0.1:18799/api/printers }
           Stop-Process -Id $p.Id -Force
           if (-not $ok) { throw "exe did not serve /start" }
+          if (-not $printers.available) { throw "exe can't print directly (pywin32 missing?)" }
+          Write-Host "printers seen by the exe: $($printers.printers -join ', ')"
       - name: Tag matches version.py (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh

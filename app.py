@@ -1,4 +1,5 @@
 import functools
+import io
 import json
 import os
 import tempfile
@@ -37,6 +38,7 @@ import settings_schema
 import si_reader
 import speaker
 import simulator
+import slip_printer
 import stages
 import store
 from store import StoreError
@@ -158,8 +160,8 @@ def _appearance() -> dict:
 
 
 # Paths reachable with no event open (the start page + its actions + assets +
-# the admin unlock + Settings, which are event-independent).
-_NO_EVENT_OK = ("/static/", "/api/events/", "/api/config")
+# the admin unlock + Settings and the printer check, which are event-independent).
+_NO_EVENT_OK = ("/static/", "/api/events/", "/api/config", "/api/printers", "/api/print/test")
 
 
 @app.before_request
@@ -394,7 +396,8 @@ def download():
                            readers=si_reader.reader_status(),
                            auto_print=config.get_str("auto_print") or "off",
                            auto_print_choices=settings_schema.BY_KEY["auto_print"].choices,
-                           reads=reads, boot=si_reader.BOOT_ID)
+                           reads=reads, boot=si_reader.BOOT_ID,
+                           printing=slip_printer.status())
 
 
 @app.route("/readout")
@@ -432,6 +435,7 @@ def api_assign_card_read(read_id):
     comp_id = store._as_int(_payload().get("competitor_id"), "Competitor", minimum=1)
     comp = store.assign_card_read(read_id, comp_id)
     events.publish("card_read", action="assign")
+    slip_printer.after_read(comp["id"])
     return jsonify({"ok": True, "competitor": comp})
 
 
@@ -440,7 +444,49 @@ def api_enter_card_read(read_id):
     """Quick entry: add the runner a kept read belongs to and give them the run."""
     comp = store.enter_from_read(read_id, _payload())
     events.publish("card_read", action="enter")
+    slip_printer.after_read(comp["id"])
     return jsonify({"ok": True, "competitor": comp})
+
+
+@app.route("/api/print/slip/<int:comp_id>", methods=["POST"])
+def api_print_slip(comp_id):
+    """Print one runner's split slip on this computer's printer, no dialog."""
+    if not slip_printer.available():
+        return jsonify({"error": "Printing straight to a printer needs the Windows app"}), 400
+    slip = slip_printer.slip_lines(comp_id)
+    if slip is None:
+        abort(404)
+    return jsonify({"ok": True, "job": slip_printer.send(slip)})
+
+
+@app.route("/api/print/test", methods=["POST"])
+def api_print_test():
+    if not slip_printer.available():
+        return jsonify({"error": "Printing straight to a printer needs the Windows app"}), 400
+    return jsonify({"ok": True, "job": slip_printer.send(slip_printer.test_slip(),
+                                                          reason="test")})
+
+
+@app.route("/api/print/status")
+def api_print_status():
+    return jsonify(slip_printer.status())
+
+
+@app.route("/api/printers")
+def api_printers():
+    return jsonify(slip_printer.printers())
+
+
+@app.route("/slip/<int:comp_id>.png")
+def slip_png(comp_id):
+    """The slip exactly as it goes to a receipt printer (for checking layout)."""
+    slip = slip_printer.slip_lines(comp_id)
+    if slip is None:
+        abort(404)
+    img = slip_printer.render(slip, width_px=slip_printer.width_px(203), dpi=203)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return Response(buf.getvalue(), mimetype="image/png")
 
 
 @app.route("/api/card-reads/<int:read_id>", methods=["DELETE"])
@@ -966,7 +1012,11 @@ def api_station_push():
     data = _payload()
     card = store.coerce_card(data)
     outcome = si_reader.simulate(card, station_id=card.get("station_id"),
-                                 auto_create=bool(data.get("auto")) or None)
+                                 auto_create=bool(data.get("auto")) or None,
+                                 print_here=False)
+    if outcome.get("ok"):
+        # The slip prints at the station where the card was read, by its rules.
+        outcome["slip"] = slip_printer.slip_lines(outcome["competitor"]["id"])
     return jsonify(outcome), (200 if outcome.get("ok") else 404)
 
 

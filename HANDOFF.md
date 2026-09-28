@@ -26,6 +26,36 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
+### 1.6 DONE: feedback from the first laptop test (2026-09-28, cloud session)
+- **Quick fixes**: Start draw is under More tools. Class editor greys out and
+  disables relay legs and "Relay mass start" (was "Relay restart") unless
+  kind = relay; patrol is no longer offered for new classes (old patrol classes
+  still load and save, backend unchanged). Appearance settings apply on save
+  (settings.js sets the `<html>` data attributes). The download simulator only
+  picks people who haven't read out yet (made-up extras after the 12-person
+  pool), because picking an already-read card invented a new random run and
+  replaced the real one (that was the "MP disappeared" report). A real re-read
+  of a card gives the same punches, so it can't change a result.
+- **Direct printing** (`slip_printer.py`): the app prints split slips itself,
+  no browser, no dialog, no page needs to be open. Slip laid out as lines
+  (`slip_lines`), drawn with Pillow at the printer's own DPI in pure black and
+  white (`render`), sent through the Windows spooler with pywin32 GDI
+  (`_print_windows`, pages split by the printer's page height). Background
+  queue with job states for the Download page's printer line; failures show
+  there in red. Settings: "Print slips" (`print_method` direct | browser,
+  default direct), "Slip printer" (`slip_printer`, blank = Windows default,
+  with a Choose printer / Print a test slip helper). Auto-print is now done by
+  the server on each read (`si_reader.process_card` -> `slip_printer.
+  after_read`), and on assigning / entering a kept read. Reads forwarded by a
+  secondary station print at that station: the primary returns the slip in the
+  push response and doesn't print it. The browser path (hidden frames, kiosk
+  mode) is still there for `print_method = browser` or off Windows. Off
+  Windows, `BMEOS_PRINT_DIR` saves slips as PNGs (tests + simulations).
+  `GET /slip/<id>.png` shows the slip exactly as printed. CI prints a test
+  slip to "Microsoft Print to PDF" (`installer/print_check.py`) and the exe
+  smoke test checks `/api/printers` says printing is available. Tests stub
+  out pywin32 (conftest) so the suite never prints for real.
+
 ### 1.5 DONE: settings, flow and MeOS parity (2026-09-27, cloud session)
 Committed straight to main, one commit per feature. Tests: **256 passing**
 (`python -m pytest -q`); every new page checked in Chromium under waitress.
@@ -141,8 +171,9 @@ main). Tests: **194 passing**; every page checked in Chromium under waitress.
 - **Readout desk**: /readout big screen + OK/MP sounds; hire cards track
   `card_returned` (Economy lists outstanding); SI check time stored and punches
   before it ignored (download list flags "old punches").
-- **Printing**: Settings "Print split slips without a dialog" -> launcher opens
-  Edge/Chrome with `--kiosk-printing` (own profile); 80 mm slip by default.
+- **Printing**: now direct from the app (see 1.6). The older browser route:
+  Settings "Browser printing: skip the dialog" -> launcher opens Edge/Chrome
+  with `--kiosk-printing` (own profile); 80 mm slip by default.
 - **Starter**: /starter start clock + now/next; starters-by-time PDF.
 - **Relays/forking**: per-competitor `course_id` override; class
   `fork_courses` + "Assign forks" (rotation for relays); class `restart`;
@@ -709,8 +740,8 @@ exact counts; tests that switch/close the event restore it.
 ---
 
 ## 10. Pending / next steps
-1. Try it at a real event: SI reader on the finish PC, auto-print with silent
-   printing, the live screen on a projector, the start clock with sound.
+1. Try it at a real event: SI reader on the finish PC, auto-print straight to
+   the receipt printer, the live screen on a projector, the start clock with sound.
 2. Hire cards on the online entry form (entries with no card number yet).
 3. Native .meos import (today: export IOF XML from MeOS and import that).
 4. A list designer (custom result / start list layouts) and translations.

@@ -1,6 +1,9 @@
 /*
  * Split slips printed from this page, without popups.
  *
+ * When the Windows app prints slips itself ("Print slips: straight to the
+ * printer"), Print just asks the server to print. Otherwise:
+ *
  * Each slip loads in a hidden frame that prints itself (/slip/<id>?print=1).
  * Opening a window from code that isn't a click gets blocked as a popup, which
  * is how auto-print used to work; a frame on this page never is. With silent
@@ -42,8 +45,23 @@
         document.body.appendChild(frame);
     }
 
+    // With direct printing on (the Windows app), the server prints: no frame,
+    // no dialog.
+    function direct() { return !!document.querySelector("[data-print-direct]"); }
+
+    function viaServer(id) {
+        fetch("/api/print/slip/" + encodeURIComponent(id), { method: "POST" })
+            .then(function (r) { return r.json().then(function (d) { if (!r.ok) { throw new Error(d.error || "Print failed"); } return d; }); })
+            .then(function () { note("Slip sent to the printer"); })
+            .catch(function (err) { note(err.message); });
+    }
+    function note(text) {
+        var out = document.querySelector("[data-sim-result]");
+        if (out) { out.textContent = text; }
+    }
+
     window.BMPrint = {
-        slip: function (id) { queue.push(id); next(); },
+        slip: function (id) { if (direct()) { viaServer(id); return; } queue.push(id); next(); },
         busy: function () { return busy || queue.length > 0; }
     };
 

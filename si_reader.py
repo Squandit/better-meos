@@ -31,6 +31,7 @@ from datetime import datetime
 import config
 import events
 import network
+import slip_printer
 import store
 from store import StoreError
 
@@ -78,7 +79,7 @@ def auto_create_enabled() -> bool:
 
 
 def process_card(card: dict, *, station_id: str | None = None,
-                 auto_create: bool | None = None) -> dict:
+                 auto_create: bool | None = None, print_here: bool = True) -> dict:
     """
     Record one downloaded card and broadcast the result.
 
@@ -90,13 +91,24 @@ def process_card(card: dict, *, station_id: str | None = None,
     When ``auto_create`` is set (defaults to the event's "Unknown cards"
     setting), an unknown card builds its own course/class/competitor instead of
     failing.
+
+    ``print_here`` auto-prints the split slip on this computer (see
+    slip_printer). A card forwarded from a secondary station prints there, not
+    on the primary.
     """
     if station_id is not None:
         card = {**card, "station_id": station_id}
     if auto_create is None:
         auto_create = auto_create_enabled()
     with store.acting_as(f"SI reader ({station_id or 'main'})"):
-        return _process_card(card, station_id, auto_create)
+        outcome = _process_card(card, station_id, auto_create)
+    if not print_here:
+        return outcome
+    if outcome.get("slip"):                      # read on a secondary, laid out by the primary
+        slip_printer.maybe_print(outcome["slip"])
+    elif outcome.get("ok") and not network.is_secondary():
+        slip_printer.after_read(outcome["competitor"]["id"])
+    return outcome
 
 
 def _process_card(card: dict, station_id: str | None, auto_create: bool) -> dict:
@@ -165,9 +177,10 @@ def latest_read() -> dict | None:
 
 
 def simulate(card: dict, *, station_id: str | None = None,
-             auto_create: bool | None = None) -> dict:
+             auto_create: bool | None = None, print_here: bool = True) -> dict:
     """Synchronously push a card through the pipeline (used by the API/tests)."""
-    return process_card(card, station_id=station_id, auto_create=auto_create)
+    return process_card(card, station_id=station_id, auto_create=auto_create,
+                        print_here=print_here)
 
 
 # ---------------------------------------------------------------------------
