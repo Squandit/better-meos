@@ -26,6 +26,14 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
+### Naming (2026-09-28): leading candidate "Control", not decided
+The owner is considering **Control** (orienteering controls + you control the
+event). In this project "Control" means this app, NOT the mobile orienteering
+analysis app of the same name. Not applied anywhere yet; the old "Punchcard"
+plan in 1.0 is superseded. Wrinkle if chosen: don't ship the exe as
+`control.exe`, since Windows already has one (it opens Control Panel from Run
+and the command line).
+
 ### 1.7 DONE: stress suite, and everything it found (2026-09-28, cloud session)
 `scripts/stress/` runs whole events against real app processes, each with
 its own data folder and ports (`harness.py`), and checks what the app
