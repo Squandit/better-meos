@@ -239,6 +239,7 @@ td.dim { color: var(--muted); }
 /* ---- Results: per-class cards & expandable splits ----------------------- */
 
 .class-card { margin-top: 18px; }
+.leg-heading { margin: 14px 18px 4px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 
 tr.runner.has-splits { cursor: pointer; }
 tr.runner:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }

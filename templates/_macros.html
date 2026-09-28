@@ -28,3 +28,25 @@
 </tr>
 {% endif %}
 {%- endmacro %}
+
+{# A relay class's team standings (results page and public results). #}
+{% macro team_table(cls) %}
+{% if cls.teams %}
+    <table class="table team-table">
+        <thead><tr><th style="width:46px;text-align:center">#</th><th>Team</th>
+            <th class="num" style="width:104px">Time</th><th class="num behind-col" style="width:92px">Behind</th></tr></thead>
+        <tbody>
+            {% for t in cls.teams %}
+            <tr>
+                <td style="text-align:center">{{ t.position or "" }}</td>
+                <td><span class="cell-name">{{ t.name }}</span>
+                    <div class="cell-sub">{% for leg in t.legs %}{{ leg.leg }}. {{ leg.name }} {% if leg.time %}<span class="mono">{{ leg.time }}</span>{% if leg.place %} ({{ leg.place }}){% endif %}{% else %}{{ leg.status|upper }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</div></td>
+                <td class="num strong{% if not t.time %} dim{% endif %}">{{ t.time or "–" }}</td>
+                <td class="num dim behind-col">{{ t.behind }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <h5 class="leg-heading">Each leg</h5>
+{% endif %}
+{% endmacro %}

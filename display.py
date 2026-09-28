@@ -197,6 +197,7 @@ def _class_group(e: dict) -> dict:
     return {"key": e["class"]["id"], "name": e["class"]["name"],
             "meta": store.course_meta(e["course"]),
             "is_score": e["course"]["type"] == "score", "by_course": False,
+            "relay": e["class"].get("kind") == "relay",
             "mode": results_mode(e["class"]), "results": e["results"]}
 
 
@@ -293,15 +294,42 @@ def results_view(*, on_course: bool | None = None, public: bool = True) -> list[
                 continue
             if unplaced == "no_dns" and r["status"] == "dns":
                 continue
-            rows.append(view_row(r, fmt, now))
+            rows.append(dict(view_row(r, fmt, now), leg=r.get("leg")))
         if show_behind:
-            _behind(rows, g["is_score"], fmt)
+            # Relay runners are compared with the same leg of the other teams.
+            legs = sorted({r["leg"] or 0 for r in rows}) if g.get("relay") else [None]
+            for leg in legs:
+                _behind([r for r in rows if leg is None or (r["leg"] or 0) == leg],
+                        g["is_score"], fmt)
         out.sort(key=lambda r: r["start"] or "")
         blocks.append({"id": g["key"], "name": g["name"], "meta": g["meta"],
                        "is_score": g["is_score"], "by_course": g["by_course"],
                        "rows": rows, "on_course": out,
+                       "teams": _team_rows(g["key"], fmt) if g.get("relay") else None,
                        "entries": len(g["results"]), "mode": g["mode"]})
     return blocks
+
+
+def _team_rows(class_id: int, fmt) -> list[dict]:
+    """A relay class's team standings for the results pages."""
+    entry = next((e for e in store.team_results() if e["class"]["id"] == class_id), None)
+    if entry is None:
+        return []
+    best = next((t["total_seconds"] for t in entry["teams"] if t["ok"]), None)
+    rows = []
+    for t in entry["teams"]:
+        rows.append({
+            "position": t.get("position"), "name": t["team"]["name"],
+            "club": t["team"].get("club") or "",
+            "time": fmt(t["total_seconds"]) if t["ok"] else None,
+            "behind": ("+" + fmt(t["total_seconds"] - best)) if t["ok"] and best is not None
+                      and t["total_seconds"] != best else "",
+            "status": "ok" if t["ok"] else "",
+            "legs": [{"leg": leg["leg"], "name": leg["name"], "place": leg.get("place"),
+                      "time": fmt(leg["seconds"]) if leg["seconds"] is not None else None,
+                      "status": leg["status"]} for leg in t["legs"]],
+        })
+    return rows
 
 
 def public_evaluated() -> list[dict]:

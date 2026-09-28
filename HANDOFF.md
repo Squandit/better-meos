@@ -74,6 +74,26 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
   "Check the connection" then "Find our club's events".
 - Saved API keys / passwords can now be removed in Settings ("Remove");
   before, blank meant keep and there was no reset, so a key could never go.
+- **Whole-event simulation** (`scripts/simulate_event.py`, run by
+  `tests/test_full_event.py` against a real app process in ~5 s, 215
+  checks): two-day champs through the HTTP API, see the script's docstring.
+  What it found and what was fixed:
+  * Relay runners were ranked against every other leg ("leg 3 first, leg 2
+    second"). Now each runner is placed against the same leg only
+    (`_evaluate_model`), gets the changeover start like the team result does
+    (`_relay_leg_starts`), "behind" is per leg, and the results / public
+    pages show the team standings first (`display._team_rows`, macro
+    `team_table`).
+  * Relay prizes went to single legs; now to teams (open event), and relay
+    classes stay out of season standings.
+  * Assigning a kept card read to someone who already had a run silently
+    replaced it. Now the server refuses unless `replace` is sent, and the
+    Download page marks "already read out" and asks first.
+  * Economy showed "Undo" on every runner, paid or not.
+  Checked and fine: score over time (-5/min, still placed), broken control,
+  DSQ, close-out DNS, chase start order, IOF export with splits, a slip for
+  every read. Note: runners owe their class fee (Classes page); the event's
+  senior/junior fees only price online entries.
 
 ### 1.5 DONE: settings, flow and MeOS parity (2026-09-27, cloud session)
 Committed straight to main, one commit per feature. Tests: **256 passing**

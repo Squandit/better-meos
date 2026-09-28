@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% from "_macros.html" import team_table %}
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -30,6 +31,7 @@
                 {% if cls.on_course %}<span class="chip grey">{{ cls.on_course|length }} out</span>{% endif %}
             </span>
         </div>
+        {{ team_table(cls) }}
         {% set with_behind = cls.rows and cls.rows[0].behind is defined %}
         {% set cols = 4 + (1 if cls.is_score else 0) + (1 if with_behind else 0) %}
         <table class="table">
@@ -48,7 +50,7 @@
                 {% set expandable = show_splits and r.splits %}
                 <tr class="runner{% if expandable %} has-splits{% endif %}"{% if expandable %} tabindex="0" role="button" aria-expanded="false"{% endif %}>
                     <td style="text-align:center">{% if r.position %}{{ r.position }}{% else %}&ndash;{% endif %}</td>
-                    <td><span class="cell-name">{{ r.name }}</span><div class="cell-sub">{{ r.club or "" }}{% if cls.by_course %}{% if r.club %} · {% endif %}{{ r.class }}{% endif %}</div></td>
+                    <td><span class="cell-name">{{ r.name }}</span><div class="cell-sub">{% if cls.teams and r.leg %}Leg {{ r.leg }} · {% endif %}{{ r.club or "" }}{% if cls.by_course %}{% if r.club %} · {% endif %}{{ r.class }}{% endif %}</div></td>
                     {% if cls.is_score %}<td class="num">{% if r.points is not none %}{{ r.points }}{% else %}&ndash;{% endif %}</td>{% endif %}
                     <td class="num strong{% if not r.time %} dim{% endif %}">{% if r.time %}{{ r.time }}{% else %}&ndash;{% endif %}</td>
                     {% if with_behind %}<td class="num dim behind-col">{{ r.behind or "" }}</td>{% endif %}

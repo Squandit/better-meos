@@ -54,8 +54,20 @@ def _event_setting(settings: dict, key: str):
 def _classes_of(evaluated: list[dict]) -> list[dict]:
     """Only classes with times and places take part in prizes and standings."""
     return [{"name": e["class"]["name"], "is_score": e["course"]["type"] == "score",
+             "relay": e["class"].get("kind") == "relay",
              "results": e["results"]} for e in evaluated
             if display.results_mode(e["class"]) == "normal"]
+
+
+def _team_results(class_name: str) -> list[dict]:
+    """A relay class of the open event as ranked result rows, one per team,
+    so relay prizes go to teams rather than to single legs."""
+    entry = next((e for e in store.team_results() if e["class"]["name"] == class_name), None)
+    if entry is None:
+        return []
+    return [{"name": t["team"]["name"], "club": t["team"].get("club") or "",
+             "position": t.get("position"), "total_seconds": t["total_seconds"],
+             "points": None, "status": "ok" if t["ok"] else "mp"} for t in entry["teams"]]
 
 
 def _open_event() -> dict:
@@ -155,6 +167,10 @@ def prize_winners(event: dict, already: dict[str, str] | None = None) -> list[di
     for cls in display.ordered(event["classes"]):
         if only and cls["name"].lower() not in only:
             continue
+        if cls.get("relay"):
+            if not event.get("open"):
+                continue          # team results are only worked out for the open event
+            cls = dict(cls, results=_team_results(cls["name"]))
         starters = sum(1 for r in cls["results"] if r["status"] not in ("dns", "pending"))
         prizes = places
         if share:
@@ -259,6 +275,8 @@ def standings(name: str) -> dict:
     by_class: dict[str, dict] = {}
     for i, ev in enumerate(events):
         for cls in ev["classes"]:
+            if cls.get("relay"):
+                continue      # legs aren't comparable across events
             entry = by_class.setdefault(cls["name"].lower(), {"class": cls["name"], "people": {}})
             placed = [x for x in cls["results"] if x["position"] is not None]
             winner = placed[0] if placed else None

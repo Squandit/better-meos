@@ -17,9 +17,10 @@ Pieces:
 * :func:`after_read` -- the auto-print rule ("Every card read", "Only OK runs"
   ...), called by the SI reader for each card it reads.
 
-Off Windows, direct printing is unavailable (the browser prints instead),
-unless ``BMEOS_PRINT_DIR`` is set: slips are then saved there as PNG files,
-which is how the tests and the full-event simulation check what would print.
+Off Windows, direct printing is unavailable (the browser prints instead).
+With ``BMEOS_PRINT_DIR`` set, on any system, slips are saved there as PNG
+files instead of printed: that's how the tests and the full-event simulation
+check what would print.
 """
 
 from __future__ import annotations
@@ -239,8 +240,9 @@ def width_px(dpi: int, printable_px: int | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 def _win32():
-    """The pywin32 print modules, or None off Windows / without pywin32."""
-    if sys.platform != "win32":
+    """The pywin32 print modules, or None off Windows / without pywin32 / when
+    slips go to a PNG folder instead (``BMEOS_PRINT_DIR``)."""
+    if sys.platform != "win32" or _print_dir():
         return None
     try:
         import win32print

@@ -613,13 +613,28 @@ def _evaluate_model(courses: dict, classes: dict, competitors: dict,
             return cid, engine_courses[cid]
 
         members = by_class.get(cls["id"], [])
+        relay = cls.get("kind") == "relay"
+        starts = _relay_leg_starts(members, cls) if relay else {}
         results_in = []
         for comp in members:
             cid, ecourse = course_of(comp)
-            res = build_result(_engine_card(comp, classes), ecourse)
+            card = _engine_card(comp, classes)
+            if card["start"] is None and comp["id"] in starts:
+                card["start"] = starts[comp["id"]]
+            res = build_result(card, ecourse)
             res["course_id"] = cid
+            res["leg"] = comp.get("leg")
             results_in.append(res)
-        ranked = rank_results(results_in).get(cls["name"], [])
+        if relay:
+            # A relay runner is placed against the same leg of the other teams,
+            # never against runners of other legs (team places: team_results).
+            by_leg: dict = {}
+            for res in results_in:
+                by_leg.setdefault(res["leg"] or 0, []).append(res)
+            ranked = [r for leg in sorted(by_leg)
+                      for r in rank_results(by_leg[leg]).get(cls["name"], [])]
+        else:
+            ranked = rank_results(results_in).get(cls["name"], [])
         for r in ranked:
             by_id[r["id"]] = r
         out.append({"class": cls, "course": course, "results": ranked})
@@ -744,6 +759,29 @@ def _relay_team(team: dict, members: list[dict], course: dict | None,
         prev_finish = res["finish"] if res and res.get("finish") else m["finish"]
     return {"team": team, "legs": legs,
             "total_seconds": total if ok else None, "ok": ok}
+
+
+def _relay_leg_starts(members: list[dict], cls: dict) -> dict:
+    """When each relay runner with no start of their own set off: at the
+    changeover (the previous leg's finish), or at the class's mass start when
+    the previous runner hadn't finished by then. Leg 1 is left alone (the team
+    start or the course's mass start applies). ``{competitor id: start}``."""
+    restart = parse_clock(cls.get("restart"), "Restart") if cls.get("restart") else None
+    by_team: dict = {}
+    for comp in members:
+        if comp.get("team_id"):
+            by_team.setdefault(comp["team_id"], []).append(comp)
+    starts = {}
+    for team in by_team.values():
+        prev_finish = None
+        for i, comp in enumerate(sorted(team, key=lambda c: c.get("leg") or 0)):
+            if i > 0 and comp["start"] is None:
+                if restart is not None and (prev_finish is None or prev_finish > restart):
+                    starts[comp["id"]] = restart
+                elif prev_finish is not None:
+                    starts[comp["id"]] = prev_finish
+            prev_finish = comp["finish"]
+    return starts
 
 
 def _rank_legs(teams: list[dict]) -> None:
@@ -1660,10 +1698,12 @@ def enter_from_read(read_id: int, data: dict) -> dict:
         return assign_card_read(read_id, comp["id"])
 
 
-def assign_card_read(read_id: int, comp_id: int) -> dict:
+def assign_card_read(read_id: int, comp_id: int, *, replace: bool = False) -> dict:
     """
     Give a kept read to a competitor: their run becomes the card's punches and
     the card number becomes theirs (they ran with it, e.g. a borrowed card).
+    A competitor who already has a run keeps it unless ``replace`` is set (a
+    wrong pick in a busy finish mustn't silently wipe someone's result).
     """
     with _lock:
         read = db.get_card_read(read_id)
@@ -1672,6 +1712,9 @@ def assign_card_read(read_id: int, comp_id: int) -> dict:
         comp = _competitors.get(comp_id)
         if comp is None:
             raise StoreError("That competitor no longer exists")
+        if comp.get("read_at") is not None and not replace:
+            raise StoreError(f"{comp['name']} already has a run. Pick someone else, "
+                             "or confirm replacing their run")
         number = read["card_number"]
         if comp["card_number"] != number:
             _check_card_unique(number, ignore=comp_id)

@@ -432,8 +432,9 @@ def api_readout_latest():
 @app.route("/api/card-reads/<int:read_id>/assign", methods=["POST"])
 def api_assign_card_read(read_id):
     """Attach a kept (unmatched) card read to a competitor."""
-    comp_id = store._as_int(_payload().get("competitor_id"), "Competitor", minimum=1)
-    comp = store.assign_card_read(read_id, comp_id)
+    data = _payload()
+    comp_id = store._as_int(data.get("competitor_id"), "Competitor", minimum=1)
+    comp = store.assign_card_read(read_id, comp_id, replace=bool(data.get("replace")))
     events.publish("card_read", action="assign")
     slip_printer.after_read(comp["id"])
     return jsonify({"ok": True, "competitor": comp})

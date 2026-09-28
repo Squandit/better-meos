@@ -203,6 +203,20 @@ def test_unmatched_read_is_kept_and_assignable():
                   json={"competitor_id": comp["id"]}).status_code == 400
 
 
+def test_assigning_a_read_never_silently_replaces_a_run():
+    out = si_reader.process_card(_unknown_card(9700011))
+    cid = store.class_options()[0]["id"]
+    comp = store.create_competitor({"name": "Already Home", "class_id": cid, "read": True,
+                                    "start": "10:00:00", "finish": "10:30:00"})
+    c = appmod.app.test_client()
+    url = f"/api/card-reads/{out['read_id']}/assign"
+    r = c.post(url, json={"competitor_id": comp["id"]})
+    assert r.status_code == 400 and "already has a run" in r.get_json()["error"]
+    assert store.get_competitor(comp["id"])["finish"] == _dt(10, 30)
+    assert c.post(url, json={"competitor_id": comp["id"], "replace": True}).status_code == 200
+    assert store.get_competitor(comp["id"])["finish"] == _dt(11, 40)
+
+
 def test_unmatched_read_applies_when_card_is_entered_later():
     si_reader.process_card(_unknown_card(9700002))
     cid = store.class_options()[0]["id"]

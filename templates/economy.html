@@ -46,7 +46,7 @@
                         <option value="">Other…</option>
                         {% for m in methods[2:] %}<option>{{ m }}</option>{% endfor %}
                     </select>
-                    {% else %}<button class="link-btn" data-unpay>Undo</button>{% endif %}
+                    {% elif r.paid or r.method %}<button class="link-btn" data-unpay>Undo</button>{% endif %}
                 </td>
             </tr>
             {% else %}

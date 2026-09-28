@@ -13,4 +13,5 @@ stripe>=9.0            # card payments, scaffolded behind STRIPE_*
 
 # Dev / test / packaging
 pytest>=8.0
+requests>=2.31       # scripts/simulate_event.py (tests/test_full_event.py)
 pyinstaller>=6.0       # builds dist/better-meos.exe (see better-meos.spec)

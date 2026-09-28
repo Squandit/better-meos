@@ -60,7 +60,7 @@
                     <select data-assign-to>
                         <option value="">someone already entered…</option>
                         {% for r in assignable %}
-                        <option value="{{ r.id }}">{{ r.name }} ({{ r['class'] }}{% if r.si %}, SI {{ r.si }}{% endif %})</option>
+                        <option value="{{ r.id }}"{% if r.finish is not none %} data-has-run="{{ r.time or r.status_label }}"{% endif %}>{{ r.name }} ({{ r['class'] }}{% if r.si %}, SI {{ r.si }}{% endif %}){% if r.finish is not none %} · already read out{% endif %}</option>
                         {% endfor %}
                     </select>
                     <button class="link-btn" data-assign>Assign</button>
@@ -221,11 +221,16 @@
             }
             var req = null;
             if (e.target.closest("[data-assign]")) {
-                var who = row.querySelector("[data-assign-to]").value;
+                var pick = row.querySelector("[data-assign-to]");
+                var who = pick.value;
                 if (!who) { window.alert("Choose who ran with this card first."); return; }
+                var chosen = pick.options[pick.selectedIndex];
+                var replace = chosen.hasAttribute("data-has-run");
+                if (replace && !window.confirm(chosen.textContent.split(" (")[0] + " already has a run (" +
+                        chosen.dataset.hasRun + "). Replace it with this card's punches?")) { return; }
                 req = fetch("/api/card-reads/" + row.dataset.id + "/assign", {
                     method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ competitor_id: who })
+                    body: JSON.stringify({ competitor_id: who, replace: replace })
                 });
             } else if (e.target.closest("[data-discard]")) {
                 if (!window.confirm("Discard this card read? The punches will be lost.")) { return; }
