@@ -794,7 +794,10 @@ def draw_page():
 @app.route("/api/draw", methods=["POST"])
 def api_draw():
     data = _payload()
-    ids = [store._as_int(i, "Class", minimum=1) for i in (data.get("class_ids") or [])]
+    raw_ids = data.get("class_ids") or []
+    if not isinstance(raw_ids, list):
+        raise StoreError("Pick the classes to draw")
+    ids = [store._as_int(i, "Class", minimum=1) for i in raw_ids]
     if not ids:
         raise StoreError("Pick at least one class to draw")
     outcome = draw.draw_classes(
@@ -818,7 +821,9 @@ def _stage_paths(names) -> list[str]:
     """Stage files chosen by filename, only from the events folder (never an
     arbitrary path from the browser)."""
     files = {e["filename"]: e["path"] for e in store.events_in_folder()}
-    return [files[n] for n in (names or []) if n in files]
+    if not isinstance(names, list):
+        return []
+    return [files[n] for n in names if isinstance(n, str) and n in files]
 
 
 @app.route("/stages")
@@ -895,7 +900,19 @@ def _uploaded_text():
     file = request.files.get("file")
     if file is None:
         raise StoreError("No file uploaded")
-    return file.read().decode("utf-8-sig")
+    return decode_upload(file.read())
+
+
+def decode_upload(raw: bytes) -> str:
+    """An uploaded file's text, whatever saved it: UTF-8 (with or without a
+    BOM), UTF-16 (Excel's "Unicode text"), or Windows-1252, which is what
+    Excel on Windows writes a CSV in by default."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", errors="replace")
 
 
 @app.route("/api/import/courses", methods=["POST"])
@@ -1504,7 +1521,7 @@ def api_new_event():
     file = request.files.get("entries")
     imported = None
     if file is not None and file.filename:
-        text = file.read().decode("utf-8-sig")
+        text = decode_upload(file.read())
         if text.lstrip().startswith("<"):
             rows = iofxml.parse_startlist(text)
         else:
@@ -1553,8 +1570,14 @@ def api_remote_stop():
 # ---------------------------------------------------------------------------
 
 def _payload():
-    """Parsed JSON body, or {} for an empty/non-JSON request."""
-    return request.get_json(silent=True) or {}
+    """Parsed JSON body, or {} for an empty/non-JSON request. Every API takes a
+    JSON object; anything else (a bare list or number) is refused."""
+    data = request.get_json(silent=True)
+    if data is None or data == [] or data == "":
+        return {}
+    if not isinstance(data, dict):
+        raise StoreError("Send the details as a JSON object")
+    return data
 
 
 @app.errorhandler(StoreError)

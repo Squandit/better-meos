@@ -86,6 +86,12 @@ class App:
         self.stop()
         return self.start()
 
+    def last_traceback(self) -> str:
+        """The end of the most recent traceback in the app's log."""
+        text = self.log()
+        i = text.rfind("Traceback")
+        return text[i:][-900:] if i >= 0 else ""
+
     def log(self) -> str:
         try:
             with open(self.log_path, "rb") as f:
@@ -152,7 +158,8 @@ class Client:
         else:
             r = self.s.request(method, url, headers=headers)
         if r.status_code >= 500 and r.status_code != expect:
-            self.check(False, f"{method} {path} server error {r.status_code}", r.text[:400])
+            self.check(False, f"{method} {path} server error {r.status_code}",
+                       self.app.last_traceback() or r.text[:400])
         elif expect is not None and r.status_code != expect:
             self.check(False, f"{method} {path} -> {r.status_code}, wanted {expect}",
                        r.text[:300])

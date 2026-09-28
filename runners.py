@@ -163,7 +163,8 @@ def import_csv(text: str) -> dict:
     imported = skipped = 0
     rows = []
     for raw in csv.DictReader(io.StringIO(text)):
-        row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
+        row = {k.strip().lower(): (v or "").strip() for k, v in raw.items()
+               if isinstance(k, str) and isinstance(v, (str, type(None)))}  # extra columns: skip
         name = row.get("name") or " ".join(
             p for p in (row.get("first") or row.get("firstname"),
                         row.get("last") or row.get("lastname") or row.get("surname")) if p)

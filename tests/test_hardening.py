@@ -414,3 +414,31 @@ def test_serial_port_listing(monkeypatch):
     monkeypatch.setattr(list_ports, "comports", lambda: fake)
     ports = appmod.app.test_client().get("/api/serial-ports").get_json()
     assert ports[0]["device"] == "COM5" and ports[0]["likely_si"] is True
+
+
+def test_garbage_bodies_are_refused_not_crashes():
+    c = appmod.app.test_client()
+    for body in (12345, [1, 2], "text"):
+        r = c.post("/api/draw", json=body)
+        assert r.status_code == 400
+    assert c.post("/api/draw", json={"class_ids": 5}).status_code == 400
+    assert c.post("/api/competitors", json={"name": "x" * 1000, "class_id": 1}).status_code == 400
+    assert c.post("/api/competitors", json={"name": "Big Card", "class_id": 1,
+                                            "card_number": 2 ** 70}).status_code == 400
+    assert c.post("/api/classes", json={"name": "Fee", "course_id": 1,
+                                        "fee": "Infinity"}).status_code == 400
+
+
+def test_uploads_in_windows_encodings():
+    import io
+    c = appmod.app.test_client()
+    cls = store.class_options()[0]["name"]
+    for raw in (f"name,club,class\nÅsa Müller,Ümeå OK,{cls}\n".encode("cp1252"),
+                f"name,club,class\nÅsa Müller2,Ümeå OK,{cls}\n".encode("utf-16")):
+        r = c.post("/api/import/startlist", data={"file": (io.BytesIO(raw), "e.csv")},
+                   content_type="multipart/form-data")
+        assert r.status_code == 200 and r.get_json()["created"] == 1
+    names = {x["name"] for x in store._competitors.values()}
+    assert {"Åsa Müller", "Åsa Müller2"} <= names
+    for comp in [x for x in store._competitors.values() if x["name"].startswith("Åsa Müller")]:
+        store.delete_competitor(comp["id"])

@@ -31,7 +31,8 @@ def parse_startlist_csv(text: str) -> list[dict]:
     reader = csv.DictReader(io.StringIO(text))
     rows = []
     for raw in reader:
-        row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
+        row = {k.strip().lower(): (v or "").strip() for k, v in raw.items()
+               if isinstance(k, str) and isinstance(v, (str, type(None)))}  # extra columns: skip
         name = row.get("name") or " ".join(
             p for p in (row.get("first"), row.get("last")) if p)
         rows.append({

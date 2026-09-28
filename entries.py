@@ -45,9 +45,7 @@ def list_entries() -> list[dict]:
 
 def create(data: dict) -> dict:
     """Validate, dedupe and persist a public entry; send a confirmation email."""
-    name = (data.get("name") or "").strip()
-    if not name:
-        raise StoreError("Name is required")
+    name = store._clean_str(data.get("name"), "Name", required=True)
     try:
         class_id = int(data.get("class_id"))
     except (TypeError, ValueError):
@@ -62,8 +60,8 @@ def create(data: dict) -> dict:
             raise StoreError("SI card number must be a whole number")
         card = int(card_raw.strip())
 
-    club = (data.get("club") or "").strip()
-    email = (data.get("email") or "").strip()
+    club = store._clean_str(data.get("club"), "Club")
+    email = store._clean_str(data.get("email"), "Email")
     late = bool(data.get("late"))
 
     # A card already assigned to a competitor (e.g. an imported start list)

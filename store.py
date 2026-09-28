@@ -221,13 +221,22 @@ def _as_int(value, field: str, *, minimum: int | None = None, allow_blank=False)
         if allow_blank:
             return None
         raise StoreError(f"{field} is required")
+    if isinstance(value, (list, dict)):
+        raise StoreError(f"{field} must be a whole number")
     try:
         out = int(str(value).strip())
     except (TypeError, ValueError):
-        raise StoreError(f"{field} must be a whole number (got {value!r})")
+        raise StoreError(f"{field} must be a whole number (got {str(value)[:40]!r})")
     if minimum is not None and out < minimum:
         raise StoreError(f"{field} must be {minimum} or greater")
+    if abs(out) > MAX_INT:
+        raise StoreError(f"{field} is far too large")
     return out
+
+
+# Nothing in an event (SI card numbers included) comes near this; the
+# database can't store numbers past 2**63.
+MAX_INT = 10 ** 12
 
 
 def _as_float(value, field: str, *, default: float = 0.0) -> float:
@@ -235,15 +244,29 @@ def _as_float(value, field: str, *, default: float = 0.0) -> float:
     if not text:
         return default
     try:
-        return float(text)
+        out = float(text)
     except ValueError:
-        raise StoreError(f"{field} must be a number (got {value!r})")
+        raise StoreError(f"{field} must be a number (got {text[:40]!r})")
+    if not math.isfinite(out) or abs(out) > MAX_INT:
+        raise StoreError(f"{field} must be an ordinary number")
+    return out
 
 
-def _clean_str(value, field: str, *, required=False) -> str:
-    text = "" if value is None else str(value).strip()
+# Longer than any real name, club, class or course: anything past it is a
+# paste gone wrong, and it would wreck every list and PDF it appears in.
+MAX_TEXT = 200
+
+
+def _clean_str(value, field: str, *, required=False, max_length: int = MAX_TEXT) -> str:
+    if isinstance(value, (list, dict)):
+        raise StoreError(f"{field} must be text")
+    text = "" if value is None else str(value)
+    # Control characters (a stray NUL, a tab from a spreadsheet) become spaces.
+    text = "".join(ch if ch >= " " or ch == "\n" else " " for ch in text).strip()
     if required and not text:
         raise StoreError(f"{field} is required")
+    if len(text) > max_length:
+        raise StoreError(f"{field} is too long (at most {max_length} characters)")
     return text
 
 
@@ -1397,7 +1420,7 @@ def _validated_course_fields(data: dict) -> dict:
         penalty = _as_int(
             data.get("penalty_per_minute"), "Penalty", minimum=0, allow_blank=True
         ) or 0
-        formula = _clean_str(data.get("score_formula"), "Scoring formula")
+        formula = _clean_str(data.get("score_formula"), "Scoring formula", max_length=300)
         if formula:
             try:
                 formula = rules.validate_formula(formula)
