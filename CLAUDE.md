@@ -8,7 +8,7 @@ disagrees with this file.
 
 Stack:
 - Python / Flask backend (served by waitress in the launcher/exe)
-- SQLite database (one .bmeos file per event)
+- SQLite database (one .ctrl file per event; .bmeos before 1.3.0)
 - HTML/CSS/JS frontend (vanilla, no framework)
 - Server-Sent Events for live updates
 - sportident PyPI library for SI card reader on COM5

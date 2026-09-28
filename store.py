@@ -64,6 +64,17 @@ _active_event_id = 1            # the event row id within the open file
 _current_path: str | None = None  # path of the open event file (None = none open)
 
 
+# Event files. Before the rename to Control (1.3.0) they were .bmeos; those
+# still open, and the ones in the events folder are renamed when it's listed.
+EVENT_EXT = ".ctrl"
+OLD_EVENT_EXT = ".bmeos"
+EVENT_EXTS = (EVENT_EXT, OLD_EVENT_EXT)
+
+
+def is_event_file(name: str) -> bool:
+    return str(name).lower().endswith(EVENT_EXTS)
+
+
 def active_event_id() -> int:
     return _active_event_id
 
@@ -1886,12 +1897,13 @@ def events_dir() -> str:
 
 
 def events_in_folder(folder: str | None = None) -> list[dict]:
-    """List openable event files (``*.bmeos``) in the folder, newest first."""
+    """List openable event files (``*.ctrl``) in the folder, newest first."""
     folder = folder or events_dir()
     out = []
     if os.path.isdir(folder):
+        rename_old_event_files(folder)
         for fn in os.listdir(folder):
-            if not fn.endswith(".bmeos"):
+            if not is_event_file(fn):
                 continue
             path = os.path.join(folder, fn)
             meta = db.read_event_meta(path)
@@ -1903,6 +1915,26 @@ def events_in_folder(folder: str | None = None) -> list[dict]:
                 })
     out.sort(key=lambda e: (e["date_iso"], e["name"]), reverse=True)
     return out
+
+
+def rename_old_event_files(folder: str) -> list[str]:
+    """Rename ``.bmeos`` files in the events folder to ``.ctrl``. Leaves one
+    alone if it's open or a ``.ctrl`` of that name already exists; a failed
+    rename (a file in use on Windows) is tried again next time."""
+    renamed = []
+    for fn in os.listdir(folder):
+        if not fn.lower().endswith(OLD_EVENT_EXT):
+            continue
+        old = os.path.join(folder, fn)
+        new = old[: -len(OLD_EVENT_EXT)] + EVENT_EXT
+        if old == _current_path or os.path.exists(new):
+            continue
+        try:
+            os.rename(old, new)
+            renamed.append(os.path.basename(new))
+        except OSError:
+            pass
+    return renamed
 
 
 def _load_active() -> None:
@@ -1920,8 +1952,8 @@ def open_event(path: str) -> dict:
     """Open an existing event file as the current event."""
     global _current_path
     with _lock:
-        if not str(path).lower().endswith(".bmeos"):
-            raise StoreError("Only .bmeos event files can be opened")
+        if not is_event_file(path):
+            raise StoreError("Only .ctrl event files can be opened")
         if not os.path.exists(path):
             raise StoreError("That event file no longer exists")
         # Validate on a throwaway connection FIRST, so a foreign/corrupt file
@@ -1958,10 +1990,10 @@ def new_event(meta: dict, folder: str | None = None) -> dict:
 
         slug = _slugify(name)
         folder = folder or events_dir()
-        path = os.path.join(folder, f"{slug}.bmeos")
+        path = os.path.join(folder, f"{slug}{EVENT_EXT}")
         i = 2
-        while os.path.exists(path):
-            path = os.path.join(folder, f"{slug}-{i}.bmeos")
+        while os.path.exists(path) or os.path.exists(path[: -len(EVENT_EXT)] + OLD_EVENT_EXT):
+            path = os.path.join(folder, f"{slug}-{i}{EVENT_EXT}")
             i += 1
 
         db.connect(path)  # creates the file + schema

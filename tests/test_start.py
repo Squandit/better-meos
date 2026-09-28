@@ -1,5 +1,7 @@
 """Start page / file-per-event lifecycle + the no-event guard."""
 
+import os
+
 import pytest
 
 import app as appmod
@@ -97,3 +99,44 @@ def test_stage_matching_survives_a_card_change(tmp_path, monkeypatch):
         who.link(stages._keys(comp))
     assert who.of(day1) == who.of(day2)          # same name + club
     assert who.of(other) != who.of(day2)          # a shared hire card links nobody
+
+
+def test_old_bmeos_events_are_renamed_and_still_open(tmp_path):
+    before = store.current_event_path()
+    made = store.new_event({"name": "Old Champs", "date": "2026-03-01"}, folder=str(tmp_path))
+    assert made["path"].endswith(".ctrl")
+    old = tmp_path / "old-champs.bmeos"
+    os.rename(made["path"], old)
+    store.open_event(before)                      # not open while it's renamed
+    try:
+        store.open_event(str(old))               # a .bmeos anywhere still opens
+        store.open_event(before)
+        listed = store.events_in_folder(str(tmp_path))
+        assert [e["filename"] for e in listed] == ["old-champs.ctrl"]
+        assert not old.exists()
+        (tmp_path / "busy.bmeos").write_bytes(b"x")
+        (tmp_path / "busy.ctrl").write_bytes(b"y")   # never overwritten
+        store.rename_old_event_files(str(tmp_path))
+        assert (tmp_path / "busy.bmeos").exists() and (tmp_path / "busy.ctrl").read_bytes() == b"y"
+    finally:
+        store.open_event(before)
+
+
+def test_sample_event_is_a_drawn_sprint_ready_for_the_finish(tmp_path, monkeypatch):
+    import simulator
+    monkeypatch.setenv("BMEOS_EVENTS_DIR", str(tmp_path))
+    r = appmod.app.test_client().post("/api/events/sample")
+    assert r.status_code == 201
+    assert store.current_event_path().endswith("sample-sprint.ctrl")
+    comps = [c for c in store._competitors.values() if not c.get("vacant")]
+    assert len(comps) == 130 and len(store._classes) == 12 and len(store._courses) == 4
+    assert all(c["start"] and c["card_number"] and c["bib"] for c in comps)
+    assert len({c["name"] for c in comps}) == 130                 # nobody twice
+    assert not any(c.get("read_at") for c in comps)                # nobody in yet
+    # Simulate read brings in the entered runners, not made-up walk-ups.
+    out = simulator.simulate_one()
+    assert out["ok"] and out["card"] in {c["card_number"] for c in comps}
+    assert len(store._competitors) == len(comps) + 12              # + vacants, no one new
+    # A second one is another file, not the same one again.
+    assert appmod.app.test_client().post("/api/events/sample").status_code == 201
+    assert store.current_event_path().endswith("sample-sprint-2.ctrl")

@@ -130,7 +130,8 @@ jobs:
           if (-not $ok) { throw "installed app did not serve /start" }
           $data = Join-Path $env:USERPROFILE "control-orienteering"
           if (-not (Test-Path (Join-Path $data "config.json"))) { throw "settings were not written to the user's control-orienteering folder" }
-          if (-not (Test-Path (Join-Path $data "events\club-champs.bmeos"))) { throw "the old better-meos event didn't move into control-orienteering" }
+          # Moved with the folder, and renamed .ctrl when the start page listed it.
+          if (-not (Test-Path (Join-Path $data "events\club-champs.ctrl"))) { throw "the old better-meos event didn't move into control-orienteering as club-champs.ctrl" }
           if (Test-Path $oldData) { throw "the old better-meos data folder is still there" }
       - uses: actions/upload-artifact@v4
         with:

@@ -1,7 +1,7 @@
 """
 Multi-day / multi-stage events.
 
-Each stage is its own ``.bmeos`` file (the file-per-event model). This module
+Each stage is its own ``.ctrl`` file (the file-per-event model). This module
 combines several stage files into an overall standing -- summing each
 competitor's stage times -- and computes chase (handicap / Gundersson) start
 times for a later stage from the deficit built up so far.

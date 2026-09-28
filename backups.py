@@ -5,7 +5,7 @@ A laptop dying mid-event, a corrupted file, a OneDrive sync conflict: all of
 them lose the event unless there's a recent copy somewhere else. A background
 thread snapshots the open event file every few minutes *if anything changed*
 (db.revision), using SQLite's online backup so the copy is consistent while the
-app keeps serving. Snapshots are ordinary ``.bmeos`` files, so recovering is
+app keeps serving. Snapshots are ordinary ``.ctrl`` event files, so recovering is
 just opening one from the start page (or restoring it via Import / Export).
 
 Settings (see config.py): folder (default outside OneDrive, in the user's
@@ -62,7 +62,7 @@ def in_synced_folder(path: str) -> bool:
 
 def _prune(folder: str, slug: str) -> None:
     keep = max(1, int(config.get("backup_keep") or 30))
-    pattern = re.compile(re.escape(slug) + r"-\d{8}-\d{6}\.bmeos$")
+    pattern = re.compile(re.escape(slug) + r"-\d{8}-\d{6}\.(ctrl|bmeos)$")
     mine = sorted(f for f in os.listdir(folder) if pattern.match(f))
     for old in mine[:-keep]:
         try:
@@ -82,7 +82,7 @@ def backup_now() -> list[str]:
     for folder in folders():
         try:
             os.makedirs(folder, exist_ok=True)
-            path = os.path.join(folder, f"{slug}-{stamp}.bmeos")
+            path = os.path.join(folder, f"{slug}-{stamp}{store.EVENT_EXT}")
             db.backup_to(path)
             _prune(folder, slug)
             written.append(path)

@@ -24,11 +24,13 @@ def test_backup_now_writes_openable_snapshots(cfg, tmp_path):
 def test_prune_keeps_newest(cfg, tmp_path):
     folder = tmp_path / "p"
     folder.mkdir()
-    for stamp in ("20260101-100000", "20260101-100100", "20260101-100200"):
-        (folder / f"ev-{stamp}.bmeos").write_bytes(b"")
+    # The oldest is from before the rename (.bmeos): pruned all the same.
+    (folder / "ev-20260101-100000.bmeos").write_bytes(b"")
+    for stamp in ("20260101-100100", "20260101-100200"):
+        (folder / f"ev-{stamp}.ctrl").write_bytes(b"")
     cfg.save({"backup_keep": 2})
     backups._prune(str(folder), "ev")
-    assert sorted(os.listdir(folder)) == ["ev-20260101-100100.bmeos", "ev-20260101-100200.bmeos"]
+    assert sorted(os.listdir(folder)) == ["ev-20260101-100100.ctrl", "ev-20260101-100200.ctrl"]
 
 
 def test_maybe_backup_only_when_changed(cfg, tmp_path):

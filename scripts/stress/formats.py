@@ -32,7 +32,7 @@ def run(check: Check) -> None:
         # Switch back to an earlier event: its results are intact.
         check.part("switching events")
         events = c.page("/start")
-        paths = re.findall(r'data-path="([^"]+\.bmeos)"', events)
+        paths = re.findall(r'data-path="([^"]+\.ctrl)"', events)
         check(len(paths) >= 6, "all six event files listed", len(paths))
         score_path = next((p for p in paths if "score" in p), None)
         c.post("/api/events/open", {"path": score_path}, expect=200)

@@ -48,7 +48,24 @@ plan in 1.0 is dead.
   `{autopf}\better-meos`, the old Start menu group and desktop shortcut. CI
   installs the real v1.2.0 release, adds an event to its folder, installs the
   new build over it and checks the event moved and the old program is gone.
-- Kept on purpose: the `.bmeos` extension, `BMEOS_*` environment variables,
+- Event files are `.ctrl` (store.EVENT_EXT; `.ctrl` elsewhere is only niche
+  Oracle WebLogic / payroll formats, nothing on a club laptop). Old `.bmeos`
+  still open (store.EVENT_EXTS); `store.rename_old_event_files` renames them
+  in the events folder whenever `events_in_folder` runs (skips the open file
+  and any name already taken). Backups `.ctrl`, pruning matches both; the
+  backup download is `<slug>-backup.ctrl`.
+- **Sample event** (`sample.py`, `POST /api/events/sample`, button on the start
+  page): "Sample Sprint", today, first start 10:00; courses A-D (3.3/2.7/2.1/
+  1.5 km, 22/18/14/10 controls from 31-70, leg lengths), 12 classes with fees,
+  130 made-up runners in 6 clubs, cards 7100001+, club-separated draw at 1 min
+  with a vacant per class, bibs from 101. Seeded (random.Random(2026)), a new
+  file each click (sample-sprint-2.ctrl, ...). Built through the store, not
+  shipped as a file, so it never goes stale against the schema.
+- `simulator.simulate_one` now prefers entered individual runners with a card
+  and start who haven't downloaded (their own start time), and times legs from
+  leg lengths at 4:00-7:30/km with an occasional mistake; falls back to the
+  pool of walk-ups as before.
+- Kept on purpose: `BMEOS_*` environment variables,
   the repo slug `Squandit/better-meos` (renaming the repo on GitHub is fine
   later; GitHub redirects the old URLs, but update the v1.2.0 download URL in
   build-exe.yml's upgrade test), and `START-laptop.bat`'s venv path.
@@ -838,7 +855,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 296 passing) + stress suite (`scripts/stress/`, see 1.7)
+## 7. Test suite (`tests/`, 298 passing) + stress suite (`scripts/stress/`, see 1.7)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:

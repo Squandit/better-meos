@@ -905,7 +905,7 @@ def load_event_file(path: str) -> dict | None:
     """
     Load another event file's full model without touching the open connection.
 
-    Used by the multi-stage view to combine results across ``.bmeos`` files.
+    Used by the multi-stage view to combine results across ``.ctrl`` event files.
     Returns the same shape as :func:`load_event`, plus ``meta`` (the event row),
     or ``None`` if the file isn't a readable event. The throwaway connection is
     schema-migrated first so files written by an older version still read.

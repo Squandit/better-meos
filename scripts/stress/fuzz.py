@@ -50,7 +50,7 @@ def run(check: Check) -> None:
                                         "card_number": 7950001 + i, "start": "10:00:00"},
                    expect=201)
         # Never fuzz the routes that end the event or swap the file out.
-        skip = {"/api/events/close", "/api/events/new", "/api/events/open", "/api/restore",
+        skip = {"/api/events/close", "/api/events/new", "/api/events/sample", "/api/events/open", "/api/restore",
                 "/api/sync/import", "/api/remote/start", "/api/remote/stop", "/api/stream",
                 "/api/publish/now", "/api/backups/now", "/api/dashboard/reset"}
         errors = []
@@ -115,7 +115,7 @@ def run(check: Check) -> None:
                 continue
             path = concrete(rule, ev["slug"])
             for q in ("?classId=abc", "?card=-1&q=%27%20OR%201%3D1", "?name=" + "x" * 5000,
-                      "?stage=../../x.bmeos&stage=", "?classes=%00", "?target=nope&q=%3Cb%3E",
+                      "?stage=../../x.ctrl&stage=", "?classes=%00", "?target=nope&q=%3Cb%3E",
                       "?page=%ff", "?next=//evil"):
                 r = c.s.get(app.admin + path + q, timeout=30, allow_redirects=False)
                 if r.status_code >= 500:

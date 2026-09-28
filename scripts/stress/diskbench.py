@@ -18,7 +18,7 @@ N = int(sys.argv[1]) if len(sys.argv) > 1 else 1500
 
 def bench(journal, sync):
     folder = tempfile.mkdtemp()
-    path = os.path.join(folder, "bench.bmeos")
+    path = os.path.join(folder, "bench.ctrl")
     con = sqlite3.connect(path)
     con.execute(f"PRAGMA journal_mode={journal}")
     con.execute(f"PRAGMA synchronous={sync}")

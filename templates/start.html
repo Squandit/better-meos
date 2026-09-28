@@ -70,9 +70,15 @@
                     <span class="ev-open">Open →</span>
                 </li>
                 {% else %}
-                <li class="event-empty">No events in this folder yet — create one.</li>
+                <li class="event-empty">No events in this folder yet. Create one, or try the sample.</li>
                 {% endfor %}
             </ul>
+            <div class="sample-offer">
+                <div><strong>Sample sprint</strong>
+                    <small>Courses, classes and 130 entered runners, drawn and ready for the finish. Use Simulate download to bring them in.</small></div>
+                <button class="btn btn-ghost btn-sm" type="button" data-sample>Open a sample event</button>
+            </div>
+            <p class="form-error" data-sample-error hidden></p>
         </section>
 
         <section class="start-card">
@@ -121,6 +127,18 @@
                 window.location.href = "/setup";
             })
             .catch(function () { err.textContent = "Could not create event"; err.hidden = false; });
+    });
+
+    document.querySelector("[data-sample]").addEventListener("click", function (e) {
+        var btn = e.currentTarget, err = document.querySelector("[data-sample-error]");
+        btn.disabled = true; err.hidden = true;
+        fetch("/api/events/sample", { method: "POST" })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (!res.ok) { throw new Error((res.d && res.d.error) || "Could not make the sample event"); }
+                window.location.href = "/";
+            })
+            .catch(function (x) { err.textContent = x.message || "Could not make the sample event"; err.hidden = false; btn.disabled = false; });
     });
 
     function openEvent(path) {

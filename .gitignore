@@ -48,6 +48,7 @@ build/
 
 # Per-event files + events folder
 *.bmeos
+*.ctrl
 events/
 runners.db
 

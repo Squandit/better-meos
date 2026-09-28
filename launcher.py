@@ -129,7 +129,7 @@ def adopt_old_data(exe_dir: str, root: str) -> list[str]:
     if os.path.isdir(src_events):
         os.makedirs(dst_events, exist_ok=True)
         for name in os.listdir(src_events):
-            if name.endswith(".bmeos") and not os.path.exists(os.path.join(dst_events, name)):
+            if name.endswith((".ctrl", ".bmeos")) and not os.path.exists(os.path.join(dst_events, name)):
                 shutil.copy2(os.path.join(src_events, name), os.path.join(dst_events, name))
                 copied.append(os.path.join("events", name))
     return copied

@@ -478,7 +478,7 @@ check(economy.count("data-unpay>Undo") == paid, "Undo only where a payment was r
 
 # ---- Day 2: chase start, then season ----------------------------------------------
 print("== Day 2")
-ev_files = sorted(re.findall(r'value="([^"]+\.bmeos)"', page("/stages").text))
+ev_files = sorted(re.findall(r'value="([^"]+\.ctrl)"', page("/stages").text))
 print("  event files:", ev_files)
 ev2 = api("POST", "/api/events/new", {"name": "Sim Champs Day 2", "date": DAY,
                                       "first_start": "13:00:00"}, expect=201)

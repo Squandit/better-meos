@@ -3,10 +3,11 @@ Download simulator (hardware-free testing).
 
 Each call to :func:`simulate_one` pretends a different person walked up and
 downloaded their SI card -- exactly what the brick would feed in, but with no
-real data. It picks someone who hasn't downloaded yet (from a built-in pool,
-then made-up extras once the pool has all been read), makes sure they're
-entered (creating an on-the-day entry if needed), generates a plausible run for
-their class's course, and pushes it through the same path a real download uses
+real data. It picks someone who hasn't downloaded yet: an entered runner with
+a card and a start time first (so a drawn start list, like the sample event's,
+comes in runner by runner), else someone from a built-in pool (then made-up
+extras once the pool has all been read), entered on the day. It generates a
+plausible run for their class's course from their start, and pushes it through the same path a real download uses
 (``si_reader.process_card`` -> ``store.apply_card_read``), so results, the "still
 out" count, the live screen and the runner database all update for real.
 
@@ -46,6 +47,18 @@ LAST = ["Aske", "Birk", "Crane", "Dahl", "Eide", "Frost", "Gill", "Holm", "Ivers
 EXTRA_CARD = 8000100
 
 
+def _next_entrant() -> dict | None:
+    """An entered, individual runner with a card and a start time, not yet read."""
+    waiting = [c for c in store._competitors.values()
+               if c.get("card_number") and c.get("start") and not c.get("vacant")
+               and c.get("read_at") is None
+               and (store.get_class(c["class_id"]) or {}).get("kind", "individual") == "individual"]
+    if not waiting:
+        return None
+    comp = random.choice(waiting)
+    return {"name": comp["name"], "club": comp.get("club") or "", "card": comp["card_number"]}
+
+
 def _next_person() -> dict:
     """Someone whose card hasn't been read yet.
 
@@ -74,9 +87,20 @@ def _base_start() -> datetime:
     return first or datetime.combine(store.EVENT_DATE, time(10, 0))
 
 
-def _generate_run(course: dict) -> tuple:
+def _leg_seconds(course: dict, i: int, pace: float) -> int:
+    """One leg: from its length at the runner's pace (s/m) when the course has
+    leg lengths, now and then with a mistake; else 1 to 5 minutes."""
+    lengths = course.get("leg_lengths") or []
+    if i < len(lengths) and lengths[i]:
+        mistake = random.uniform(1.5, 3) if random.random() < 0.08 else 1
+        return max(8, round(lengths[i] * pace * random.uniform(0.85, 1.2) * mistake))
+    return random.randint(60, 300)
+
+
+def _generate_run(course: dict, start: datetime | None = None) -> tuple:
     """Plausible (start, finish, punches) for one run; mostly clean, some MP."""
-    start = _base_start() + timedelta(minutes=random.randint(0, 90))
+    start = start or _base_start() + timedelta(minutes=random.randint(0, 90))
+    pace = random.uniform(0.24, 0.45)        # 4:00 to 7:30 per km
     t = start
     punches = []
     if course["type"] == "score":
@@ -88,12 +112,16 @@ def _generate_run(course: dict) -> tuple:
     else:
         codes = list(course["controls"])
         # ~1 in 7 runs misses a control (a mispunch) for variety.
-        if len(codes) > 1 and random.random() < 0.15:
-            codes.pop(random.randrange(len(codes)))
-        for code in codes:
-            t += timedelta(seconds=random.randint(60, 300))
-            punches.append((code, t))
-    finish = t + timedelta(seconds=random.randint(60, 200))
+        missed = (random.randrange(len(codes))
+                  if len(codes) > 1 and random.random() < 0.15 else None)
+        for i, code in enumerate(codes):
+            t += timedelta(seconds=_leg_seconds(course, i, pace))
+            if i != missed:
+                punches.append((code, t))
+    if course["type"] != "score" and course.get("leg_lengths"):
+        finish = t + timedelta(seconds=_leg_seconds(course, len(course["controls"]), pace))
+    else:
+        finish = t + timedelta(seconds=random.randint(60, 200))
     return start, finish, punches
 
 
@@ -106,7 +134,7 @@ def simulate_one() -> dict:
             return {"ok": False,
                     "error": "Add at least one class before simulating downloads."}
 
-        person = _next_person()
+        person = _next_entrant() or _next_person()
         existing = store.find_by_card(person["card"])
         if existing is None:
             cls = random.choice(class_opts)
@@ -120,7 +148,7 @@ def simulate_one() -> dict:
             class_name = store.get_class(class_id)["name"]
 
         course = store.get_course(store.get_class(class_id)["course_id"])
-        start, finish, punches = _generate_run(course)
+        start, finish, punches = _generate_run(course, (existing or {}).get("start"))
         outcome = si_reader.process_card(
             {"card_number": person["card"], "start": start, "finish": finish,
              "punches": punches}, station_id="finish")

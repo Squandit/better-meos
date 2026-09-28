@@ -110,7 +110,7 @@
         ["Interactive readout", "Unknown cards: 'New runner' on Download, or Settings > Unknown cards.", "/download"],
         ["Speaker", "Speaker.", "/speaker"],
         ["Automatic (backup, online results, print splits)", "Settings > Backups / Online results; auto-print on Download.", "/config"],
-        [".meos files", "Each event is one .bmeos file in the events folder. Bring a MeOS event across as IOF XML (results / entries).", "/tools"]
+        [".meos files", "Each event is one .ctrl file in the events folder. Bring a MeOS event across as IOF XML (results / entries).", "/tools"]
     ];
     var DIFFERENT = [
         "Results are never stored: they're worked out fresh from the punches every time, so fixing a card or a course fixes every list at once.",

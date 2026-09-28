@@ -20,8 +20,15 @@ better-meos is now called **Control**.
   `C:\Users\<you>\control-orienteering`. The old `better-meos` folder moves
   there by itself the first time Control starts (backups in local app data
   too). Nothing is deleted.
-- Event files keep the `.bmeos` extension, so every existing event opens as
-  before.
+- Event files are now `.ctrl`. Old `.bmeos` events in the events folder are
+  renamed the first time the start page lists them, and a `.bmeos` file
+  anywhere else still opens. Backups are `.ctrl` too.
+- A sample event: "Open a sample event" on the start page makes a club sprint
+  with four courses, twelve classes and 130 entered runners, drawn and with
+  bib numbers, ready for the finish. Everyone in it is made up.
+- Simulate download brings in the entered runners from their real start
+  times (it used to invent walk-ups), with sprint-like leg times when the
+  course has leg lengths.
 - The logo is a control flag.
 - Sign in, Create & open, the import buttons and the export links look like
   buttons again (they had lost their background and showed as plain text).

@@ -20,7 +20,11 @@ and its folder moves across the first time Control starts.
 
 The app opens in your browser. The operator console is on port 8799 (this
 laptop only, unless you allow other computers in Settings) and the public
-results and entry pages are on port 8800.
+results and entry pages are on port 8800. Each event is one `.ctrl` file.
+
+To look around first, click "Open a sample event" on the start page: a club
+sprint with courses, classes and 130 runners already entered and drawn.
+Simulate download on the Download page brings them through the finish.
 
 For a USB stick that moves between laptops, put the bare
 `control-orienteering.exe` on it with an empty `portable.txt` next to it, and

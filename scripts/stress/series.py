@@ -72,8 +72,8 @@ def _race(c, rng, day, people, kinds=None, first="10:00:00", ids=None, draw=True
 def _events(c) -> dict:
     page = c.page("/start")
     return {htmlmod.unescape(m.group(2)): m.group(1) for m in re.finditer(
-        r'data-path="([^"]+\.bmeos)"[^>]*data-name="([^"]*)"', page)} or {
-        os.path.basename(p): p for p in re.findall(r'data-path="([^"]+\.bmeos)"', page)}
+        r'data-path="([^"]+\.ctrl)"[^>]*data-name="([^"]*)"', page)} or {
+        os.path.basename(p): p for p in re.findall(r'data-path="([^"]+\.ctrl)"', page)}
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def multi_stage(c: Client, check: Check, rng, app) -> list[str]:
         kinds = {mp["name"]: "skip"} if s == 2 else {}
         per_stage.append(_race(c, rng, day, roster, kinds, ids=ids))
     events = c.page("/stages")
-    files = re.findall(r'value="([^"]+\.bmeos)"', events)
+    files = re.findall(r'value="([^"]+\.ctrl)"', events)
     stage_files = [f for f in files if "stage" in f]
     check.equal(len(stage_files), 2, "both stage files listed")
     q = "&".join(f"stage={f}" for f in stage_files)
@@ -325,9 +325,9 @@ def lifecycle(c: Client, check: Check, rng, app) -> None:
     c.delete(f"/api/competitors/{comps[0]['id']}", expect=200)
     c.put(f"/api/competitors/{comps[1]['id']}", {"manual_status": "dsq"}, expect=200)
     check(c.results() != results_before, "(the mistake shows)")
-    c.upload("/api/restore", "backup.bmeos", snap.content)
+    c.upload("/api/restore", "backup.ctrl", snap.content)
     check.equal(c.results(), results_before, "restore brings back exactly the backed-up results")
-    r = c.call("POST", "/api/restore", files={"file": ("junk.bmeos", b"not a database")}, raw=True)
+    r = c.call("POST", "/api/restore", files={"file": ("junk.ctrl", b"not a database")}, raw=True)
     check(r.status_code == 400, "a junk backup is refused", r.status_code)
     check.equal(c.results(), results_before, "a refused restore changes nothing")
     c.post("/api/backups/now", {}, expect=200)
@@ -350,7 +350,7 @@ def lifecycle(c: Client, check: Check, rng, app) -> None:
     check(r.status_code == 409, "API refuses with no event open", r.status_code)
     r = c.s.get(app.admin + "/results", allow_redirects=False)
     check(r.status_code in (301, 302, 303), "pages send you to the start page", r.status_code)
-    for bad in ("/etc/passwd", path.replace(".bmeos", ".txt"), "../../x.bmeos"):
+    for bad in ("/etc/passwd", path.replace(".ctrl", ".txt"), "../../x.ctrl"):
         r = c.call("POST", "/api/events/open", {"path": bad}, raw=True)
         check(r.status_code == 400, f"refuses to open {bad!r}", r.status_code)
     c.post("/api/events/open", {"path": path}, expect=200)

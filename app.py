@@ -34,6 +34,7 @@ import pdf
 import publish
 import remote
 import runners
+import sample
 import search as search_mod
 import season
 import security
@@ -1608,6 +1609,15 @@ def api_backup_now():
     return jsonify({"ok": True, "files": written})
 
 
+@app.route("/api/events/sample", methods=["POST"])
+def api_sample_event():
+    """Create and open a fresh copy of the sample sprint (sample.py)."""
+    event = sample.create()
+    auth.ensure_admin()
+    si_reader.start_all()
+    return jsonify({"event": event}), 201
+
+
 @app.route("/api/events/new", methods=["POST"])
 def api_new_event():
     """Create + open a new event file. Optional entries file imported after."""
@@ -1881,7 +1891,7 @@ def api_backup():
     return Response(
         data, mimetype="application/x-sqlite3",
         headers={"Content-Disposition":
-                 f"attachment; filename={store.EVENT['slug']}-backup.db"},
+                 f"attachment; filename={store.EVENT['slug']}-backup{store.EVENT_EXT}"},
     )
 
 
