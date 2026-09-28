@@ -1602,7 +1602,7 @@ def add_radio_punch(card_number: int, code: int, time: datetime,
     competitor's list in time order so the splits stay correct as the run
     progresses. Raises StoreError if no competitor is registered for the card.
     """
-    with _lock:
+    with batch():                # the punch and its change-log line: one disk commit
         comp = find_by_card(card_number)
         if comp is None:
             raise StoreError(f"No competitor registered for SI card {card_number}")
@@ -1642,7 +1642,7 @@ def apply_card_read(card: dict) -> dict:
     Returns the competitor's editable JSON. Raises StoreError if no competitor is
     registered for the card number (see :func:`record_unmatched_read`).
     """
-    with _lock:
+    with batch():                # the run and its change-log line: one disk commit
         number = card.get("card_number")
         comp = find_by_card(number) if number is not None else None
         if comp is None:
