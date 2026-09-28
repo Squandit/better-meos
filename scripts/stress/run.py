@@ -19,6 +19,10 @@ SCENARIOS = ["sprint", "formats", "series", "stations", "guard", "fuzz", "load",
 
 
 def main(names) -> int:
+    # Names with accents print on a Windows console too.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     names = names or SCENARIOS
     checks = []
     for name in names:

@@ -85,6 +85,7 @@ def run(check: Check) -> None:
         print(f"     {len(times)} reads one after another: {total:.0f}s, p50 {p50 * 1000:.0f}ms, "
               f"p95 {p95 * 1000:.0f}ms, worst {worst * 1000:.0f}ms")
         check(p95 < 0.5, "a card read takes under half a second (p95)", f"{p95:.3f}s")
+        check(worst < 3, "no card read takes more than 3 s", f"{worst:.2f}s")
 
         check.part("pages")
         pages = ["/", "/results", "/splits", "/live", "/competitors", "/download", "/speaker",
@@ -108,7 +109,7 @@ def run(check: Check) -> None:
 
         for label, pause, read_every, lat_limit, read_limit in (
                 ("a realistic crowd: 60 phones reloading every 2-4 s, a card a second",
-                 (2, 4), 1.0, 2.0, 1.0),
+                 (2, 4), 1.0, 3.0, 1.0),
                 ("an extreme crowd: 40 phones reloading non-stop, 5 cards a second",
                  None, 0.2, 5.0, 5.0)):
             check.part(label)

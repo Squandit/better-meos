@@ -26,6 +26,69 @@ build step), SI-card timing, live results, online entry, and a packaged Windows
 
 ## 1. ⚠️ CURRENT STATE — read this first
 
+### 1.7 DONE: stress suite, and everything it found (2026-09-28, cloud session)
+`scripts/stress/` runs whole events against real app processes, each with
+its own data folder and ports (`harness.py`), and checks what the app
+publishes against an independent reading of the rules (`oracle.py`).
+Run all: `python scripts/stress/run.py`, or name scenarios. CI runs it on
+Windows after pytest (the browser scenario skips itself without Playwright).
+3,358 checks, all passing. `BMEOS_STRESS_SEED` changes the fuzzer's seed.
+
+- `sprint`: 16 classes, ~400 runners, forks, butterfly, all draw methods,
+  late entries, hire cards, radio, every kind of card read in parallel while
+  pages are hammered, control statuses, manual statuses, results settings,
+  IOF splits, economy, prizes, close-out.
+- `formats`: score-O (clock, mass start, formula), punch start, relays (team
+  start + restart + forks, mass-start course), patrols, night across
+  midnight, a live event today.
+- `series`: 3-stage event + chase start, 4-event season, online and
+  pre-event entries, runner DB, backup/restore, publishing, close/reopen/
+  restart, IOF imports.
+- `stations`: main computer + second download desk.
+- `guard`: public port surface, cross-site, admin password, logins, path
+  tricks, script in names.
+- `fuzz`: garbage to every route, upload and query string.
+- `load`: 2,000 runners; page timings; realistic and extreme crowds on the
+  public results; live-update streams.
+- `browser`: every page at desktop/phone, light/dark in Chromium, then the
+  main flows by clicking.
+
+Bugs found and fixed (each commit message has the details):
+- Results: relay leg 1 ignored the team start (DNS); later legs on a
+  mass-start course were timed from the gun; relay runners were placed
+  against other legs; relay prizes went to legs; score courses lost their
+  start mode (no mass-start score-O).
+- Draw: drawing with every class ticked gave relay/patrol runners their own
+  start times (now skipped, shown as "team start"); a redraw of a class with
+  finishers failed halfway and left a half-drawn list (now checked first);
+  classes on one course drawn separately clashed silently (now warned on the
+  draw page and checklist).
+- Multi-stage: a runner who changed card between stages was two people
+  (union-find on own card or name + club; hire cards never link); vacants
+  showed as a runner; chase starts skip runners who already ran.
+- Stations: check time dropped when forwarded and on kept reads; an unknown
+  card at a second desk counted as a failed send (duplicate kept reads); a
+  wrong token said "unreachable"; a second desk needed an env var (now the
+  setting "Send card reads to another computer" + a start-page panel).
+- Security: the IOF parser opened uploaded text as a file name on the
+  server; the public pages showed the operator sidebar; with logins on, a
+  fresh install could never log in (admin now seeded at start-up).
+- Robustness: non-object JSON bodies, Windows-1252 / UTF-16 uploads, CSV
+  rows with extra columns, huge numbers, NaN/Infinity, 100k-character names
+  (text now capped at 200 characters) all crashed something.
+- Settings couldn't be saved with no event open. The editor's live preview
+  failed on every edit. Close-out named only 5 runners still out. Economy
+  showed Undo for unpaid runners. The two runner-DB imports each took one
+  format (now both take CSV or IOF XML, one box on Tools).
+- Load: a crowd on the public results re-rendered every page for every
+  phone after each read (p95 12 s). Public pages now render once per change
+  and serve the previous version mid-render (p95 ~1 s at 80 loads/s).
+  Stream keep-alive 4 s (was 10) so closed tabs free their slot quickly.
+- The entry page no longer loads a Google font (hangs with no internet).
+- Backups held the database lock while writing the file: on the Windows CI
+  disk one card read waited 6.8 s. The snapshot is now taken in memory under
+  the lock and written to disk after.
+
 ### 1.6 DONE: feedback from the first laptop test (2026-09-28, cloud session)
 - **Quick fixes**: Start draw is under More tools. Class editor greys out and
   disables relay legs and "Relay mass start" (was "Relay restart") unless
@@ -726,7 +789,7 @@ padding as `.panel-body`.
 
 ---
 
-## 7. Test suite (`tests/`, 256 passing)
+## 7. Test suite (`tests/`, 291 passing) + stress suite (`scripts/stress/`, see 1.7)
 `conftest.py` points the events folder + runners DB at temp paths, creates +
 opens a temp event, and calls `store.seed_demo()` (mock roster: M21A + Score-O,
 Test Runner card 8635918, etc.) so data-dependent tests work. Files:

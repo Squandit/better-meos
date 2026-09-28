@@ -111,7 +111,12 @@ def run(check: Check) -> None:
                    expect=200)
             s.read(7800021, None, plan["finish"], plan["punches"])
             check(n in m.results().get("Open", {}), "reading again once it's back works")
-            status = s.get("/api/station/status")
+            # The desk re-checks the link every few seconds.
+            for _ in range(20):
+                status = s.get("/api/station/status")
+                if status.get("reachable"):
+                    break
+                time.sleep(0.5)
             check(status.get("secondary") and status.get("reachable"), "station status: connected",
                   status)
             start_page = s.page("/start")

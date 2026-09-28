@@ -9,6 +9,34 @@ release. The number lives in `version.py`.
 - **Minor** (1.1.0): new features.
 - **Patch** (1.0.1): fixes only.
 
+## 1.2.0 (2026-09-28)
+
+A stress suite now runs whole events against the app on every build, and
+fixing what it found is most of this release.
+
+- Relays: leg 1 now uses the team start; later legs on a mass-start course
+  are timed from the changeover, not the gun.
+- The start draw leaves relay and patrol classes alone, refuses (whole) to
+  redraw classes that have finishers, and warns when classes sharing a
+  course would start runners at the same minute.
+- Multi-stage: a runner on a different card in a later stage is still one
+  person; chase starts skip anyone who has already run.
+- Score-O courses can be mass starts.
+- A second download desk is now a setting ("Send card reads to another
+  computer"), with its own status on the start page. Unknown cards and
+  check times are handled properly there.
+- Settings can be changed before any event is open.
+- The public results pages show only public links.
+- With logins on, a fresh install can log in.
+- CSV files saved by Excel on Windows import correctly.
+- Many inputs that used to cause a server error are now refused with a
+  message; text fields are limited to 200 characters.
+- The competitor editor's live preview works again.
+- The close-out check lists everyone still out.
+- The public results stay quick with a crowd of phones on them.
+- One runner-database import box for CSV or IOF XML.
+- Automatic backups no longer hold up card reads while they're written.
+
 ## 1.1.0 (2026-09-28)
 
 - Split slips print straight to the printer with no print dialog: the app

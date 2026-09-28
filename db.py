@@ -371,13 +371,21 @@ def backup_to(dest_path: str) -> None:
 
     Uses ``sqlite3.Connection.backup`` so the snapshot is transactionally
     consistent even while the app keeps serving -- no risk of a torn file copy.
+    The snapshot is taken into memory under the lock (milliseconds) and only
+    then written to disk, so a slow disk or a virus scanner looking at the new
+    file never holds up a card read.
     """
-    with _lock:
+    snapshot = sqlite3.connect(":memory:")
+    try:
+        with _lock:
+            _c().backup(snapshot)
         dest = sqlite3.connect(dest_path)
         try:
-            _c().backup(dest)
+            snapshot.backup(dest)
         finally:
             dest.close()
+    finally:
+        snapshot.close()
 
 
 def restore_from(src_path: str) -> None:
