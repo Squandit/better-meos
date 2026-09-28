@@ -25,6 +25,7 @@ import eventor
 import events
 import iofxml
 import importers
+import network
 import online_entry
 import payments
 import pdf
@@ -161,7 +162,10 @@ def _appearance() -> dict:
 
 # Paths reachable with no event open (the start page + its actions + assets +
 # the admin unlock + Settings and the printer check, which are event-independent).
-_NO_EVENT_OK = ("/static/", "/api/events/", "/api/config", "/api/printers", "/api/print/test")
+_NO_EVENT_OK = ("/static/", "/api/events/", "/api/config", "/api/settings", "/api/serial-ports",
+                "/api/printers", "/api/print/test", "/api/station/status")
+# A second download desk holds no event: its reads go to the main computer.
+_STATION_OK = ("/api/reader/simulate", "/api/readout/latest", "/readout")
 
 
 @app.before_request
@@ -185,7 +189,8 @@ def _require_open_event():
     p = request.path
     if (p in ("/start", "/favicon.ico", "/sw.js", "/manifest.json",
               "/unlock", "/lock", "/config", "/login", "/logout")
-            or p.startswith(_NO_EVENT_OK)):
+            or p.startswith(_NO_EVENT_OK)
+            or (p.startswith(_STATION_OK) and network.is_secondary())):
         return None
     if p.startswith("/api/"):
         return jsonify({"error": "No event open"}), 409
@@ -1378,10 +1383,26 @@ def api_draw_startlist():
 
 @app.route("/start")
 def start():
-    """Event selection: open an event file from the folder, or create a new one."""
+    """Event selection: open an event file from the folder, or create a new one.
+    On a second download desk, also what the station is doing."""
     return render_template("start.html", events=store.events_in_folder(),
                            folder=store.events_dir(),
-                           synced_folder=backups.in_synced_folder(store.events_dir()))
+                           synced_folder=backups.in_synced_folder(store.events_dir()),
+                           station=_station_status())
+
+
+def _station_status() -> dict:
+    status = network.primary_status()
+    if status.get("secondary"):
+        status["reads"] = si_reader.recent_reads()[:12]
+        status["readers"] = si_reader.reader_status()
+    return status
+
+
+@app.route("/api/station/status")
+def api_station_status():
+    """A second download desk's link to the main computer, and its last reads."""
+    return jsonify(_station_status())
 
 
 @app.route("/setup")

@@ -1082,3 +1082,6 @@ td.owing { color: var(--red-ink); font-weight: 700; }
 /* A problem the operator should fix before the start (draw clashes). */
 .warn-panel { border-left: 4px solid var(--orange); margin-bottom: 16px; }
 .warn-panel p { margin: 6px 0 0; }
+.station-card { margin-bottom: 18px; }
+.station-link { margin-left: 6px; color: var(--accent, inherit); }
+.station-link.bad { color: var(--red-ink); }

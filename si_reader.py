@@ -123,7 +123,8 @@ def _process_card(card: dict, station_id: str | None, auto_create: bool) -> dict
             _remember(when, None, card.get("card_number"), station_id, ok=False)
             # push_failed tells the reader loop not to acknowledge the card,
             # so the runner can read out again instead of the run being lost.
-            return {"ok": False, "error": f"primary unreachable: {err}",
+            reason = str(err) if isinstance(err, RuntimeError) else f"can't reach it: {err}"
+            return {"ok": False, "error": f"Not sent to the main computer ({reason})",
                     "card_number": card.get("card_number"), "push_failed": True}
         _remember(when, (outcome.get("competitor") or {}).get("name"),
                   card.get("card_number"), station_id, ok=bool(outcome.get("ok")))

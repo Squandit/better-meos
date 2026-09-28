@@ -14,6 +14,46 @@
         <div><h1>better-meos</h1><small>Choose an event to run, or create a new one · version {{ app_version }}</small></div>
     </header>
 
+    {% if station.secondary %}
+    <section class="start-card station-card" data-station>
+        <h2>Second download desk</h2>
+        <p>Every card read at this computer goes to the one running the event,
+           <code>{{ station.primary }}</code>.
+           <strong class="station-link" data-station-link>{% if station.reachable %}Connected{% else %}Can't reach it{% if station.error %} ({{ station.error }}){% endif %}{% endif %}</strong></p>
+        {% if not station.token_set %}<p class="start-warning">No station token set here: the main computer refuses reads without it. Set the same Station token in Settings on both computers.</p>{% endif %}
+        <table class="table station-reads">
+            <thead><tr><th>Read</th><th>SI card</th><th>Runner</th></tr></thead>
+            <tbody data-station-reads>
+                {% for r in station.reads %}
+                <tr><td class="mono">{{ r.time }}</td><td class="mono">{{ r.card_number }}</td>
+                    <td>{% if r.ok %}{{ r.name }}{% else %}<span class="badge badge-mp">Not entered, or didn't reach the main computer</span>{% endif %}</td></tr>
+                {% else %}
+                <tr><td colspan="3" class="empty">No cards read here yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p><a href="{{ url_for('readout_page') }}" target="_blank" rel="noopener">Readout screen</a> ·
+           <a href="{{ url_for('config_page') }}?q=send card reads">Change in Settings</a></p>
+    </section>
+    <script>
+    (function () {
+        var link = document.querySelector("[data-station-link]");
+        var body = document.querySelector("[data-station-reads]");
+        function esc(t) { var d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; }
+        setInterval(function () {
+            fetch("/api/station/status", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+                link.textContent = d.reachable ? "Connected" : "Can't reach it" + (d.error ? " (" + d.error + ")" : "");
+                link.classList.toggle("bad", !d.reachable);
+                body.innerHTML = (d.reads || []).map(function (r) {
+                    return "<tr><td class='mono'>" + esc(r.time) + "</td><td class='mono'>" + esc(r.card_number) + "</td><td>" +
+                        (r.ok ? esc(r.name) : "<span class='badge badge-mp'>Not entered, or didn't reach the main computer</span>") + "</td></tr>";
+                }).join("") || "<tr><td colspan='3' class='empty'>No cards read here yet.</td></tr>";
+            }).catch(function () { link.textContent = "This computer's app isn't answering"; });
+        }, 4000);
+    })();
+    </script>
+    {% endif %}
+
     <div class="start-grid">
         <section class="start-card">
             <h2>Open an event</h2>

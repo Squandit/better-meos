@@ -21,7 +21,6 @@ on every PC); the primary refuses pushes without it. The primary must also have
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.request
 
@@ -34,10 +33,33 @@ STATION_HEADER = "X-Station-Token"
 
 
 def primary_url() -> str | None:
-    """The primary instance's base URL (env ``BMEOS_PRIMARY``), or None if this
-    instance is itself the primary."""
-    url = (os.environ.get("BMEOS_PRIMARY") or "").strip().rstrip("/")
+    """The primary instance's base URL (Settings "Send card reads to another
+    computer", or env ``BMEOS_PRIMARY``), or None if this instance is itself
+    the primary."""
+    url = config.get_str("primary_url").strip().rstrip("/")
+    if url and "://" not in url:
+        url = "http://" + url
     return url or None
+
+
+_reach = {"at": 0.0, "ok": None, "error": ""}
+
+
+def primary_status() -> dict:
+    """Can this station reach the primary? Checked at most every 5 seconds."""
+    import time
+    url = primary_url()
+    if url is None:
+        return {"secondary": False}
+    if time.time() - _reach["at"] > 5:
+        try:
+            with urllib.request.urlopen(url + "/api/version", timeout=2) as resp:
+                _reach.update(ok=resp.status == 200, error="")
+        except (urllib.error.URLError, OSError) as err:
+            _reach.update(ok=False, error=str(getattr(err, "reason", err)))
+        _reach["at"] = time.time()
+    return {"secondary": True, "primary": url, "reachable": _reach["ok"],
+            "error": _reach["error"], "token_set": bool(config.get_str("station_token"))}
 
 
 def is_secondary() -> bool:
@@ -85,5 +107,19 @@ def push_card(card: dict, *, url: str | None = None, timeout: float = 5.0) -> di
     req = urllib.request.Request(
         base.rstrip("/") + PUSH_PATH, data=data,
         headers={"Content-Type": "application/json", STATION_HEADER: token})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        if err.code in (401, 403):
+            raise RuntimeError("the main computer refused this station: the station "
+                               "token must be the same on both computers") from err
+        # 404 = a card nobody has entered: the main computer kept the read
+        # (it's on its Download page), so this read has been dealt with.
+        try:
+            outcome = json.loads(err.read().decode("utf-8"))
+        except (ValueError, OSError):
+            raise err
+        if isinstance(outcome, dict) and "ok" in outcome:
+            return outcome
+        raise

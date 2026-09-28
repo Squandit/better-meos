@@ -151,7 +151,7 @@ class Client:
                                headers=headers)
         else:
             r = self.s.request(method, url, headers=headers)
-        if r.status_code >= 500:
+        if r.status_code >= 500 and r.status_code != expect:
             self.check(False, f"{method} {path} server error {r.status_code}", r.text[:400])
         elif expect is not None and r.status_code != expect:
             self.check(False, f"{method} {path} -> {r.status_code}, wanted {expect}",

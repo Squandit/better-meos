@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from harness import Check  # noqa: E402
 
-SCENARIOS = ["sprint", "formats", "series"]
+SCENARIOS = ["sprint", "formats", "series", "stations"]
 
 
 def main(names) -> int:

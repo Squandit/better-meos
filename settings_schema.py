@@ -402,6 +402,10 @@ SCHEMA: list[Setting] = [
     S("station_token", "Station token", "password", "", "Network & security",
       "Shared secret that secondary download stations and radio controls send with "
       "each punch. Set the same value on every station.", env="BMEOS_STATION_TOKEN"),
+    S("primary_url", "Send card reads to another computer", "str", "", "Network & security",
+      "Makes this computer a second download desk: every card read here goes to the "
+      "computer running the event, e.g. http://192.168.1.10:8799 (its console address). "
+      "Blank = this computer runs the event.", env="BMEOS_PRIMARY", pages=("download",)),
 ]
 
 BY_KEY: dict[str, Setting] = {}
