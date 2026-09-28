@@ -136,3 +136,18 @@ def test_editor_preview_of_an_unsaved_runner(client):
                                           "manual_status": "", "course_id": ""})
     assert r.status_code == 200
     assert r.get_json()["result"]["status"] in ("mp", "ok")
+
+
+def test_big_pages_are_compressed_for_browsers(client):
+    import gzip
+    plain = client.get("/results")
+    packed = client.get("/results", headers={"Accept-Encoding": "gzip, deflate"})
+    assert packed.headers.get("Content-Encoding") == "gzip"
+    assert gzip.decompress(packed.data) == plain.data
+    assert len(packed.data) < len(plain.data) / 3
+    # Twice from the cache: the same compressed page.
+    again = client.get("/results", headers={"Accept-Encoding": "gzip"})
+    assert again.data == packed.data
+    # Streams and binary files are left alone.
+    assert client.get("/export/results.pdf",
+                      headers={"Accept-Encoding": "gzip"}).headers.get("Content-Encoding") is None

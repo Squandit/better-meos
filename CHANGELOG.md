@@ -36,6 +36,10 @@ fixing what it found is most of this release.
 - The public results stay quick with a crowd of phones on them.
 - One runner-database import box for CSV or IOF XML.
 - Automatic backups no longer hold up card reads while they're written.
+- Pages are sent compressed: a big event's results reach phones about 15
+  times smaller.
+- A second desk shows its link to the main computer correctly when that
+  computer has an admin password.
 
 ## 1.1.0 (2026-09-28)
 

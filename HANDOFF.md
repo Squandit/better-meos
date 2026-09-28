@@ -87,7 +87,20 @@ Bugs found and fixed (each commit message has the details):
 - The entry page no longer loads a Google font (hangs with no internet).
 - Backups held the database lock while writing the file: on the Windows CI
   disk one card read waited 6.8 s. The snapshot is now taken in memory under
-  the lock and written to disk after.
+  the lock and written to disk after (worst read since: 0.125 s).
+- A card read (and a radio punch) is one disk commit now, not two.
+- Journal mode: `scripts/stress/diskbench.py` on the Windows runner gave
+  DELETE (the default) p50 16 ms / max 137 ms per read's save, WAL (sync
+  full) 3 ms / 18 ms. Kept DELETE: 16 ms is fine and WAL's -wal/-shm side
+  files make copying the event file mid-event unsafe.
+- Responses are gzipped for browsers (after_request; cached pages keep a
+  compressed copy made once per render). At 2,000 runners the public results
+  page is 3.9 MB, 257 KB compressed: phones on event WiFi load it in a
+  fraction of the time, and the extreme crowd test went from 84 to 107
+  loads/s with p95 0.8 s.
+- A second desk checks its link with `POST /api/station/ping` and the
+  station token (the old check hit the admin password gate, so a desk with a
+  password-protected main computer always showed "can't reach it").
 
 ### 1.6 DONE: feedback from the first laptop test (2026-09-28, cloud session)
 - **Quick fixes**: Start draw is under More tools. Class editor greys out and

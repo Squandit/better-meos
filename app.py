@@ -1,4 +1,5 @@
 import functools
+import gzip
 import io
 import json
 import os
@@ -126,14 +127,14 @@ def _public_cached(view, args, kwargs, key, revision):
     with _page_cache_lock:
         hit = _public_cache.get(key)
         if hit is not None and hit[0] == revision:
-            return Response(hit[1], mimetype=hit[2])
+            return _from_cache(hit[1:])
         lock = _public_locks.get(key)
         if lock is None and len(_public_locks) < _PAGE_CACHE_MAX:
             lock = _public_locks[key] = threading.Lock()
     if lock is None:
         return view(*args, **kwargs)
     if not lock.acquire(blocking=hit is None):
-        return Response(hit[1], mimetype=hit[2])      # being re-rendered: the last version
+        return _from_cache(hit[1:])                   # being re-rendered: the last version
     try:
         with _page_cache_lock:
             hit = _public_cache.get(key)
@@ -141,12 +142,12 @@ def _public_cached(view, args, kwargs, key, revision):
             resp = make_response(view(*args, **kwargs))
             if resp.status_code != 200:
                 return resp
-            hit = (revision, resp.get_data(), resp.mimetype)
+            hit = (revision, *_cache_entry(resp))
             with _page_cache_lock:
                 _public_cache[key] = hit
     finally:
         lock.release()
-    return Response(hit[1], mimetype=hit[2])
+    return _from_cache(hit[1:])
 
 
 def cached_page(view):
@@ -181,13 +182,58 @@ def cached_page(view):
                     resp = make_response(view(*args, **kwargs))
                     if resp.status_code != 200:
                         return resp
-                    hit = (resp.get_data(), resp.mimetype)
+                    hit = _cache_entry(resp)
                     with _page_cache_lock:
                         if _page_cache_revision == revision \
                                 and len(_page_cache) < _PAGE_CACHE_MAX:
                             _page_cache[key] = hit
-        return Response(hit[0], mimetype=hit[1])
+        return _from_cache(hit)
     return wrapper
+
+
+# ---------------------------------------------------------------------------
+# Compression: a big event's results page is megabytes of HTML (every
+# runner's splits are in it) but compresses about 15 times. Phones on a busy
+# event WiFi, and the server sending it, both feel the difference.
+# ---------------------------------------------------------------------------
+
+_COMPRESSIBLE = ("text/html", "application/json", "application/xml", "text/xml", "text/csv",
+                 "text/plain", "text/css", "application/javascript", "image/svg+xml")
+
+
+def _gzip(data: bytes) -> bytes:
+    return gzip.compress(data, compresslevel=5)
+
+
+def _cache_entry(resp) -> tuple:
+    """(body, mimetype, gzipped body) for the page caches: compressed once per
+    render, not once per request."""
+    body = resp.get_data()
+    return body, resp.mimetype, _gzip(body) if len(body) > 1400 else None
+
+
+def _from_cache(entry) -> Response:
+    resp = Response(entry[0], mimetype=entry[1])
+    resp.bm_gzipped = entry[2]
+    return resp
+
+
+@app.after_request
+def _compress(resp):
+    if (resp.status_code != 200 or resp.direct_passthrough or resp.is_streamed
+            or resp.headers.get("Content-Encoding") or resp.mimetype not in _COMPRESSIBLE
+            or "gzip" not in request.headers.get("Accept-Encoding", "")):
+        return resp
+    packed = getattr(resp, "bm_gzipped", None)
+    if packed is None:
+        body = resp.get_data()
+        if len(body) < 1400:
+            return resp
+        packed = _gzip(body)
+    resp.set_data(packed)
+    resp.headers["Content-Encoding"] = "gzip"
+    resp.headers["Vary"] = "Accept-Encoding"
+    return resp
 
 
 @app.context_processor
